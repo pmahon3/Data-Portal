@@ -18,7 +18,7 @@ from core.management.users.models import UserCreate
 from ..auth_dependencies import require_admin, get_current_user, require_user_owner_or_admin
 from .models import (
     User, AddUserRequest, AddUserResponse, RemoveUserResponse,
-    UserManagementData, model_registry
+    UserManagementData, UserInstancesList, model_registry
 )
 from .utils import convert_file_tree_to_dict
 
@@ -134,6 +134,38 @@ async def get_user(
     except KeyError:
         logger.error(f"User '{username}' not found")
         raise HTTPException(status_code=404, detail="User not found")
+
+
+@users_router.get(
+    "/{username}/instances",
+    response_model=UserInstancesList,
+    summary="Get user's available instances",
+    description="Retrieve list of storage instances accessible to a specific user. Users can view their own instances, admins can view any user's instances."
+)
+async def get_user_instances(
+    username: str,
+    current_user: dict = Depends(require_user_owner_or_admin()),
+    user_manager: AbstractUserManager = Depends(get_user_manager),
+    policy_manager: AbstractPolicyManager = Depends(get_policy_manager),
+    instance_manager: AbstractInstanceManager = Depends(get_instance_manager)
+) -> UserInstancesList:
+    """Get list of instances available to a user (owner or admin)."""
+    try:
+        uuid = user_manager.get_user_uuid(username)
+    except KeyError:
+        logger.error(f"User '{username}' not found")
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Get all storage instances the user has access to
+    instance_uuids = list(
+        set(policy.instance_uuid for policy in policy_manager.get_user_policies(str(uuid)))
+    )
+    instances = instance_manager.get_instances_by_uuid(instance_uuids)
+    
+    # Convert to instance name → UUID mapping
+    instance_names = {instance.name: str(instance.uuid) for instance in instances}
+    
+    return UserInstancesList(instances=instance_names)
 
 
 @users_router.post(
