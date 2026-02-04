@@ -5,18 +5,51 @@ import { CircularProgress } from "@mui/material";
 export default function EndpointCard({
   endpointName,
   endpointUuid,
-  treesByAccess,          // { read: jsTree[], write: jsTree[], delete: jsTree[] } or jsTree[]
   selectedByAccess,       // { read: Set<string>, write: Set<string>, delete: Set<string> }
   onSelectedChange,       // (access: 'read'|'write'|'delete', nextSet: Set<string>) => void
   authHeaders,
   http,
-  onMutate,               // call after upload to refresh parent
   busy,
   setBusy,
   busyID,
   setBusyID,
 }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
+  const [treesByAccess, setTreesByAccess] = useState({});
+  const [loadingAssets, setLoadingAssets] = useState(false);
+  const [assetError, setAssetError] = useState(null);
+
+  // Fetch assets for this endpoint
+  const fetchAssets = async (forceRefresh = false) => {
+    try {
+      setLoadingAssets(true);
+      setAssetError(null);
+      const headers = await authHeaders();
+      const { data } = await http.get(`/assets/dashboard/${encodeURIComponent(endpointUuid)}`, {
+        headers,
+        params: { _t: Date.now(), ...(forceRefresh ? { refresh: 1 } : {}) },
+      });
+      setTreesByAccess(data.assets[endpointUuid] || {});
+    } catch (e) {
+      console.error(`[EndpointCard] Failed to fetch assets for ${endpointName}:`, e);
+      setAssetError(e?.response?.data?.detail || e?.message || "Failed to load assets");
+    } finally {
+      setLoadingAssets(false);
+    }
+  };
+
+  // Toggle card open/closed - fetch assets on first open
+  const handleToggle = () => {
+    const willOpen = !open;
+    setOpen(willOpen);
+    // Fetch assets when opening if not already loaded
+    if (willOpen && Object.keys(treesByAccess).length === 0 && !loadingAssets) {
+      fetchAssets(false);
+    }
+  };
+
+  // onMutate callback to refresh assets after upload/delete
+  const onMutate = () => fetchAssets(true);
 
   // Normalize to explicit read/write arrays
   const access = normalizeAccess(treesByAccess);
@@ -213,7 +246,7 @@ export default function EndpointCard({
       }}
     >
       <div
-        onClick={() => setOpen((v) => !v)}
+        onClick={handleToggle}
         style={{
           display: "flex",
           justifyContent: "space-between",
@@ -234,7 +267,14 @@ export default function EndpointCard({
 
       {open && (
         <div style={{ padding: 12 }}>
-          {!hasRead && !hasWrite && !hasDelete ? (
+          {loadingAssets ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#6b7280" }}>
+              <CircularProgress size={16} />
+              Loading assets…
+            </div>
+          ) : assetError ? (
+            <div style={{ color: "#ef4444" }}>Error: {assetError}</div>
+          ) : !hasRead && !hasWrite && !hasDelete ? (
             <div style={{ color: "#6b7280" }}>No tree data.</div>
           ) : (
             <div style={{ display: "grid", gap: 16 }}>

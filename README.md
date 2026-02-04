@@ -68,6 +68,9 @@ All endpoints use the `/api` prefix.
 - `GET /api/asset/user-home-data` - User home directory
 - `GET /api/asset/user-assets-data` - User assets list
 
+**Users:**
+- `GET /api/users/{username}/instances` - Get user's available storage instances
+
 **Administration (all require admin privileges):**
 - `GET /api/users/` - List users
 - `POST /api/users/` - Create user
@@ -79,6 +82,7 @@ All endpoints use the `/api` prefix.
 - `POST /api/instances/` - Create storage instance
 - `GET /api/instances/{uuid}` - Get instance details
 - `DELETE /api/instances/{uuid}` - Delete storage instance
+- `GET /api/assets/dashboard/{instance}` - Get specific storage instance assets by UUID
 
 **Health Monitoring:**
 - `GET /api/health/` - Basic health

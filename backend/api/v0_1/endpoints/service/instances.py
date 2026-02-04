@@ -65,7 +65,6 @@ async def list_instances(
         content={"instances": instance_list}
     )
 
-
 @instances_router.get(
     "/{instance_id}",
     summary="Get storage instance details",
