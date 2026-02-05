@@ -154,6 +154,18 @@ async def create_instance(
     
     # Generate stable UUID for the instance from its name
     instance_uuid = uuid5(NAMESPACE_DNS, name_value)
+    
+    # Check for duplicate instance URL
+    instance_url = getattr(config, "instance_url", None)
+    for existing_instance in instance_manager.instances:
+        # Check for duplicate URL
+        existing_url = existing_instance.agent.config(secrets=False).get("instance_url")
+        if existing_url and existing_url == instance_url:
+            logger.error(f"Instance creation failed: Instance with URL '{instance_url}' already exists")
+            raise HTTPException(
+                status_code=409,
+                detail=f"Instance with URL '{instance_url}' already exists"
+            )
 
     # Convert Pydantic model to dict for instance factory
     agent_cfg = config.dict(exclude={"flavour", "instance_name", "name"})
