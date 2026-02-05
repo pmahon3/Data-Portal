@@ -142,26 +142,8 @@ class UserFileTree(BaseModel):
     )
 
 
-class PolicyManagementData(BaseModel):
-    assets: Dict[str, List[FileTreeNode]] = Field(
-        ..., description="File trees for instances with admin access."
-    )
-    instances: List[Any] = Field(..., description="List of accessible instances.")
-
-
-class UserManagementData(BaseModel):
-    users: List[User] = Field(..., description="List of all users.")
-    file_trees: Dict[str, Dict[str, Dict[str, List[FileTreeNode]]]] = Field(
-        ..., description="File trees organized by user UUID, then instance, then access type."
-    )
-    models: Dict[str, Any] = Field(..., description="Model schemas for forms.")
-
-
-class InstanceManagementData(BaseModel):
-    instances: Dict[str, tuple] = Field(..., description="Instance configurations.")
-    flavours: List[str] = Field(..., description="Available instance flavours.")
-
-
+# Used for UNUSED legacy endpoint /api/assets/dashboard which has been replaced
+# with /api/assets/dashboard/{instance}
 class AssetManagementData(BaseModel):
     assets: Dict[str, Dict[str, List[FileTreeNode]]] = Field(
         ..., description="File trees organized by instance UUID and access type."
