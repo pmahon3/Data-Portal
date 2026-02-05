@@ -17,10 +17,8 @@ from core.management.users.models import UserCreate
 
 from ..auth_dependencies import require_admin, get_current_user, require_user_owner_or_admin
 from .models import (
-    User, AddUserRequest, AddUserResponse, RemoveUserResponse,
-    UserManagementData, UserInstancesList, model_registry
+    User, AddUserRequest, AddUserResponse, RemoveUserResponse, UserInstancesList
 )
-from .utils import convert_file_tree_to_dict
 
 users_router = APIRouter(prefix='/users', tags=["User Management"])
 logger = logging.getLogger("api.endpoints")
@@ -62,57 +60,6 @@ async def get_current_user_info(
     except KeyError:
         logger.error(f"User '{current_username}' not found in system")
         raise HTTPException(status_code=404, detail="User not found in system")
-
-
-@users_router.get(
-    "/dashboard",
-    response_model=UserManagementData,
-    summary="Get user management dashboard data",
-    description="Admin dashboard with all users and their access permissions."
-)
-async def get_user_dashboard(
-    admin_user: dict = Depends(require_admin),
-    user_manager: AbstractUserManager = Depends(get_user_manager),
-    policy_manager: AbstractPolicyManager = Depends(get_policy_manager),
-    instance_manager: AbstractInstanceManager = Depends(get_instance_manager)
-) -> UserManagementData:
-    """Get user management dashboard data (admin only)."""
-    users = user_manager.get_all_users()
-    file_trees = {}
-
-    # Build file trees for each user based on their access
-    for user in users:
-        instance_uuids = list(set(
-            policy.endpoint_uuid
-            for policy in policy_manager.get_user_policies(user.uuid)
-        ))
-        instances = instance_manager.get_instances_by_uuid(instance_uuids)
-        user_trees = {}
-
-        for instance in instances:
-            f_trees = instance.agent.partition_file_tree_by_access(
-                policy_manager, user.uuid, instance.uuid, ['read', 'write', 'admin']
-            )
-            if f_trees:
-                user_trees[(instance.name, str(instance.uuid))] = {
-                    access_type: convert_file_tree_to_dict(tree)
-                    for access_type, tree in f_trees.items()
-                }
-
-        file_trees[str(user.uuid)] = user_trees
-
-    # Include form metadata
-    required_models = ["AddUserRequest", "AddUserResponse", "RemoveUserResponse"]
-    json_registry = {
-        name: {
-            "instance": entry["instance"],
-            "schema": entry["model_class"].model_json_schema()
-        }
-        for name, entry in model_registry.items()
-        if name in required_models
-    }
-
-    return UserManagementData(users=users, file_trees=file_trees, models=json_registry)
 
 
 @users_router.get(

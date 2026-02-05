@@ -6,21 +6,18 @@ All endpoints require admin privileges as instances control system storage acces
 """
 
 import logging
-import os
-from pathlib import Path
-from uuid import uuid5, NAMESPACE_DNS, UUID
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
+from uuid  import uuid5, NAMESPACE_DNS, UUID
+from fastapi import APIRouter, Depends, HTTPException, status, Body
 from fastapi.responses import JSONResponse
 
 from core.injection import get_instance_manager, get_policy_manager
 from core.connectivity import agent_factory
-from core.connectivity import AVAILABLE_FLAVOURS
 from core.management.instances.models import Instance
 from core.management.instances import AbstractInstanceManager
 from core.management.policies import AbstractPolicyManager, Policy
 
 from ..auth_dependencies import require_admin
-from .models import InstanceCreate, InstanceManagementData
+from .models import InstanceCreate
 
 instances_router = APIRouter(prefix='/instances', tags=["Storage Instance Management"])
 logger = logging.getLogger("api.endpoints")
@@ -316,37 +313,3 @@ async def delete_instance(
         status_code=200,
         content={"message": f"Instance '{instance_id}' removed successfully"}
     )
-
-
-@instances_router.get(
-    "/dashboard",
-    response_model=InstanceManagementData,
-    summary="Get instance management dashboard data",
-    description="Admin dashboard with instance configurations and available flavours."
-)
-async def get_instance_dashboard(
-    admin_user: dict = Depends(require_admin),
-    instance_manager: AbstractInstanceManager = Depends(get_instance_manager)
-) -> InstanceManagementData:
-    """
-    Get instance management dashboard data (admin only).
-    
-    Provides instance configurations and available storage flavours
-    for the management interface.
-    
-    Args:
-        admin_user: Current user (must have admin privileges)
-        instance_manager: Instance manager dependency
-        
-    Returns:
-        InstanceManagementData: Dashboard data with instances and flavours
-    """
-    instances = instance_manager.instances
-
-    # Build configuration data (without secrets)
-    configs = {
-        instance.name: (str(instance.uuid), instance.config(secrets=False))
-        for instance in instances
-    }
-
-    return InstanceManagementData(instances=configs, flavours=available_flavours)

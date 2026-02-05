@@ -14,12 +14,11 @@ from core.management.users import AbstractUserManager
 from core.management.policies import AbstractPolicyManager, Policy
 from core.management.instances import AbstractInstanceManager
 
-from ..auth_dependencies import require_admin, get_current_user
+from ..auth_dependencies import require_admin
 from .models import (
     GetPolicyResponse, AddPolicyResponse, AddPolicyRequest,
-    RemovePolicyRequest, RemovePolicyResponse, PolicyManagementData
+    RemovePolicyRequest, RemovePolicyResponse
 )
-from .utils import convert_file_tree_to_dict
 
 policies_router = APIRouter(prefix='/policies', tags=["Policy Management"])
 logger = logging.getLogger("api.endpoints")
@@ -240,56 +239,3 @@ async def validate_policy(
             }
         }
     )
-
-
-@policies_router.get(
-    "/dashboard",
-    response_model=PolicyManagementData,
-    summary="Get policy management dashboard data",
-    description="Admin dashboard with file trees and instance data for policy management."
-)
-async def get_policy_dashboard(
-    admin_user: dict = Depends(require_admin),
-    user_manager: AbstractUserManager = Depends(get_user_manager),
-    policy_manager: AbstractPolicyManager = Depends(get_policy_manager),
-    instance_manager: AbstractInstanceManager = Depends(get_instance_manager)
-) -> PolicyManagementData:
-    """
-    Get policy management dashboard data (admin only).
-    
-    Provides file trees and instance information for policy management interface.
-    
-    Args:
-        admin_user: Current user (must have admin privileges)
-        user_manager: User manager dependency
-        policy_manager: Policy manager dependency
-        instance_manager: Instance manager dependency
-        
-    Returns:
-        PolicyManagementData: Dashboard data with assets and instances
-    """
-    # Get current admin user info
-    username = admin_user.get("preferred_username")
-    uuid = user_manager.get_user_uuid(username)
-
-    # Build policy filter for admin access
-    policy = Policy(
-        user_uuid=uuid,
-        action='admin'
-    )
-
-    # Get all instances the user has 'admin' access to
-    admin_policies = policy_manager.filter_policies(policy)
-    instance_uuids = list(set(policy.instance_uuid for policy in admin_policies))
-    admin_instances = instance_manager.get_instances_by_uuid(instance_uuids)
-
-    assets = {}
-    # Populate the file trees for each instance
-    for instance in admin_instances:
-        # Get file tree partitioned by admin access
-        file_tree = instance.agent.partition_file_tree_by_access(
-            policy_manager, uuid, instance.uuid, 'admin'
-        )['admin']
-        assets[instance.name] = convert_file_tree_to_dict(file_tree)
-
-    return PolicyManagementData(assets=assets, instances=admin_instances)
