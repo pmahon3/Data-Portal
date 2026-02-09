@@ -17,3 +17,8 @@ service_router.include_router(instances_router)
 service_router.include_router(assets_router)
 service_router.include_router(health_router)
 
+from api.v0_1.endpoints.service.s3_endpoints import router as s3_router
+service_router.include_router(s3_router)
+
+from api.v0_1.endpoints.service.file_tree_db import router as tree_db_router
+service_router.include_router(tree_db_router)

@@ -3,6 +3,7 @@ import logging
 import boto3
 import treelib
 from pathlib import Path
+from botocore.config import Config
 
 from typing import List, Tuple
 from core.connectivity import AbstractStorageAgent
@@ -30,7 +31,8 @@ class S3StorageAgent(AbstractStorageAgent):
             's3',
             endpoint_url=instance_url,
             aws_access_key_id=aws_access_key_id,
-            aws_secret_access_key=aws_secret_access_key
+            aws_secret_access_key=aws_secret_access_key,
+            config=Config(signature_version="s3v4")
         )
 
         # build the in-memory file tree
@@ -210,3 +212,4 @@ class S3StorageAgent(AbstractStorageAgent):
 
     def __str__(self):
         return f"S3StorageAgent(instance_url={self.instance_url})"
+    

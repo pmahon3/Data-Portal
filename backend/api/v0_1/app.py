@@ -7,6 +7,15 @@ from fastapi.responses import JSONResponse
 
 from api.v0_1.endpoints import application_router
 
+from contextlib import asynccontextmanager
+from .startup import run_startup_tasks
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await run_startup_tasks()
+    yield
+
+
 
 class App:
     """
@@ -24,7 +33,8 @@ class App:
     """
 
     def __init__(self):
-        self.app = FastAPI()
+        #self.app = FastAPI()
+        self.app = FastAPI(lifespan=lifespan)
 
         # Include routers
         self.app.include_router(application_router)

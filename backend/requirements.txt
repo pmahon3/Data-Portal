@@ -79,4 +79,11 @@ setuptools>=68.2.0
 wheel>=0.41.2
 six>=1.16.0
 
-# Note: django-request may not be needed - review and remove if unused
+#database (postgres)
+sqlalchemy==2.0.36
+asyncpg==0.29.0
+sqlalchemy-utils==0.41.2
+pydantic-settings==2.6.1
+
+#zip stream
+zipstream-ng==1.8.0

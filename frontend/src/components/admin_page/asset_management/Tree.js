@@ -9,7 +9,10 @@ import { Checkbox } from "@mui/material";
     - selected: Set<string>
     - onChange(nextSet: Set<string>)
 */
-export default function Tree({ nodes = [], selected, onChange }) {
+export default function Tree({ 
+  nodes = [], selected, onChange, 
+  disableFileSelection = false,  
+   disableFolderSelection = false}) {
   const tree = buildTreeFromFlat(nodes);      // nested [{ id, text, children }]
   if (tree.length === 0) {
     return <div style={{ fontSize: 12, color: "#6b7280" }}>No items.</div>;
@@ -21,20 +24,33 @@ export default function Tree({ nodes = [], selected, onChange }) {
   return (
     <SimpleTreeView defaultExpandedItems={rootIds}>
       {tree.map((n) => (
-        <TreeNode key={n.id} node={n} selected={selected} onChange={onChange} />
+        <TreeNode key={n.id} node={n} selected={selected} onChange={onChange} disableFileSelection={disableFileSelection}
+        disableFolderSelection={disableFolderSelection}
+        />
       ))}
     </SimpleTreeView>
   );
 }
 
-function TreeNode({ node, selected, onChange }) {
+function TreeNode({ node, selected, onChange, disableFileSelection, disableFolderSelection}) {
+   const id = String(node.id);
+  const isFile = id.startsWith("file-");
   const checked = selected.has(String(node.id));
   const isFolder = node.children && node.children.length > 0;
 
   const toggle = () => {
+     if ((disableFileSelection && isFile) || (disableFolderSelection && isFolder)) return;
     const next = new Set(selected);
-    if (checked) unselectSubtree(next, node);
-    else selectSubtree(next, node);
+
+    // Old cascade behaviour (kept for later):
+    // if (checked) unselectSubtree(next, node);
+    // else selectSubtree(next, node);
+
+    // New: only toggle this node (no cascade)
+    const id = String(node.id);
+    if (checked) next.delete(id);
+    else next.add(id);
+
     onChange(next);
   };
 
@@ -46,6 +62,7 @@ function TreeNode({ node, selected, onChange }) {
           <Checkbox
             size="small"
             checked={checked}
+            disabled={(disableFileSelection && isFile) || (disableFolderSelection && isFolder)}
             onChange={toggle}
             onClick={(e) => e.stopPropagation()} // don’t collapse when clicking the checkbox
           />
@@ -55,7 +72,14 @@ function TreeNode({ node, selected, onChange }) {
     >
       {isFolder &&
         node.children.map((c) => (
-          <TreeNode key={c.id} node={c} selected={selected} onChange={onChange} />
+          <TreeNode 
+          key={c.id} 
+          node={c} 
+          selected={selected} 
+          onChange={onChange} 
+          disableFileSelection={disableFileSelection}
+       disableFolderSelection={disableFolderSelection}
+          />
         ))}
     </TreeItem>
   );

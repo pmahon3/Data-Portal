@@ -25,8 +25,10 @@ export default function EndpointCard({
       setLoadingAssets(true);
       setAssetError(null);
       const headers = await authHeaders();
-      const { data } = await http.get(`/assets/dashboard/${encodeURIComponent(endpointUuid)}`, {
-        headers,
+      //const { data } = await http.get(`/assets/dashboard/${encodeURIComponent(endpointUuid)}`, {
+      const { data } = await http.get(`/tree/dashboard/${encodeURIComponent(endpointUuid)}`, {
+ 
+      headers,
         params: { _t: Date.now(), ...(forceRefresh ? { refresh: 1 } : {}) },
       });
       setTreesByAccess(data.assets[endpointUuid] || {});
@@ -56,6 +58,12 @@ export default function EndpointCard({
   const readArray = access.read;
   const writeArray = access.write;
   const deleteArray = access.delete;
+
+  // turning array to a hashmap with file id as  key for faster look up
+  const readIndex = new Map(readArray.map(n => [String(n.id), n]));
+  const writeIndex = new Map(writeArray.map(n => [String(n.id), n]));
+  const deleteIndex = new Map(deleteArray.map(n => [String(n.id), n]));
+
   const hasRead = readArray.length > 0;
   const hasWrite = writeArray.length > 0;
   const hasDelete = deleteArray.length > 0;
@@ -65,11 +73,14 @@ export default function EndpointCard({
   const writeTopFolders = getSelectedTopFolders(writeArray, selectedByAccess.write || new Set());
   const deleteLeaves = getSelectedLeaves(deleteArray, selectedByAccess.delete || new Set());
 
+  // This one allows multiple items to be selected at the same time. We may need to get back to this
   const onTreeChange = (accessKey) => (nextSet) =>
     onSelectedChange(accessKey, new Set(nextSet));
 
   // --------------------- Download (from READ selection) ---------------------
-  const handleDownload = async () => {
+
+  // This is based on old structure
+  const handleDownload_OLD = async () => {
     if (!hasRead) return alert("No read permission.");
     if (readLeaves.length === 0) return alert("Select files/folders in READ.");
 
@@ -110,6 +121,50 @@ export default function EndpointCard({
       setBusyID(null);
     }
   };
+  // --------------------
+const handleDownload = async () => {
+  if (!hasRead) return alert("No read permission.");
+  if (readLeaves.length === 0) return alert("Select files in READ.");
+
+  setBusy("down");
+  setBusyID(endpointUuid);
+  try {
+    for (const id of readLeaves) {
+      if (!String(id).startsWith("file-")) continue;
+      const fileId = String(id).replace("file-", "");
+
+      const headers = await authHeaders();
+      const { data } = await http.get(`/tree/files/${fileId}/download-url`, {
+        params: { instance_name: endpointName},
+        headers,
+      });
+
+      const url = data?.url;
+      if (!url) throw new Error("No download URL returned");
+
+      // Trigger browser download
+      const a = document.createElement("a");
+      a.href = url;
+      a.target = "_blank";
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+
+    console.log(`[Download] Triggered downloads for ${readLeaves.length} file(s) from "${endpointName}"`);
+  } catch (e) {
+    console.error(`[Download] Download failed for endpoint "${endpointName}":`, e);
+    if (e?.response?.status === 403) {
+      alert(`Download failed! No permission for download.`);
+    } else {
+      alert(`Download failed!`);
+    }
+  } finally {
+    setBusy(null);
+    setBusyID(null);
+  }
+};
 
   // ---------------------- Upload (to WRITE selection) ----------------------
   const handleUpload = async () => {
@@ -150,21 +205,51 @@ export default function EndpointCard({
       setBusy("up");
       setBusyID(endpointUuid)
       try {
+
+      const folderId = String(writeTopFolders[0]);
+      const folderNode = writeIndex.get(folderId);
+      const bucket = folderNode?.li_attr?.bucket;
+      if (!bucket) return alert("No bucket found for selected folder.");
+
+        // for (const file of Array.from(input.files)) {
+        //   const resource = joinPath(destDir, file.name);
+        //   const headers = await authHeaders();
+
+        //   // Ask backend for presigned URL(s)
+        //   const { data } = await http.put("/assets/upload", null, {
+        //     params: { instance_name: endpointName, resource },
+        //     headers,
+        //   });
+
+        //   const list = normalizePresigns(data?.presigned_urls ?? data?.urls ?? data?.url);
+        //   for (const entry of list) {
+        //     await uploadViaPresigned(entry, file);
+        //   }
+        // }
+
         for (const file of Array.from(input.files)) {
-          const resource = joinPath(destDir, file.name);
-          const headers = await authHeaders();
+        const headers = await authHeaders();
 
-          // Ask backend for presigned URL(s)
-          const { data } = await http.put("/assets/upload", null, {
-            params: { instance_name: endpointName, resource },
-            headers,
-          });
+        const { data } = await http.post("/tree/files/upload/init", {
+          instance_name: endpointName,
+          bucket,
+          folder_id: Number(folderId),
+          filename: file.name,
+          content_type: file.type || "application/octet-stream",
+        }, { headers });
 
-          const list = normalizePresigns(data?.presigned_urls ?? data?.urls ?? data?.url);
-          for (const entry of list) {
-            await uploadViaPresigned(entry, file);
-          }
+        const presigns = normalizePresigns(data?.url ?? data?.presigned_urls ?? data?.urls);
+        for (const entry of presigns) {
+          await uploadViaPresigned(entry, file);
         }
+
+        await http.post("/tree/files/upload/complete", {
+          instance_name: endpointName,
+          file_id: data.file_id,
+        }, { headers });
+      }
+              
+
         if (onMutate) onMutate(); // refresh dashboard with ?refresh=1 upstream  ------> TODO: need to further investigate refresh dashboard after upload or cerated new policy
         console.log(`[Upload] Successfully uploaded ${input.files.length} file(s) to "${destDir}" in endpoint "${endpointName}"`);
         alert("Upload complete.");
@@ -205,21 +290,21 @@ export default function EndpointCard({
     setBusy("del");
     setBusyID(endpointUuid)
     try {
-      for (const resource of deleteLeaves) {
-        const headers = await authHeaders();
 
-        // Ask backend for presigned DELETE URL
-        const { data } = await http.delete("/assets/delete", {
-          params: { instance_name: endpointName, resource },
-          headers,
-        });
+      for (const id of deleteLeaves) {
+  const headers = await authHeaders();
+  const node = deleteIndex.get(String(id));
 
-        const urls = data?.presigned_urls || [];
-        for (const url of urls) {
-          const resp = await fetch(url, { method: "DELETE", credentials: "omit", cache: "no-store", mode: "cors" });
-          if (!resp.ok) throw new Error(`Storage DELETE failed (${resp.status}): ${await safeText(resp)}`);
-        }
-      }
+  if (String(id).startsWith("file-")) {
+    const fileId = String(id).replace("file-", "");
+    await http.delete(`/tree/files/${fileId}`, { params: { instance_name: endpointName }, headers });
+  } else {
+    const folderId = String(id);
+    const bucket = node?.li_attr?.bucket;
+    if (!bucket) throw new Error("Missing bucket for folder delete.");
+    await http.delete(`/tree/folders/${folderId}`, { params: { instance_name: endpointName, bucket }, headers });
+  }
+}
       console.log(`[Delete] Successfully deleted ${deleteLeaves.length} file(s) from endpoint "${endpointName}"`);
       if (onMutate) onMutate(); // refresh dashboard
       alert("Delete complete.");
@@ -317,6 +402,8 @@ export default function EndpointCard({
                     nodes={readArray}
                     selected={selectedByAccess.read || new Set()}
                     onChange={onTreeChange("read")}
+                      disableFolderSelection={true}
+
                   />
                 </div>
               )}
@@ -366,6 +453,8 @@ export default function EndpointCard({
                     nodes={writeArray}
                     selected={selectedByAccess.write || new Set()}
                     onChange={onTreeChange("write")}
+                    disableFileSelection={true}
+
                   />
                 </div>
               )}
@@ -415,6 +504,8 @@ export default function EndpointCard({
                     nodes={deleteArray}
                     selected={selectedByAccess.delete || new Set()}
                     onChange={onTreeChange("delete")}
+                    disableFolderSelection={true}
+
                   />
                 </div>
               )}
