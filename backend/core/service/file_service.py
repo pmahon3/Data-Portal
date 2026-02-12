@@ -20,6 +20,11 @@ class FileService:
         key: str,
         content_type: str | None = None,
     ) -> File:
+        lookup = select(File).where(File.bucket == bucket, File.key == key)
+        result = await self.session.execute(lookup)
+        if result.scalar_one_or_none():
+            raise ValueError
+
         file = File(
             bucket=bucket,
             folder_id=folder_id,

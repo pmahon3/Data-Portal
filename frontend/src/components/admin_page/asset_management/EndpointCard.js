@@ -257,6 +257,8 @@ const handleDownload = async () => {
         console.error(`[Upload] Upload failed for endpoint "${endpointName}" to destination "${destDir}":`, e);
         if (e?.response?.status === 403) {
           alert(`Upload failed! No permission for upload.`);
+        } else if (e?.response?.status === 409) {
+          alert(`Upload failed! A file with the same name already exists in this folder.`);
         } else {
           alert(`Upload failed!`);
         }
