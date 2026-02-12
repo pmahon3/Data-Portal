@@ -182,7 +182,13 @@ async def upload_init(
     policy_or_403(policy_manager, policy)
 
     file_svc = FileService(session)
-    file = await file_svc.create_file_row(payload.bucket, folder.id, payload.filename, key, payload.content_type)
+    try:
+        file = await file_svc.create_file_row(payload.bucket, folder.id, payload.filename, key, payload.content_type)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"File '{payload.filename}' already exists in folder",
+        )
 
     urls, _paths = agent.generate_access_link(resource_for_key(payload.bucket, key), "write", 900)
     return UploadInitOut(file_id=file.id, key=key, url=urls[0])
