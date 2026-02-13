@@ -8,11 +8,13 @@ All endpoints require admin privileges as policies control system access.
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.injection import get_user_manager, get_policy_manager, get_instance_manager
 from core.management.users import AbstractUserManager
 from core.management.policies import AbstractPolicyManager, Policy
 from core.management.instances import AbstractInstanceManager
+from api.v0_1.startup import init_db_roots
 
 from ..auth_dependencies import require_admin
 from .models import (
@@ -78,7 +80,7 @@ async def create_policy(
     admin_user: dict = Depends(require_admin),
     user_manager: AbstractUserManager = Depends(get_user_manager),
     policy_manager: AbstractPolicyManager = Depends(get_policy_manager),
-    instance_manager: AbstractInstanceManager = Depends(get_instance_manager)
+    instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ) -> AddPolicyResponse:
     """
     Create a new access policy (admin only).
@@ -126,6 +128,14 @@ async def create_policy(
         logger.error(f"Instance UUID {policy.instance_uuid} not found during policy validation")
         raise HTTPException(status_code=404, detail="Instance not found")
 
+    # Ensure bucket roots exist in DB for all instances
+    try:
+        await init_db_roots()
+        logger.info(f"Ensured bucket roots exist in DB for all instances")
+    except Exception as e:
+        logger.warning(f"Failed to ensure bucket roots: {e}")
+        # Continue anyway, policy creation shouldn't fail if DB sync fails
+    
     # Add policy
     try:
         policy_manager.add_policies([policy])
