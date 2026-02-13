@@ -120,14 +120,13 @@ async def dashboard_db(
                     li_attr={"type": "file", "bucket": file.bucket, "key": file.key},
                 ))
 
-            if bucket_nodes:
-                nodes.append(FileTreeNode(
-                    id=str(root.id),
-                    parent="#",
-                    text=root.bucket,
-                    li_attr={"type": "folder", "bucket": root.bucket},
-                ))
-                nodes.extend(bucket_nodes)
+            nodes.append(FileTreeNode(
+                id=str(root.id),
+                parent="#",
+                text=root.bucket,
+                li_attr={"type": "folder", "bucket": root.bucket},
+            ))
+            if bucket_nodes: nodes.extend(bucket_nodes)
 
         assets[instance_uuid][access] = nodes
 
