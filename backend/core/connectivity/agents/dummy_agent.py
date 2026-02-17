@@ -29,6 +29,10 @@ class DummyStorageAgent(AbstractStorageAgent):
 
     # Implement required abstract methods with no-op or minimal implementations
     # These won't be called during policy testing
+    
+    def smart_refresh_file_tree(self):
+        """Dummy implementation - not used in policy tests."""
+        raise NotImplementedError("Dummy agent does not support smart_refresh_file_tree")
 
     def get_object(self, object_name: str):
         """Dummy implementation - not used in policy tests."""
