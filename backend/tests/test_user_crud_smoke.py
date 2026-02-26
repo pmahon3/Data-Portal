@@ -75,12 +75,12 @@ def get_admin_token(timeout=10) -> str:
 
 # --- Test fixtures -----------------------------------------------------------
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def admin_token():
-    """Provide admin token for tests."""
+    """Provide admin token for tests (fetched once per test session)."""
     return get_admin_token()
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def auth_headers(admin_token):
     """Provide authorization headers with admin token."""
     return {"Authorization": f"Bearer {admin_token}"}
