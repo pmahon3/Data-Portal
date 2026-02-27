@@ -12,7 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.injection import get_user_manager, get_policy_manager, get_instance_manager
 from core.management.users import AbstractUserManager
-from core.management.policies import AbstractPolicyManager, Policy
+from core.management.managers.policies import CasbinPolicyManager
+from core.management.policies import Policy
 from core.management.instances import AbstractInstanceManager
 from api.v0_1.startup import init_db_roots
 
@@ -35,7 +36,7 @@ logger = logging.getLogger("api.endpoints")
 async def get_policies(
     policy_filter: Policy = Depends(),
     admin_user: dict = Depends(require_admin),
-    policy_manager: AbstractPolicyManager = Depends(get_policy_manager)
+    policy_manager: CasbinPolicyManager = Depends(get_policy_manager)
 ) -> GetPolicyResponse:
     """
     Retrieve policies based on filter criteria (admin only).
@@ -79,7 +80,7 @@ async def create_policy(
     new_policy: AddPolicyRequest,
     admin_user: dict = Depends(require_admin),
     user_manager: AbstractUserManager = Depends(get_user_manager),
-    policy_manager: AbstractPolicyManager = Depends(get_policy_manager),
+    policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ) -> AddPolicyResponse:
     """
@@ -157,7 +158,7 @@ async def delete_policy(
     old_policy: RemovePolicyRequest,
     admin_user: dict = Depends(require_admin),
     user_manager: AbstractUserManager = Depends(get_user_manager),
-    policy_manager: AbstractPolicyManager = Depends(get_policy_manager),
+    policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager)
 ) -> RemovePolicyResponse:
     """
@@ -221,7 +222,7 @@ async def delete_policy(
 async def validate_policy(
     policy_data: Policy,
     admin_user: dict = Depends(require_admin),
-    policy_manager: AbstractPolicyManager = Depends(get_policy_manager)
+    policy_manager: CasbinPolicyManager = Depends(get_policy_manager)
 ) -> JSONResponse:
     """
     Validate if a policy would be allowed (admin only).

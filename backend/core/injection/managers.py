@@ -4,7 +4,7 @@ from pathlib import Path
 from fastapi import HTTPException, status
 from core.management.instances import AbstractInstanceManager
 from core.management.users import AbstractUserManager
-from core.management.policies import AbstractPolicyManager
+from core.management.managers.policies import CasbinPolicyManager
 
 logger = logging.getLogger("user-manager")
 
@@ -53,7 +53,7 @@ def get_user_manager() -> AbstractUserManager:
     return _user_manager
 
 
-def get_policy_manager() -> AbstractPolicyManager:
+def get_policy_manager() -> CasbinPolicyManager:
     """
     Returns the policy manager instance, creating it lazily on first access.
     Loads all user policies from the policy store on initialization.
