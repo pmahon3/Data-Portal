@@ -7,7 +7,8 @@ from treelib.exceptions import DuplicatedNodeIdError
 from abc import ABC, abstractmethod
 from treelib import node, tree
 from uuid import UUID
-from core.management.policies import AbstractPolicyManager, Policy
+from core.management.managers.policies import CasbinPolicyManager
+from core.management.policies import Policy
 
 
 class AbstractStorageAgent(ABC):
@@ -123,7 +124,7 @@ class AbstractStorageAgent(ABC):
 
     def partition_file_tree_by_access(
             self,
-            policy_manager: AbstractPolicyManager,
+            policy_manager: CasbinPolicyManager,
             user_uuid: UUID,
             instance_uuid: UUID,
             access_types: Union[str, List[str]]

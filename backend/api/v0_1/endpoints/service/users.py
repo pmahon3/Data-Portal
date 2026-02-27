@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 
 from core.injection import get_user_manager, get_policy_manager, get_instance_manager
 from core.management.users import AbstractUserManager
-from core.management.policies import AbstractPolicyManager
+from core.management.managers.policies import CasbinPolicyManager
 from core.management.instances import AbstractInstanceManager
 from core.management.users.models import UserCreate
 
@@ -93,7 +93,7 @@ async def get_user_instances(
     username: str,
     current_user: dict = Depends(require_user_owner_or_admin()),
     user_manager: AbstractUserManager = Depends(get_user_manager),
-    policy_manager: AbstractPolicyManager = Depends(get_policy_manager),
+    policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager)
 ) -> UserInstancesList:
     """Get list of instances available to a user (owner or admin)."""
@@ -126,7 +126,7 @@ async def create_user(
     user_data: AddUserRequest,
     admin_user: dict = Depends(require_admin),
     user_manager: AbstractUserManager = Depends(get_user_manager),
-    policy_manager: AbstractPolicyManager = Depends(get_policy_manager)
+    policy_manager: CasbinPolicyManager = Depends(get_policy_manager)
 ) -> AddUserResponse:
     """Create new user with auth and policy setup (admin only)."""
     user_create = UserCreate(
@@ -191,7 +191,7 @@ async def delete_user(
     request: Request,
     current_user: dict = Depends(require_user_owner_or_admin()),
     user_manager: AbstractUserManager = Depends(get_user_manager),
-    policy_manager: AbstractPolicyManager = Depends(get_policy_manager)
+    policy_manager: CasbinPolicyManager = Depends(get_policy_manager)
 ) -> RemoveUserResponse:
     """Delete user and cleanup policies (owner or admin)."""
     try:

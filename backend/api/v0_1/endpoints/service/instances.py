@@ -14,7 +14,8 @@ from core.injection import get_instance_manager, get_policy_manager
 from core.connectivity import agent_factory
 from core.management.instances.models import Instance
 from core.management.instances import AbstractInstanceManager
-from core.management.policies import AbstractPolicyManager, Policy
+from core.management.managers.policies import CasbinPolicyManager
+from core.management.policies import Policy
 
 from ..auth_dependencies import require_admin
 from .models import InstanceCreate
@@ -123,7 +124,7 @@ async def create_instance(
     config: InstanceCreate = Body(...),
     admin_user: dict = Depends(require_admin),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
-    policy_manager: AbstractPolicyManager = Depends(get_policy_manager)
+    policy_manager: CasbinPolicyManager = Depends(get_policy_manager)
 ) -> JSONResponse:
     """
     Create a new storage instance (admin only).
@@ -256,7 +257,7 @@ async def delete_instance(
     instance_id: str,
     admin_user: dict = Depends(require_admin),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
-    policy_manager: AbstractPolicyManager = Depends(get_policy_manager)
+    policy_manager: CasbinPolicyManager = Depends(get_policy_manager)
 ) -> JSONResponse:
     """
     Remove a storage instance and cleanup associated policies (admin only).

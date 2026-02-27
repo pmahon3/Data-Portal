@@ -10,7 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.v0_1.endpoints.service.auth import decode_token
 from core.injection.managers import get_instance_manager, get_policy_manager, get_user_manager
 from core.management.instances import AbstractInstanceManager
-from core.management.policies import AbstractPolicyManager, Policy
+from core.management.managers.policies import CasbinPolicyManager
+from core.management.policies import Policy
 from core.management.users import AbstractUserManager
 
 # DB models
@@ -55,7 +56,7 @@ class UploadCompleteIn(BaseModel):
     file_id: int
 
 #################################################################################### helper functions
-def policy_or_403(policy_manager: AbstractPolicyManager, policy: Policy) -> None:
+def policy_or_403(policy_manager: CasbinPolicyManager, policy: Policy) -> None:
     if not policy_manager.validate_policy(policy):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied by policy")
 
@@ -86,7 +87,7 @@ async def get_root(
     user: dict = Depends(decode_token),
     session: AsyncSession = Depends(get_session),
     user_manager: AbstractUserManager = Depends(get_user_manager),
-    policy_manager: AbstractPolicyManager = Depends(get_policy_manager),
+    policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ):
     user_uuid = user_manager.get_user_uuid(user["preferred_username"])
@@ -106,7 +107,7 @@ async def list_children(
     user: dict = Depends(decode_token),
     session: AsyncSession = Depends(get_session),
     user_manager: AbstractUserManager = Depends(get_user_manager),
-    policy_manager: AbstractPolicyManager = Depends(get_policy_manager),
+    policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ):
     user_uuid = user_manager.get_user_uuid(user["preferred_username"])
@@ -145,7 +146,7 @@ async def create_folder(
     user: dict = Depends(decode_token),
     session: AsyncSession = Depends(get_session),
     user_manager: AbstractUserManager = Depends(get_user_manager),
-    policy_manager: AbstractPolicyManager = Depends(get_policy_manager),
+    policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ):
     user_uuid = user_manager.get_user_uuid(user["preferred_username"])
@@ -169,7 +170,7 @@ async def upload_init(
     user: dict = Depends(decode_token),
     session: AsyncSession = Depends(get_session),
     user_manager: AbstractUserManager = Depends(get_user_manager),
-    policy_manager: AbstractPolicyManager = Depends(get_policy_manager),
+    policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ) -> UploadInitOut:
     user_uuid = user_manager.get_user_uuid(user["preferred_username"])
@@ -201,7 +202,7 @@ async def upload_complete(
     user: dict = Depends(decode_token),
     session: AsyncSession = Depends(get_session),
     user_manager: AbstractUserManager = Depends(get_user_manager),
-    policy_manager: AbstractPolicyManager = Depends(get_policy_manager),
+    policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ):
     user_uuid = user_manager.get_user_uuid(user["preferred_username"])
@@ -232,7 +233,7 @@ async def download_url(
     user: dict = Depends(decode_token),
     session: AsyncSession = Depends(get_session),
     user_manager: AbstractUserManager = Depends(get_user_manager),
-    policy_manager: AbstractPolicyManager = Depends(get_policy_manager),
+    policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ):
     user_uuid = user_manager.get_user_uuid(user["preferred_username"])
@@ -265,7 +266,7 @@ async def delete_file(
     user: dict = Depends(decode_token),
     session: AsyncSession = Depends(get_session),
     user_manager: AbstractUserManager = Depends(get_user_manager),
-    policy_manager: AbstractPolicyManager = Depends(get_policy_manager),
+    policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ):
     user_uuid = user_manager.get_user_uuid(user["preferred_username"])
@@ -318,7 +319,7 @@ async def delete_folder(
     user: dict = Depends(decode_token),
     session: AsyncSession = Depends(get_session),
     user_manager: AbstractUserManager = Depends(get_user_manager),
-    policy_manager: AbstractPolicyManager = Depends(get_policy_manager),
+    policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ):
     user_uuid = user_manager.get_user_uuid(user["preferred_username"])
@@ -371,7 +372,7 @@ async def create_folder_archive(
     user: dict = Depends(decode_token),
     session: AsyncSession = Depends(get_session),
     user_manager: AbstractUserManager = Depends(get_user_manager),
-    policy_manager: AbstractPolicyManager = Depends(get_policy_manager),
+    policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ):
     """

@@ -1,16 +1,13 @@
 import logging
 import os
-from abc import ABC
 from pathlib import Path
 
 from uuid import UUID
 from casbin import Enforcer
-from core.management.policies.abstract_policy_manager import Policy, Agreement
-from core.management.policies.abstract_policy_manager import AbstractPolicyManager
-from core.management.users import AbstractUserManager
+from core.management.policies.models import Policy, Agreement
 
 
-class CasbinPolicyManager(AbstractPolicyManager, ABC):
+class CasbinPolicyManager:
     """
     PolicyManager:
 
@@ -127,28 +124,6 @@ class CasbinPolicyManager(AbstractPolicyManager, ABC):
 
         return result
 
-    def get_resource_policies(self, resource: str):
-        """
-        Get the resource policies.
-
-        :param resource: The resource to be accessed.
-        :type resource: str
-        :return: The filtered resource policies.
-        :rtype: list[str]
-        """
-        return self.enforcer.get_filtered_policy(2, resource)
-
-    def get_action_policies(self, action: str):
-        """
-        Get the action policies.
-
-        :param action: The action to be performed on the resource.
-        :type action: str
-        :return: The filtered action policies.
-        :rtype: list[str]
-        """
-        return self.enforcer.get_filtered_policy(3, action)
-
     def filter_policies(self, filter_: Policy) -> list[Policy]:
         """
         Get all policies under a user according the given filters.
@@ -201,6 +176,18 @@ class CasbinPolicyManager(AbstractPolicyManager, ABC):
             return True
         else:
             raise ValueError("Failed to add policy.")
+        
+    def add_policies(self, policies: list[Policy]) -> bool:
+        """
+        Add a list of policies.
+
+        :param policies: The list of policies to be added.
+        :return: True if all added successfully, False otherwise.
+        """
+        for policy in policies:
+            if not self.add_policy(policy):
+                return False
+        return True
 
     def remove_policy(self, policy: Policy) -> bool:
         """
@@ -221,6 +208,18 @@ class CasbinPolicyManager(AbstractPolicyManager, ABC):
             return True
         else:
             raise ValueError("Failed to remove policy.")
+        
+    def remove_policies(self, policies: list[Policy]) -> bool:
+        """
+        Remove a list of policies.
+
+        :param policies: The list of policies to be removed.
+        :return: True if all removed successfully, False otherwise.
+        """
+        for policy in policies:
+            if not self.remove_policy(policy):
+                return False
+        return True
 
     def create_user_policy_store(self, user_uuid: UUID) -> bool:
         """

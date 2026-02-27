@@ -10,7 +10,8 @@ from api.v0_1.endpoints.service.auth import decode_token
 from api.v0_1.endpoints.service.models import FileTreeNode
 from core.injection.managers import get_instance_manager, get_policy_manager, get_user_manager
 from core.management.instances import AbstractInstanceManager
-from core.management.policies import AbstractPolicyManager, Policy
+from core.management.managers.policies import CasbinPolicyManager
+from core.management.policies import Policy
 from core.management.users import AbstractUserManager
 
 from core.db.session import get_session
@@ -36,7 +37,7 @@ async def dashboard_db(
     token_payload: dict = Depends(decode_token),
     session: AsyncSession = Depends(get_session),
     user_manager: AbstractUserManager = Depends(get_user_manager),
-    policy_manager: AbstractPolicyManager = Depends(get_policy_manager),
+    policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ):
     """

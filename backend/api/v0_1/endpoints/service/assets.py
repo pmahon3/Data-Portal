@@ -14,7 +14,8 @@ from api.v0_1.endpoints.service.models import (GetAssetRequest, GetAssetResponse
                                                UserHomeData, UserAssetsData, AssetManagementData)
 from .utils import convert_file_tree_to_dict
 from core.management.instances import AbstractInstanceManager
-from core.management.policies import AbstractPolicyManager, Policy
+from core.management.managers.policies import CasbinPolicyManager
+from core.management.policies import Policy
 from core.management.users import AbstractUserManager
 
 assets_router = APIRouter(prefix='/assets', tags=["Asset Management"])
@@ -25,7 +26,7 @@ logger = logging.getLogger("api.endpoints")
 def put_asset(asset: PutAssetRequest = Depends(),
               user: dict = Depends(decode_token),
               user_manager: AbstractUserManager = Depends(get_user_manager),
-              policy_manager: AbstractPolicyManager = Depends(get_policy_manager),
+              policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
               instance_manager: AbstractInstanceManager = Depends(get_instance_manager)
               ) -> PutAssetResponse:
 
@@ -69,7 +70,7 @@ def put_asset(asset: PutAssetRequest = Depends(),
 def delete_asset(asset: DeleteAssetRequest = Depends(),
                  user: dict = Depends(decode_token),
                  user_manager: AbstractUserManager = Depends(get_user_manager),
-                 policy_manager: AbstractPolicyManager = Depends(get_policy_manager),
+                 policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
                  instance_manager: AbstractInstanceManager = Depends(get_instance_manager)
                  ) -> DeleteAssetResponse:
 
@@ -111,7 +112,7 @@ def delete_asset(asset: DeleteAssetRequest = Depends(),
 def get_asset(asset: GetAssetRequest = Depends(),
               user: dict = Depends(decode_token),
               user_manager: AbstractUserManager = Depends(get_user_manager),
-              policy_manager: AbstractPolicyManager = Depends(get_policy_manager),
+              policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
               instance_manager: AbstractInstanceManager = Depends(get_instance_manager)
               ) -> GetAssetResponse:
 
@@ -162,7 +163,7 @@ def get_asset(asset: GetAssetRequest = Depends(),
                   dependencies=[Depends(decode_token)])
 async def get_user_home_data(
         token_payload: dict = Depends(decode_token),
-        policy_manager: AbstractPolicyManager = Depends(get_policy_manager),
+        policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
         instance_manager: AbstractInstanceManager = Depends(get_instance_manager)
 ) -> UserHomeData:
     """
@@ -197,7 +198,7 @@ async def get_user_home_data(
                   dependencies=[Depends(decode_token)])
 async def get_user_assets_data(
         token_payload: dict = Depends(decode_token),
-        policy_manager: AbstractPolicyManager = Depends(get_policy_manager),
+        policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
         instance_manager: AbstractInstanceManager = Depends(get_instance_manager)
 ) -> UserAssetsData:
     """
@@ -238,7 +239,7 @@ async def get_user_assets_data(
 )
 async def get_asset_dashboard(
     admin_user: dict = Depends(require_admin),
-    policy_manager: AbstractPolicyManager = Depends(get_policy_manager),
+    policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
         user_manager: AbstractUserManager = Depends(get_user_manager),
         refresh: bool = Query(True, description="If true, rebuild file trees before responding")
@@ -311,7 +312,7 @@ async def get_asset_dashboard(
 async def get_instance_assets(
     instance: str,
     admin_user: dict = Depends(require_admin), # Maybe better to use require_user_owner_or_admin or just current user to allow for non-admin use
-    policy_manager: AbstractPolicyManager = Depends(get_policy_manager),
+    policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
     refresh: bool = Query(True, description="If true, rebuild file trees before responding"),
 ) -> AssetManagementData:

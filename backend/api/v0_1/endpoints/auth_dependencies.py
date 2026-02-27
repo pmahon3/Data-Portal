@@ -11,7 +11,8 @@ from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from core.injection import get_policy_manager
-from core.management.policies import AbstractPolicyManager, Policy
+from core.management.managers.policies import CasbinPolicyManager
+from core.management.policies import Policy
 from .service.auth import decode_token, is_user_admin
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -130,7 +131,7 @@ def require_policy_permission(action: str):
     """
     async def _require_policy(
         current_user: dict = Depends(get_current_user),
-        policy_manager: AbstractPolicyManager = Depends(get_policy_manager)
+        policy_manager: CasbinPolicyManager = Depends(get_policy_manager)
     ) -> dict:
         """
         Validates policy permission for the current user.
@@ -151,7 +152,7 @@ def create_policy_validator(
     instance_uuid: UUID, 
     resource: str, 
     action: str,
-    policy_manager: AbstractPolicyManager
+    policy_manager: CasbinPolicyManager
 ) -> bool:
     """
     Helper function to create and validate a policy.
