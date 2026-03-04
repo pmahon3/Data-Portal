@@ -14,7 +14,7 @@ from core.management.managers.policies import CasbinPolicyManager
 from core.management.policies import Policy
 from core.management.users import AbstractUserManager
 
-from core.db.session import get_session
+from core.db.postgres.session import get_session
 from core.model.folder import Folder
 from core.model.file import File
 from core.util.paths import normalize_folder_full_path

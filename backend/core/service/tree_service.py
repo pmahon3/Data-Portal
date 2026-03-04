@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy_utils import Ltree
 
-from core.db.init_db import ensure_root_for_bucket
+from core.db.postgres.init_db import ensure_root_for_bucket
 from core.model.file import File
 from core.model.folder import Folder
 from core.util.paths import (

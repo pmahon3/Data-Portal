@@ -1,9 +1,8 @@
-from .session import AsyncSessionMaker, get_session
-from .init_db import ensure_root_for_bucket, ensure_roots_for_instances
+from core.db.postgres.session import AsyncSessionMaker, get_session
+from core.db.mongodb.mongo_client import get_mongo_client
 
 __all__ = [
     "AsyncSessionMaker",
     "get_session",
-    "ensure_root_for_bucket",
-    "ensure_roots_for_instances",
+    "get_mongo_client",
 ]
