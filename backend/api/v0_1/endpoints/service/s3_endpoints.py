@@ -3,7 +3,7 @@ from core.model.file import File
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # INN dependencies
@@ -15,7 +15,7 @@ from core.management.policies import Policy
 from core.management.users import AbstractUserManager
 
 # DB models
-from core.db.session import get_session
+from core.db.postgres.session import get_session
 from core.model.folder import Folder
 from core.util.paths import normalize_folder_full_path
 from core.service.tree_service import TreeService
@@ -359,7 +359,6 @@ async def delete_folder(
 ##### tempfile.TemporaryDirectory() creates a folder in the system temp location (e.g., /tmp on Linux/macOS). It's
 ##### automatically deleted when the with block ends. However, this is not a good choice for large files.
 ######################################################################################################################
-from typing import Iterable
 import tempfile
 import zipfile
 from pathlib import Path

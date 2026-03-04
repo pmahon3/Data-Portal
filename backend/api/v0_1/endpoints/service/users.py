@@ -169,12 +169,6 @@ async def create_user(
             logger.error(f"Failed to create user '{user_data.username}': {error_msg}")
             raise HTTPException(status_code=400, detail=f"Failed to create user: {error_msg}")
 
-    # Create policy store (rollback on failure)
-    if not policy_manager.create_user_policy_store(uuid):
-        logger.error(f"Failed to create policy store for user '{user_data.username}' (UUID: {uuid})")
-        user_manager.delete_user(uuid)
-        raise HTTPException(status_code=500, detail="Failed to create user policy file")
-
     user_details = user_manager.get_user(uuid)
     logger.info(f"Created user '{user_data.username}'")
     return AddUserResponse(success=True, details=user_details)

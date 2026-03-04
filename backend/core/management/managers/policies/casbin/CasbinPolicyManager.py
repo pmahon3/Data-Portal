@@ -1,10 +1,10 @@
-import logging
 import os
-from pathlib import Path
 
 from uuid import UUID
 from casbin import Enforcer
+from casbin_pymongo_adapter import Adapter
 from core.management.policies.models import Policy, Agreement
+from core.db import get_mongo_client
 
 
 class CasbinPolicyManager:
@@ -14,76 +14,34 @@ class CasbinPolicyManager:
     Class that provides methods for managing user policies and permissions.
 
     Attributes:
-        enforcer (Enforcer): An instance of the Enforcer class for enforcing access control policies.
-        user_policies_folder (str): The path to the folder where user policies are stored.
+        enforcer (Enforcer): An instance of the Enforcer class for enforcing access control policies. Uses casbin-pymongo adapter
         _actions (list): A list of actions that can be performed on resources.
     """
 
-    def __init__(self, uuids):
-
+    def __init__(self, uuids=None):
         """
-        Load user policies from files.
+        Initialise the policy manager backed by MongoDB.
 
-        :param uuids: A list of UUIDs representing the users.
-        :type uuids: list[UUID]
+        The adapter loads all existing policy rules from MongoDB on construction.
+        The ``uuids`` parameter is accepted for backward compatibility but is no longer required — the adapter handles policy loading automatically.
+
+        :param uuids: Unused; kept for backward compatibility.
         """
 
-        self.enforcer = Enforcer(os.getenv('ENFORCER_MODEL'), os.getenv('ENFORCER_POLICY'), enable_log=True)
-        self.user_policies_folder = os.getenv('USER_POLICIES')
+        # Create Casbin MongoDB adapter using an existing client
+        db_name = os.getenv('MONGO_CASBIN_DB', 'casbin')
+        adapter = Adapter(client=get_mongo_client(), db_name=db_name)
+
+        # Pass the adapter to the Enforcer so it owns policy persistence
+        self.enforcer = Enforcer(os.getenv('ENFORCER_MODEL'), adapter, enable_log=True)
+        self.enforcer.enable_auto_save(True)
         self._actions = ['read', 'write', 'share']
-
-        # Load all user policies to enforcer
-        for uuid in uuids:
-            policy_file = Path(self.user_policies_folder) / (uuid.__str__() + '.policies')
-
-            try:
-                with open(policy_file, 'r') as f:
-                    for line in f.readlines():
-                        self.enforcer.add_policy(*line.strip().split(", ")[1:])
-                f.close()
-            except FileNotFoundError:
-                logging.log(logging.INFO, f"Policy file for user {uuid} not found. Skipping.")
 
     @property
     def actions(self):
         return self._actions
 
-    def _write_user_policies(self, user_uuid: str):
-        """
-        Write user policies to a file.
-        """
-
-        user_uuid = user_uuid.__str__()
-        user_policy_file = Path(self.user_policies_folder) / (user_uuid + '.policies')
-        with open(user_policy_file, 'w') as f:
-            for policy in self.enforcer.get_filtered_policy(0, user_uuid):
-                f.write(f"p, {', '.join(policy)}\n")
-        f.close()
-
-    def _write_user_policy(self, user_uuid: str, instance_uuid: str, resource: str, action: str):
-        """
-        Write a user policy to a file.
-        """
-        # Retrieve the users policy file
-        user_policy_file = Path(self.user_policies_folder) / (user_uuid + '.policies')
-        # Write the policy
-        with open(user_policy_file, 'a') as f:
-            f.write(f"p, {user_uuid}, {instance_uuid}, {resource}, {action}\n")
-        f.close()
-
-    def _write_enforcer_policies(self, enforcer: Enforcer):
-        """
-        Write the policies of an enforcer object to a csv file.
-
-        NOTE: This will overwrite the existing csv file.
-
-        :param enforcer: The enforcer object containing the policies.
-        :type enforcer: Enforcer
-        """
-        for uuid in enforcer.get_all_named_subjects("p"):
-            self._write_user_policies(uuid)
-
-    def get_user_policies(self, user_uuid: UUID):
+    def get_user_policies(self, user_uuid: UUID) -> list[Policy]:
         """
         Get the user policies.
 
@@ -94,12 +52,15 @@ class CasbinPolicyManager:
         policies = self.enforcer.get_filtered_policy(0, user_uuid)
         result = []
         for policy in policies:
+            # Unpacking order is hard-coded to match the policy definition in model.conf
+            p_user_uuid, p_instance_uuid, res, act = policy
             result.append(Policy(
-                user_uuid=UUID(policy[0]),
-                instance_uuid=UUID(policy[1]),
-                resource=policy[2],
-                action=policy[3]
+                user_uuid=UUID(p_user_uuid),
+                instance_uuid=UUID(p_instance_uuid),
+                resource=res,
+                action=act
             ))
+            
         return result
 
     def get_instance_policies(self, instance_uuid: UUID) -> list[Policy]:
@@ -113,13 +74,14 @@ class CasbinPolicyManager:
 
         policies = self.enforcer.get_filtered_policy(1, instance_uuid)
         result = []
-
         for policy in policies:
+            # Unpacking order is hard-coded to match the policy definition in model.conf
+            p_user_uuid, p_instance_uuid, res, act = policy
             result.append(Policy(
-                user_uuid=UUID(policy[0]),
-                instance_uuid=UUID(policy[1]),
-                resource=policy[2],
-                action=policy[3]
+                user_uuid=UUID(p_user_uuid),
+                instance_uuid=UUID(p_instance_uuid),
+                resource=res,
+                action=act
             ))
 
         return result
@@ -141,17 +103,15 @@ class CasbinPolicyManager:
         # Sort by access points
         result = []
         for policy in policies:
-            user_uuid = UUID(policy[0])
-            instance_uuid = UUID(policy[1])
-            resource = policy[2]
-            action = policy[3]
-
+            # Unpacking order is hard-coded to match the policy definition in model.conf
+            p_user_uuid, p_instance_uuid, res, act = policy
             result.append(Policy(
-                user_uuid=user_uuid,
-                instance_uuid=instance_uuid,
-                resource=resource,
-                action=action
+                user_uuid=UUID(p_user_uuid),
+                instance_uuid=UUID(p_instance_uuid),
+                resource=res,
+                action=act
             ))
+
         return result
 
     def add_policy(self, policy: Policy) -> bool:
@@ -166,14 +126,12 @@ class CasbinPolicyManager:
         resource = policy.resource
         action = policy.action
 
-        # Check if the policy already exists
-        if self.enforcer.has_policy(user_uuid, instance_uuid, resource, action):
-            raise ValueError("Policy already exists.")
-
-        result = self.enforcer.add_policy(user_uuid, instance_uuid, resource, action)
+        filter_ = (user_uuid, instance_uuid, resource, action)
+        result = self.enforcer.add_policy(*filter_)
         if result:
-            self._write_user_policy(user_uuid, instance_uuid, resource, action)
             return True
+        elif self.enforcer.has_policy(*filter_):
+            raise ValueError("Policy already exists.")
         else:
             raise ValueError("Failed to add policy.")
         
@@ -204,7 +162,6 @@ class CasbinPolicyManager:
         filter_ = (user_uuid, instance_uid, resource, action)
         result = self.enforcer.remove_filtered_policy(0, *filter_)
         if result:
-            self._write_user_policies(user_uuid)
             return True
         else:
             raise ValueError("Failed to remove policy.")
@@ -221,36 +178,11 @@ class CasbinPolicyManager:
                 return False
         return True
 
-    def create_user_policy_store(self, user_uuid: UUID) -> bool:
-        """
-        Creates a policy file for the given unique user identifier.
-        """
-
-        # Create a new user policy file
-        user_policy_file = Path(self.user_policies_folder) / (user_uuid.__str__() + '.policies')
-
-        # Check if the file exists
-        if user_policy_file.exists():
-            raise FileExistsError('The user policy file already exists.')
-
-        with open(user_policy_file, 'w') as f:
-            f.write("")
-        f.close()
-
-        return True
-
     def remove_user_policy_store(self, user_uuid: UUID) -> bool:
         """
-        Removes a policy file for the given unique user identifier.
+        Remove all policies belonging to ``user_uuid`` from MongoDB.
         """
-
-        # Delete the user policies
-        user_policy_file = Path(self.user_policies_folder) / (user_uuid.__str__() + '.policies')
-        user_policy_file.unlink()
-
-        # Remove user policies from enforcer
         self.enforcer.remove_filtered_policy(0, user_uuid.__str__())
-
         return True
 
     def validate_policy(self, policy: Policy) -> bool:

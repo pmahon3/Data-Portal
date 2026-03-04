@@ -364,7 +364,7 @@ async def readiness_check():
             logger.error("Readiness check failed: Root directory not configured")
             raise HTTPException(status_code=503, detail="Root directory not configured")
         
-        if not os.getenv('ENFORCER_MODEL') or not os.getenv('ENFORCER_POLICY'):
+        if not os.getenv('ENFORCER_MODEL'):
             logger.error("Readiness check failed: Policy engine not configured")
             raise HTTPException(status_code=503, detail="Policy engine not configured")
         

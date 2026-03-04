@@ -23,8 +23,8 @@ from uuid import uuid4
 
 import pytest
 
-from core.management.managers.policies.casbin.CasbinPolicyManager import CasbinPolicyManager
-from core.management.policies.models import Policy 
+from core.injection import get_policy_manager
+from core.management.policies.models import Policy
 
 # --- Test fixtures -----------------------------------------------------------
 
@@ -35,13 +35,14 @@ def policy_dir():
 
 
 @pytest.fixture(autouse=True)
-def cleanup_policies(policy_dir):
-    """Delete only .policies files created during the test."""
-    existing = set(policy_dir.glob("*.policies"))
+def cleanup_policies(sample_policy):
+    """Delete policies from the database created during the test."""
     yield
-    for f in policy_dir.glob("*.policies"):
-        if f not in existing:
-            f.unlink(missing_ok=True)
+    manager = get_policy_manager()
+    try:
+        manager.remove_user_policy_store(sample_policy.user_uuid)
+    except Exception:
+        pass
 
 
 @pytest.fixture()
@@ -67,7 +68,7 @@ def test_add_policy_does_not_create_policy_file(policy_dir, sample_policy):
         The MongoDB adapter stores the policy as a document; it never
         touches the filesystem.
     """
-    manager = CasbinPolicyManager(uuids=[]) # Likely needs to be modified for post-migration
+    manager = get_policy_manager()
     manager.add_policy(sample_policy)
 
     policy_files = list(policy_dir.glob("*.policies"))
@@ -88,7 +89,7 @@ def test_remove_policy_does_not_write_policy_file(policy_dir, sample_policy):
         The MongoDB adapter deletes the corresponding document;
         no file is created or modified.
     """
-    manager = CasbinPolicyManager(uuids=[]) # Likely needs to be modified for post-migration
+    manager = get_policy_manager()
     manager.add_policy(sample_policy)
     manager.remove_policy(sample_policy)
 
@@ -111,7 +112,7 @@ def test_remove_user_policy_store_does_not_require_file():
         The MongoDB adapter deletes the user's documents from the
         database; it never calls Path.unlink() 
     """
-    manager = CasbinPolicyManager(uuids=[]) # Likely needs to be modified for post-migration
+    manager = get_policy_manager()
     user_uuid = uuid4()
 
     try:
@@ -136,11 +137,11 @@ def test_init_loads_previous_policies(sample_policy):
         database during __init__
     """
     # Manager 1 — persist a policy
-    manager1 = CasbinPolicyManager(uuids=[]) # Likely needs to be modified for post-migration
+    manager1 = get_policy_manager()
     manager1.add_policy(sample_policy)
 
     # Manager 2 — cold-start, no uuid list supplied
-    manager2 = CasbinPolicyManager(uuids=[]) # Likely needs to be modified for post-migration
+    manager2 = get_policy_manager()
 
     result = manager2.validate_policy(sample_policy)
     assert result is True, (
