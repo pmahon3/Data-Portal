@@ -63,12 +63,8 @@ def get_policy_manager() -> CasbinPolicyManager:
         # Lazy import to avoid circular dependencies
         from core.management.managers.policies.casbin.CasbinPolicyManager import CasbinPolicyManager
 
-        # Get all user UUIDs from the user manager to load their policies
-        user_manager = get_user_manager()
-        user_uuids = user_manager.get_user_uuids()
-
         # Initialize policy manager with all user UUIDs to load policies from disk
-        _policy_manager = CasbinPolicyManager(uuids=user_uuids)
+        _policy_manager = CasbinPolicyManager()
 
     return _policy_manager
 
@@ -81,43 +77,12 @@ def get_instance_manager() -> AbstractInstanceManager:
     if _instance_manager is None:
         # Lazy import to avoid circular dependencies
         from core.management.managers.instances.InstanceManager import InstanceManager
+        from core.db.mongodb.mongo_client import get_mongo_client
 
-        _instance_manager = InstanceManager()
+        mongo_client = get_mongo_client()
+        db = mongo_client[os.getenv('MONGO_DB', 'inn-mongo')]
+        collection = db[os.getenv('MONGO_INSTANCE_COLLECTION', 'connection-storage-instances')]
 
-        # Load instance configurations if available
-        instance_configs_dir = os.getenv("INSTANCE_CONFIGS")
-        if instance_configs_dir and Path(instance_configs_dir).exists():
-            import json
-            from uuid import UUID
-            from core.connectivity import agent_factory
-            from core.management.instances.models import Instance
-
-            config_files = [f for f in os.listdir(instance_configs_dir) if f.endswith('.json')]
-            for file in config_files:
-                uuid = file.split(".")[0]
-                config_path = f"{instance_configs_dir}/{file}"
-
-                with open(config_path) as f:
-                    instance_config = json.load(f)
-
-                name = instance_config["name"]
-                config_data = {
-                    "flavour": instance_config["flavour"],
-                    "agent": instance_config["agent"]
-                }
-
-                # Create the instance agent
-                instance = agent_factory(config_data)
-
-                # Create the instance object
-                new_instance = Instance(
-                    uuid=UUID(uuid),
-                    name=name,
-                    flavour=config_data["flavour"],
-                    agent=instance
-                )
-
-                # Add the instance to the instance manager
-                _instance_manager.instances.append(new_instance)
+        _instance_manager = InstanceManager(collection=collection)
 
     return _instance_manager

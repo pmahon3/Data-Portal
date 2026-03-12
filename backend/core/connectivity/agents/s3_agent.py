@@ -4,6 +4,7 @@ import boto3
 import treelib
 from pathlib import Path
 from botocore.config import Config
+from botocore.exceptions import BotoCoreError, ClientError
 
 from typing import List, Tuple
 from core.connectivity import AbstractStorageAgent
@@ -35,10 +36,28 @@ class S3StorageAgent(AbstractStorageAgent):
             config=Config(signature_version="s3v4")
         )
 
-        # build the in-memory file tree
+
+        try:
+            # boto3 is lazy and doesn't throw an error until the client is actually used
+            self.s3_client.list_buckets()
+
+        except ClientError as e:
+            error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+            if error_code == 'AccessDenied':
+                raise PermissionError("S3 Access Denied") from e
+            raise ValueError(f"S3 Client Error [{error_code}]") from e
+        
+        except BotoCoreError as e:
+            # Handles DNS, Timeouts, and Connection Refused
+            raise ConnectionError("S3 Connection failed") from e
+            
+        except Exception as e:
+            raise RuntimeError("Unexpected S3 error") from e
+        
+        # Attempt to build the in-memory file tree
         self.file_tree = treelib.Tree()
         self._load_file_tree()
-
+        
         # enable CORS the first time any agent is created
         # if not S3StorageAgent._cors_enabled:
         #     self._enable_cors()

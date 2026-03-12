@@ -146,61 +146,25 @@ async def create_instance(
         HTTPException: 500 if policy creation fails
     """
 
-    name_value = getattr(config, "instance_name", None) or getattr(config, "name", None)
+    name_value = getattr(config, "instance_name", None)
     if not name_value:
-        logger.error(f"Instance creation failed: 'instance_name' or 'name' is missing. Received: {name_value}")
+        logger.error(f"Instance creation failed: 'instance_name' is missing. Received: {name_value}")
         raise HTTPException(status_code=422,
-                            detail="'instance_name' or 'name' field is required")
-    flavour = config.flavour
+                            detail="'instance_name' field is required")
     
-    # Generate stable UUID for the instance from its name
-    instance_uuid = uuid5(NAMESPACE_DNS, name_value)
-    
-    # Check for duplicate instance URL
-    instance_url = getattr(config, "instance_url", None)
-    for existing_instance in instance_manager.instances:
-        # Check for duplicate URL
-        existing_url = existing_instance.agent.config(secrets=False).get("instance_url")
-        if existing_url and existing_url == instance_url:
-            logger.error(f"Instance creation failed: Instance with URL '{instance_url}' already exists")
-            raise HTTPException(
-                status_code=409,
-                detail=f"Instance with URL '{instance_url}' already exists"
-            )
-
-    # Convert Pydantic model to dict for instance factory
-    agent_cfg = config.dict(exclude={"flavour", "instance_name", "name"})
-
-    config_dict = {"agent": agent_cfg, "flavour": flavour}
-
-    # Create the storage agent for the instance
+    # Save the instance directly to database
     try:
-        agent = agent_factory(config_dict)
+        instance_uuid = instance_manager.save_instance(config)
+    except ValueError as error_msg:
+        logger.error(f"Error when saving instance '{name_value}': {str(error_msg)}")
+        if "already exists" in str(error_msg):
+            raise HTTPException(status_code=409, detail=str(error_msg))
+        elif "failed to create storage agent" in str(error_msg):
+            raise HTTPException(status_code=400, detail=str(error_msg))
+        else:
+            raise HTTPException(status_code=422, detail=str(error_msg))
     except Exception as e:
-        logger.error(f"Failed to create storage agent for instance '{name_value}': {str(e)}")
-        raise HTTPException(
-            status_code=400,
-            detail=f"Failed to create storage agent: {str(e)}"
-        )
-
-    # Create the instance object
-    new_instance = Instance(
-        uuid=instance_uuid,
-        name=config.instance_name,
-        flavour=flavour,
-        agent=agent
-    )
-
-    # Register with the instance manager
-    instance_manager.instances.append(new_instance)
-
-    # Save the configuration
-    try:
-        instance_manager.save_configuration()
-    except Exception as e:
-        logger.error(f"Failed to save configuration for instance '{config.instance_name}': {str(e)}")
-        # Remove from instances list if save fails
-        instance_manager.instances.remove(new_instance)
+        logger.error(f"Failed to save configuration for instance '{name_value}': {str(e)}")
         raise HTTPException(
             status_code=500,
             detail=f"Failed to save instance configuration: {str(e)}"
@@ -215,34 +179,28 @@ async def create_instance(
         resource='.*',
         action='admin'
     )
-
-    # Add the admin policy
+    
     try:
         if not policy_manager.add_policy(new_admin_policy):
-            logger.error(f"Failed to add admin policy for instance '{new_instance.name}' ({instance_uuid})")
-            # If policy fails, remove the instance
-            instance_manager.delete_instance(new_instance)
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to add administrator policy for new instance"
-            )
-    except ValueError as e:
-        logger.error(f"ValueError when adding admin policy for instance '{new_instance.name}': {str(e)}")
-        # If policy fails, remove the instance
-        instance_manager.delete_instance(new_instance)
+            # Policy failed so go to exception block
+            raise RuntimeError("Add policy returned false")
+    except Exception as e:
+        logger.error(f"Failed to add admin policy for instance '{name_value}': {str(e)}")
+        # If policy fails, remove the newly created instance
+        instance_manager.delete_instance(instance_uuid)
         raise HTTPException(
-            status_code=400,
-            detail=f"Failed to add administrator policy: {str(e)}"
+            status_code=500,
+            detail=f"Failed to add administrator policy for new instance: {str(e)}"
         )
 
     return JSONResponse(
         status_code=201,
         content={
-            "message": f"Instance '{new_instance.name}' created successfully",
+            "message": f"Instance '{name_value}' created successfully",
             "instance": {
-                "uuid": str(new_instance.uuid),
-                "name": new_instance.name,
-                "flavour": new_instance.flavour
+                "uuid": str(instance_uuid),
+                "name": name_value,
+                "flavour": config.flavour
             }
         }
     )
@@ -292,17 +250,9 @@ async def delete_instance(
         logger.error(f"Instance not found for deletion: {instance_id}")
         raise HTTPException(status_code=404, detail="Instance not found")
 
-    # Create instance object for deletion
-    instance_to_delete = Instance(
-        uuid=instance_uuid,
-        name=instance.name,
-        flavour=instance.flavour,
-        agent=instance.agent
-    )
-
     # Delete the instance
     try:
-        instance_manager.delete_instance(instance_to_delete)
+        instance_manager.delete_instance(instance_uuid)
     except KeyError as e:
         logger.error(f"Failed to remove instance '{instance.name}' ({instance_id}): {str(e)}")
         raise HTTPException(

@@ -29,7 +29,7 @@ class CasbinPolicyManager:
         """
 
         # Create Casbin MongoDB adapter using an existing client
-        db_name = os.getenv('MONGO_CASBIN_DB', 'casbin')
+        db_name = os.getenv('MONGO_DB', 'inn-mongo')
         adapter = Adapter(client=get_mongo_client(), db_name=db_name)
 
         # Pass the adapter to the Enforcer so it owns policy persistence

@@ -14,6 +14,10 @@ from .startup import run_startup_tasks
 async def lifespan(app: FastAPI):
     await run_startup_tasks()
     yield
+    from core.injection.managers import get_instance_manager
+    manager = get_instance_manager()
+    if hasattr(manager, 'teardown'):
+        manager.teardown()
 
 
 
