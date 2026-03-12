@@ -1,5 +1,4 @@
 from abc import abstractmethod, ABC
-from typing import Union, List
 from uuid import UUID
 
 from .models import Instance
@@ -7,54 +6,30 @@ from .models import Instance
 
 class AbstractInstanceManager(ABC):
 
-    def __init__(self) -> None:
-        self._instances: List[Instance] = []
-
     @property
+    @abstractmethod
     def instances(self) -> list[Instance]:
-        return self._instances
+        """Return all instances."""
 
+    @abstractmethod
     def get_instances(self, instance_names: set = None) -> dict[str, Instance]:
         """
         Get instances filtered by instance names.
 
         :param instance_names: Set of instance names to filter by. If None, returns all instances.
-        :return: Dictionary mapping instance names to Instance objects
+        :return: Dictionary mapping instance names to Instance objects.
         """
-        if instance_names is None:
-            return {instance.name: instance for instance in self._instances}
-
-        return {
-            instance.name: instance
-            for instance in self._instances
-            if instance.name in instance_names
-        }
-
-    @instances.setter
-    def instances(self, instances: Union[Instance, list[Instance]]):
-        if isinstance(instances, Instance):
-            self.instances.append(instances)
-        elif isinstance(instances, list):
-            self.instances.extend(instances)
-        else:
-            raise TypeError("Expected Instance or list of Instances")
-
-    @instances.deleter
-    def instances(self):
-        for instance in self.instances:
-            # Close the agent including the connections
-            instance.close()
-
-        self._instances.clear()
 
     @abstractmethod
-    def save_configuration(self) -> bool:
-        pass
+    def save_instance(self, config) -> UUID:
+        """
+        Create and save an instance configuration.
+
+        :param config: The instance configuration model (InstanceCreate).
+        :return: The created Instance's UUID.
+        """
 
     @abstractmethod
-    def delete_configuration(self, instance: Instance) -> bool:
-        pass
-
     def get_instances_by_uuid(self, uuids: list[UUID]) -> list[Instance]:
         """
         Get instances by UUID.
@@ -62,15 +37,8 @@ class AbstractInstanceManager(ABC):
         :param uuids: UUID or list of UUIDs to search for.
         :return: List of matching instances.
         """
-        if isinstance(uuids, UUID):
-            uuids = [uuids]
 
-        matching_instances = [
-            instance for instance in self.instances if instance.uuid in uuids
-        ]
-
-        return matching_instances
-
+    @abstractmethod
     def get_instance_uuid(self, instance_name: str) -> UUID:
         """
         Get the UUID of an instance by its name.
@@ -79,33 +47,23 @@ class AbstractInstanceManager(ABC):
         :return: The UUID of the instance.
         :raises KeyError: If instance with the given name is not found.
         """
-        for instance in self.instances:
-            if instance.name == instance_name:
-                return instance.uuid
 
-        raise KeyError(f"Instance with name '{instance_name}' not found.")
-
+    @abstractmethod
     def get_instance_by_uuid(self, uuid: UUID) -> Instance:
         """
-        Get the instance by its UUID.
+        Get an instance by its UUID.
 
         :param uuid: The UUID of the instance.
         :return: The Instance object.
+        :raises ValueError: If the instance is not found.
         """
-        for instance in self.instances:
-            if instance.uuid == uuid:
-                return instance
 
-        raise ValueError(f"Instance with UUID '{uuid}' not found.")
-
-    def delete_instance(self, instance: Instance):
+    @abstractmethod
+    def delete_instance(self, instance_uuid: UUID) -> bool:
         """
-        Delete an instance from the list and remove its configuration file.
+        Delete an instance.
 
-        :param instance: The Instance object to delete.
+        :param instance_uuid: The UUID of the instance to delete.
+        :return: True if successful.
+        :raises KeyError: If the instance is not found.
         """
-        if instance in self.instances:
-            self.instances.remove(instance)
-            self.delete_configuration(instance)
-        else:
-            raise KeyError(f"Instance {instance.uuid} not found.")
