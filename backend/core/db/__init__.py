@@ -1,5 +1,5 @@
-from core.db.postgres.session import AsyncSessionMaker, get_session
-from core.db.mongodb.mongo_client import get_mongo_client
+from .mongodb.mongo_client import get_mongo_client
+from .postgres.session import AsyncSessionMaker, get_session
 
 __all__ = [
     "AsyncSessionMaker",

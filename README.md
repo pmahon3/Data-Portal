@@ -44,7 +44,7 @@ For detailed information, see the [project wiki](https://github.com/INN-SFU/Data
 - `backend/` - Main backend service with FastAPI application
   - `api/v0_1/endpoints/` - API routes
   - `core/connectivity/` - Storage agents (S3, Dummy)
-  - `core/management/` - Instances, policies, users
+  - `core/services/` - Instances, policies, users, file and tree handling
   - `core/settings/` - Configuration
 - `frontend/` - React application
 - `local/keycloak/` - Keycloak configuration and realm export

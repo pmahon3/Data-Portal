@@ -1,7 +1,8 @@
 
-from core.db.postgres.session import AsyncSessionMaker
 from core.db.postgres.init_db import ensure_roots_for_instances
-from core.injection.managers import get_instance_manager
+from core.db.postgres.session import AsyncSessionMaker
+from core.services.injectors import get_instance_manager
+
 
 #DB init for s3
 async def init_db_roots():

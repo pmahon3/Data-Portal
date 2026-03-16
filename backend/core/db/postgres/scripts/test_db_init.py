@@ -2,7 +2,7 @@ import asyncio
 
 from core.db import AsyncSessionMaker
 from core.db.postgres.init_db import ensure_roots_for_instances
-from core.injection.managers import get_instance_manager
+from core.services.injectors import get_instance_manager
 
 
 async def main():
