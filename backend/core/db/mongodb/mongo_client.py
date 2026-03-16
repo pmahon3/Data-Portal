@@ -10,8 +10,8 @@ Environment variables needed:
     MONGO_INIT_ROOT_PASSWORD
 """
 
-import os
 import logging
+import os
 
 from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure

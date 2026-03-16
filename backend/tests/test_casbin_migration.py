@@ -23,8 +23,8 @@ from uuid import uuid4
 
 import pytest
 
-from core.injection import get_policy_manager
-from core.management.policies.models import Policy
+from core.services.injectors import get_policy_manager
+from core.services.policies.models import Policy
 
 # --- Test fixtures -----------------------------------------------------------
 

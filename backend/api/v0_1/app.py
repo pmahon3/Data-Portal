@@ -1,20 +1,18 @@
-import os
-from typing import List
+from contextlib import asynccontextmanager
 
-from fastapi import Request, FastAPI, Query, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from api.v0_1.endpoints import application_router
-
-from contextlib import asynccontextmanager
 from .startup import run_startup_tasks
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await run_startup_tasks()
     yield
-    from core.injection.managers import get_instance_manager
+    from core.services.injectors import get_instance_manager
     manager = get_instance_manager()
     if hasattr(manager, 'teardown'):
         manager.teardown()

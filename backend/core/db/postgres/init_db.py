@@ -2,8 +2,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy_utils import Ltree
 
-from core.management.instances import AbstractInstanceManager
-from core.model.folder import Folder
+from core.services.instances import AbstractInstanceManager
+from core.services.filetree.models.folder import Folder
 
 
 async def ensure_root_for_bucket(session: AsyncSession, bucket: str) -> Folder:
