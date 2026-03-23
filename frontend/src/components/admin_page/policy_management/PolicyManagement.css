@@ -18,5 +18,12 @@
 .pm-error { color: #b91c1c; }
 .pm-muted { color: #6b7280; }
 .pm-table { width: 100%; border-collapse: collapse; }
-.pm-table th, .pm-table td { border-bottom: 1px solid #e5e7eb; padding: 10px; text-align: left; }
+.pm-table th, .pm-table td { 
+  border-bottom: 1px solid #e5e7eb; 
+  padding: 10px; 
+  text-align: left; 
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .pm-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }

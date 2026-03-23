@@ -345,9 +345,6 @@ const handleDownload = async () => {
       >
         <div>
           <strong>{endpointName}</strong>
-          <div style={{ fontSize: 12, color: "#6b7280" }}>
-            UUID: {endpointUuid}
-          </div>
         </div>
         <div style={{ fontSize: 14, color: "#6b7280" }}>{open ? "▼" : "▶"}</div>
       </div>

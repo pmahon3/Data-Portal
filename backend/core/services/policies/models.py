@@ -10,6 +10,8 @@ class Policy(BaseModel):
     instance_uuid: Union[UUID, None] = None
     resource: Optional[str] = None
     action: Optional[str] = None
+    username: Optional[str] = None
+    instance_name: Optional[str] = None
 
 
 Policies = list[Policy]

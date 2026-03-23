@@ -156,16 +156,11 @@ export default function StorageManagement() {
                   <button className="im-btn im-btn-danger" onClick={() => handleDelete(i)}>Delete</button>
                 </div>
               </div>
-              <div className="im-meta">
-                <div><span className="im-key">UUID:</span> <code className="im-code">{i.uuid}</code></div>
-                {i.config?.agent?.instance_url && (
-                  <div><span className="im-key">Endpoint:</span> <code className="im-code">{i.config.agent.instance_url}</code></div>
-                )}
-              </div>
               {i.config && (
                 <details className="im-details">
                   <summary>Config</summary>
-                  <pre className="im-pre">{JSON.stringify(i.config, null, 2)}</pre>
+                  {/* Display config without UUID field */}
+                  <pre className="im-pre">{JSON.stringify(i.config, (key, value) => key === 'uuid' ? undefined : value, 2)}</pre>
                 </details>
               )}
             </div>
