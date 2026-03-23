@@ -35,7 +35,9 @@ logger = logging.getLogger("api.endpoints")
 async def get_policies(
     policy_filter: Policy = Depends(),
     admin_user: dict = Depends(require_admin),
-    policy_manager: CasbinPolicyManager = Depends(get_policy_manager)
+    policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
+    user_manager: AbstractUserManager = Depends(get_user_manager),
+    instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ) -> GetPolicyResponse:
     """
     Retrieve policies based on filter criteria (admin only).
@@ -64,6 +66,29 @@ async def get_policies(
     if policies is None:
         logger.error("No policies found matching the filter criteria")
         raise HTTPException(status_code=404, detail="No policies found")
+
+    # Collect unique user and instance UUIDs
+    unique_user_uuids = {policy.user_uuid for policy in policies if policy.user_uuid}
+    unique_instance_uuids = list({policy.instance_uuid for policy in policies if policy.instance_uuid})
+
+    # Create lookup dictionary via batch fetch for instances
+    # Instance Manager has get_instances_by_uuid which takes a list
+    resolved_instances = instance_manager.get_instances_by_uuid(unique_instance_uuids)
+    uuid_to_instance_name = {instance.uuid: instance.name for instance in resolved_instances}
+
+    # Create dict of UUID to username sequentially
+    uuid_to_username = {}
+    for u_uuid in unique_user_uuids:
+        try:
+            uuid_to_username[u_uuid] = user_manager.get_user_slug(u_uuid)
+        except Exception as e:
+            logger.error(f"Could not resolve username for UUID {u_uuid}: {e}")
+            uuid_to_username[u_uuid] = "Unknown User"
+
+    # Repopulate policies using the maps
+    for policy in policies:
+        policy.username = uuid_to_username.get(policy.user_uuid, "Unknown User")
+        policy.instance_name = uuid_to_instance_name.get(policy.instance_uuid, "Unknown Instance")
 
     return GetPolicyResponse(success=True, details=policies)
 

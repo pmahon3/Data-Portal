@@ -129,7 +129,7 @@ class KeycloakUserManager(AbstractUserManager):
 
     def get_user_slug(self, uuid: UUID) -> str:
         user = self.identity_manager.get_user(uuid.__str__())
-        return user['preferred_username']
+        return user['username']
 
     def get_user_uuid(self, user_slug: str) -> UUID:
         uuid = self.identity_manager.get_user_id(username=user_slug)
