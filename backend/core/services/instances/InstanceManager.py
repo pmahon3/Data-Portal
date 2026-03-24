@@ -24,8 +24,7 @@ class InstanceManager(AbstractInstanceManager):
                     # Initialize the agent and store it in the dictionary
                     self._agents[str(doc["uuid"])] = agent_factory(doc)
                 except Exception as e:
-                    logger.error(f"Failed to initialize instance '{instance_label}': {e}")
-                    raise
+                    logger.error(f"Failed to initialize instance '{instance_label}': {e}. Skipping agent.")
 
     @property
     def instances(self) -> list[Instance]:
