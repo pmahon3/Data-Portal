@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { useKeycloak } from '@react-keycloak/web';
 import './User_Management.css';
+import { formatError } from '../../../utils/errorUtils';
 
 const http = axios.create({ baseURL: "/api" });
 
@@ -52,7 +53,7 @@ export default function UserManagement() {
         const data = await apiListUsers();
         if (Array.isArray(data)) setUsers(data);
       } catch (e) {
-        setErr(String(e.message || e));
+        setErr(formatError(e));
       } finally {
         setLoading(false);
       }
@@ -89,7 +90,7 @@ export default function UserManagement() {
       setUsername(''); setPassword(''); setFullName(''); setEmail(''); setRolesText('');
       alert(`User ${username} created/updated.`);
     } catch (e) {
-      setErr(String(e.message || e));
+      setErr(formatError(e));
     }
   }
 
@@ -101,7 +102,7 @@ export default function UserManagement() {
       setUsers(prev => prev.filter(x => x.username !== u.username));
       alert(`Deleted ${u.username}`);
     } catch (e) {
-      setErr(String(e.message || e));
+      setErr(formatError(e));
     }
   }
 
