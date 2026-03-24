@@ -7,16 +7,31 @@ from fastapi.responses import JSONResponse
 from api.v0_1.endpoints import application_router
 from .startup import run_startup_tasks
 
+from core.services.injectors import get_instance_manager, get_policy_manager, get_user_manager
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await run_startup_tasks()
-    yield
-    from core.services.injectors import get_instance_manager
-    manager = get_instance_manager()
-    if hasattr(manager, 'teardown'):
-        manager.teardown()
+    import sys
+    import logging
+    try:
+        # Startup tasks for postgres
+        await run_startup_tasks()
 
+        # Startup singletons for the managers
+        instance_manager = get_instance_manager()
+        policy_manager = get_policy_manager()
+        user_manager = get_user_manager()
+    except Exception as e:
+        logger = logging.getLogger("uvicorn.error")
+        logger.error(f"Critical startup failure: {e}")
+        sys.exit(1)
+
+    yield
+
+    # Cleanup and close instance connections on shutdown
+    if hasattr(instance_manager, 'teardown'):
+        instance_manager.teardown()
 
 
 class App:
