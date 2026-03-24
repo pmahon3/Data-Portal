@@ -3,5 +3,5 @@ from .KeycloakUserManager import KeycloakUserManager
 
 __all__ = [
     "AbstractUserManager",
-    "KeyclaokUserManager",
+    "KeycloakUserManager",
 ]

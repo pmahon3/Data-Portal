@@ -103,50 +103,6 @@ graph LR
     style AbstractAgent fill:#95E1D3
 ```
 
-## Storage Agent Architecture
-
-Pluggable storage backend system using the Abstract Factory pattern.
-
-```mermaid
-classDiagram
-    class AbstractStorageAgent {
-        <<abstract>>
-        +FLAVOUR: str
-        +config(secrets) dict
-        +load_file_tree() FileTree
-        +generate_access_link() URL
-        +generate_upload_link() URL
-    }
-
-    class S3StorageAgent {
-        +FLAVOUR = "s3"
-        -s3_client: boto3.Client
-        -bucket_name: str
-        +load_file_tree() FileTree
-        +generate_access_link() URL
-        +generate_upload_link() URL
-    }
-
-    class DummyStorageAgent {
-        +FLAVOUR = "dummy"
-        -mock_data: dict
-        +load_file_tree() FileTree
-        +generate_access_link() URL
-        +generate_upload_link() URL
-    }
-
-    class AgentFactory {
-        +agent_factory(config, flavour) AbstractStorageAgent
-        +available_flavours: dict
-    }
-
-    AbstractStorageAgent <|-- S3StorageAgent
-    AbstractStorageAgent <|-- DummyStorageAgent
-    AgentFactory ..> AbstractStorageAgent : creates
-    AgentFactory ..> S3StorageAgent : instantiates
-    AgentFactory ..> DummyStorageAgent : instantiates
-```
-
 ## Policy Management Architecture
 
 Casbin-based RBAC system with flexible policy enforcement.
