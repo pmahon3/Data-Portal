@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import Tree from "./Tree.js";
 import { CircularProgress } from "@mui/material";
+import { formatError } from "../../../utils/errorUtils";
 
 export default function EndpointCard({
   endpointName,
@@ -111,11 +112,7 @@ export default function EndpointCard({
       console.log(`[Download] Successfully downloaded ${readLeaves.length} file(s) from endpoint "${endpointName}"`);
     } catch (e) {
       console.error(`[Download] Download failed for endpoint "${endpointName}":`, e);
-      if (e?.response?.status === 403) {
-        alert(`Download failed! No permission for download.`);
-      } else {
-        alert(`Download failed!`);
-      }
+      alert(`Download failed: ${formatError(e)}`);
     } finally {
       setBusy(null);
       setBusyID(null);
@@ -155,11 +152,7 @@ const handleDownload = async () => {
     console.log(`[Download] Triggered downloads for ${readLeaves.length} file(s) from "${endpointName}"`);
   } catch (e) {
     console.error(`[Download] Download failed for endpoint "${endpointName}":`, e);
-    if (e?.response?.status === 403) {
-      alert(`Download failed! No permission for download.`);
-    } else {
-      alert(`Download failed!`);
-    }
+    alert(`Download failed: ${formatError(e)}`);
   } finally {
     setBusy(null);
     setBusyID(null);
@@ -255,12 +248,10 @@ const handleDownload = async () => {
         alert("Upload complete.");
       } catch (e) {
         console.error(`[Upload] Upload failed for endpoint "${endpointName}" to destination "${destDir}":`, e);
-        if (e?.response?.status === 403) {
-          alert(`Upload failed! No permission for upload.`);
-        } else if (e?.response?.status === 409) {
+        if (e?.response?.status === 409) {
           alert(`Upload failed! A file with the same name already exists in this folder.`);
         } else {
-          alert(`Upload failed!`);
+          alert(`Upload failed: ${formatError(e)}`);
         }
       } finally {
         setBusy(null);
@@ -312,11 +303,7 @@ const handleDownload = async () => {
       alert("Delete complete.");
     } catch (e) {
       console.error(`[Delete] Delete failed for endpoint "${endpointName}" while attempting to delete ${deleteLeaves.length} file(s):`, e);
-      if (e?.response?.status === 403) {
-        alert(`Delete failed! No permission for delete.`);
-      } else {
-        alert(`Delete failed!`);
-      }
+      alert(`Delete failed: ${formatError(e)}`);
     } finally {
       setBusy(null);
       setBusyID(null);

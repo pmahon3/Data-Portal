@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { useKeycloak } from "@react-keycloak/web";
 import "./StorageManagement.css";
+import { formatError } from "../../../utils/errorUtils";
 
 const http = axios.create({ baseURL: "/api" });
 const INSTANCES_BASE = "/instances";
@@ -40,7 +41,7 @@ export default function StorageManagement() {
       try {
         await loadInstances();
       } catch (e) {
-        setErr(toMsg(e));
+        setErr(formatError(e));
       } finally {
         setLoading(false);
       }
@@ -78,7 +79,7 @@ export default function StorageManagement() {
       setS3Key(""); setS3Secret("");
       alert("Instance created.");
     } catch (e) {
-      setErr(toMsg(e));
+      setErr(formatError(e));
     }
   }
 
@@ -90,7 +91,7 @@ export default function StorageManagement() {
       await http.delete(`${INSTANCES_BASE}/${encodeURIComponent(i.uuid)}`, { headers });
       setInstances(prev => prev.filter(x => x.uuid !== i.uuid));
     } catch (e) {
-      setErr(toMsg(e));
+      setErr(formatError(e));
     }
   }
 
@@ -171,9 +172,3 @@ export default function StorageManagement() {
   );
 }
 
-function toMsg(err) {
-  const d = err?.response?.data;
-  if (!d) return String(err?.message || err);
-  if (Array.isArray(d.detail)) return d.detail.map(x => `${(x.loc || []).join(".")} → ${x.msg}`).join(" | ");
-  return d.detail || JSON.stringify(d);
-}

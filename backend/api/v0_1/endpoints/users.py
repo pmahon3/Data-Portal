@@ -144,7 +144,7 @@ async def create_user(
     try:
         if user_manager.get_user_uuid(user_create.username):
             logger.error(f"User '{user_create.username}' already exists")
-            raise HTTPException(status_code=400, detail="User already exists")
+            raise HTTPException(status_code=409, detail="User already exists")
     except KeyError:
         pass
 

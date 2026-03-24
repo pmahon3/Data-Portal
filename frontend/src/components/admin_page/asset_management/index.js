@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { useKeycloak } from "@react-keycloak/web";
 import EndpointCard from "./EndpointCard.js";
+import { formatError } from "../../../utils/errorUtils";
 
 // const http = axios.create({ baseURL: "http://localhost:8000" });
 const http = axios.create({ baseURL: "/api" });
@@ -68,7 +69,7 @@ export default function AssetManagement({ bootstrap }) {
       });
       setBoot(data);
     } catch (e) {
-      setError(e?.response?.data?.detail || e?.message || "Failed to load");
+      setError(formatError(e));
     } finally {
       setLoading(false);
     }

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import { useKeycloak } from "@react-keycloak/web";
 import "./PolicyManagement.css";
+import { formatError } from "../../../utils/errorUtils";
 // Constants and the component states
 // const http = axios.create({ baseURL: "http://localhost:8000" });
 const http = axios.create({ baseURL: "/api" });
@@ -215,11 +216,4 @@ export default function PolicyManagement() {
       </section>
     </div>
   );
-}
-// standard way to formatting errors
-function formatError(err) {
-  const d = err?.response?.data;
-  if (!d) return String(err?.message || err);
-  if (Array.isArray(d.detail)) return d.detail.map(x => `${(x.loc || []).join(".")} → ${x.msg}`).join(" | ");
-  return d.detail || JSON.stringify(d);
 }
