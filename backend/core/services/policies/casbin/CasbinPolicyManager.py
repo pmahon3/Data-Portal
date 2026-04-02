@@ -3,6 +3,7 @@ from uuid import UUID
 
 from casbin import Enforcer
 from casbin_pymongo_adapter import Adapter
+import casbin.util
 
 from core.db import get_mongo_client
 from core.services.policies.models import Policy, Agreement
@@ -34,7 +35,7 @@ class CasbinPolicyManager:
         adapter = Adapter(client=get_mongo_client(), db_name=db_name)
 
         # Pass the adapter to the Enforcer so it owns policy persistence
-        self.enforcer = Enforcer(os.getenv('ENFORCER_MODEL'), adapter, enable_log=True)
+        self.enforcer = Enforcer(os.getenv('ENFORCER_MODEL'), adapter, enable_log=False)
         self.enforcer.enable_auto_save(True)
         self._actions = ['read', 'write', 'share']
 
@@ -197,6 +198,33 @@ class CasbinPolicyManager:
         action = policy.action
 
         return self.enforcer.enforce(user_uuid, instance_uuid, resource, action)
+
+    def get_allowed_actions(self, user_uuid: UUID, instance_uuid: UUID, resource: str, actions_to_check: list[str] = None) -> list[str]:
+        """
+        Given this user and resource, return what actions they are allowed
+        """
+        if actions_to_check is None:
+            actions_to_check = self._actions
+            
+        user_uuid_str = str(user_uuid)
+        instance_uuid_str = str(instance_uuid)
+        
+        # Get all policies for the user and instance
+        policies = self.enforcer.get_filtered_policy(0, user_uuid_str, instance_uuid_str)
+        
+        allowed_actions = set()
+        
+        for p in policies:
+            p_sub, p_dom, p_obj, p_act = p[0], p[1], p[2], p[3]
+            
+            # Pattern matching for resource: (regexMatch(r.obj, p.obj) || regexMatch(p.obj, r.obj + ".*"))
+            if casbin.util.regex_match(resource, p_obj) or casbin.util.regex_match(p_obj, resource + ".*"):
+                # Check which specific allowed actions match the p_act regex
+                for action in actions_to_check:
+                    if casbin.util.regex_match(action, p_act):
+                        allowed_actions.add(action)
+                        
+        return list(allowed_actions)
 
     def create_agreement(self, agreement: Agreement) -> bool:
         """
