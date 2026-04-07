@@ -82,6 +82,63 @@ class TreeService:
         await self.session.refresh(folder)
         return folder
 
+    async def ensure_folder_path(self, bucket: str, parent_id: int, relative_path: str) -> Folder:
+        """
+        Ensure a nested relative path exists in Postgres under `parent_id`.
+
+        This is the missing piece needed for folder uploads.
+
+        Example:
+        - The user selects destination folder `/research/` in the UI.
+        - The browser provides a file with webkitRelativePath:
+          `StudyA/session1/image1.sample.gz`
+        - The frontend sends `relative_path="StudyA/session1"` to this method.
+        - We then make sure the following folder rows exist in the DB:
+          `/research/StudyA/`
+          `/research/StudyA/session1/`
+        - The returned Folder is the row for `/research/StudyA/session1/`
+        - The existing single-file upload flow then stores `image1.sample.gz`
+          inside that folder by generating the object key:
+          `research/StudyA/session1/image1.sample.gz`
+
+        Important:
+        - This method only ensures folder metadata in PostgreSQL.
+        - S3 does not need real folder creation for non-empty folders; the folder
+          structure is represented implicitly by object keys when files are
+          uploaded.
+        - Empty-folder support is a separate concern and is not handled here.
+
+        Returns the final folder. An empty relative path resolves to the parent.
+        """
+        # Fetch the parent folder row from Postgres and use it as the starting folder.
+        folder = (await self.session.execute(
+            select(Folder).where(Folder.id == parent_id, Folder.bucket == bucket)
+        )).scalar_one()
+
+        # Convert "StudyA/session1" into ["StudyA", "session1"] and ignore
+        # accidental repeated slashes or empty segments.
+        segments = [segment.strip() for segment in split_segments(relative_path) if segment.strip()]
+        if not segments:
+            return folder
+
+        for segment in segments:
+            # Build the next child path relative to the folder we are currently at.
+            child_full = join_child_full_path(folder.full_path, segment)
+            existing = (await self.session.execute(
+                select(Folder).where(Folder.bucket == bucket, Folder.full_path == child_full)
+            )).scalar_one_or_none()
+            if existing:
+                # Reuse the existing folder row so repeated uploads into the same
+                # path remain idempotent at the folder-metadata level.
+                folder = existing
+                continue
+
+            # Missing segment: create exactly one folder level, then continue
+            # walking deeper until the whole relative path exists.
+            folder = await self.create_folder(bucket, folder.id, segment)
+
+        return folder
+
     async def delete_folder_subtree(self, bucket: str, folder_id: int) -> None:
         folder = (await self.session.execute(
             select(Folder).where(Folder.id == folder_id, Folder.bucket == bucket)

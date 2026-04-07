@@ -159,30 +159,53 @@ const handleDownload = async () => {
   }
 };
 
-  // ---------------------- Upload (to WRITE selection) ----------------------
-  const handleUpload = async () => {
+  // This validation/lookup used to live inline in the single-file upload flow.
+  // It is now shared by both file upload and folder upload.
+  // Validate the write-tree selection and return the selected destination
+  // folder's DB id plus its bucket. Both upload modes start from this target.
+  // It reads the current selection and tree data directly from this component's existing state/props.
+  async function getWriteUploadTarget() {
     // Check if user has write permission at all for this endpoint
     if (!hasWrite) {
-      return alert("No write permission for this endpoint.");
+      alert("No write permission for this endpoint.");
+      return null;
     }
 
     // Ensure a folder is selected in the UI
     if (!selectedByAccess.write || selectedByAccess.write.size === 0) {
-      return alert("Select a folder to upload to.");
+      alert("Select a folder to upload to.");
+      return null;
     }
 
     // Verify writeTopFolders is not empty after filtering
     if (writeTopFolders.length === 0) {
-      return alert("No valid folder selected for upload.");
+      alert("No valid folder selected for upload.");
+      return null;
     }
 
     // Ensure exactly one folder is selected
     if (writeTopFolders.length > 1) {
-      return alert("Please select exactly ONE folder to upload to.");
+      alert("Please select exactly ONE folder to upload to.");
+      return null;
+    }
+    //That part extracts the upload destination information from the folder the user selected in the write tree.
+    const folderId = String(writeTopFolders[0]);
+    const folderNode = writeIndex.get(folderId);
+    const bucket = folderNode?.li_attr?.bucket;
+    if (!bucket) {
+      alert("No bucket found for selected folder.");
+      return null;
     }
 
-    const destDir = String(writeTopFolders[0]);
+    return { folderId, bucket };
+  }
 
+  // Upload one or more files directly into the selected destination folder.
+  const handleFileUpload = async () => {
+    const target = await getWriteUploadTarget();
+    if (!target) return;
+
+    const { folderId, bucket } = target;
     const input = document.createElement("input");
     input.type = "file";
     input.multiple = true;
@@ -198,56 +221,146 @@ const handleDownload = async () => {
       setBusy("up");
       setBusyID(endpointUuid)
       try {
-
-      const folderId = String(writeTopFolders[0]);
-      const folderNode = writeIndex.get(folderId);
-      const bucket = folderNode?.li_attr?.bucket;
-      if (!bucket) return alert("No bucket found for selected folder.");
-
-        // for (const file of Array.from(input.files)) {
-        //   const resource = joinPath(destDir, file.name);
-        //   const headers = await authHeaders();
-
-        //   // Ask backend for presigned URL(s)
-        //   const { data } = await http.put("/assets/upload", null, {
-        //     params: { instance_name: endpointName, resource },
-        //     headers,
-        //   });
-
-        //   const list = normalizePresigns(data?.presigned_urls ?? data?.urls ?? data?.url);
-        //   for (const entry of list) {
-        //     await uploadViaPresigned(entry, file);
-        //   }
-        // }
-
-        for (const file of Array.from(input.files)) {
         const headers = await authHeaders();
+        const files = Array.from(input.files);
 
-        const { data } = await http.post("/tree/files/upload/init", {
-          instance_name: endpointName,
-          bucket,
-          folder_id: Number(folderId),
-          filename: file.name,
-          content_type: file.type || "application/octet-stream",
-        }, { headers });
+        for (const file of files) {
+          const { data } = await http.post("/tree/files/upload/init", {
+            instance_name: endpointName,
+            bucket,
+            folder_id: Number(folderId),
+            filename: file.name,
+            content_type: file.type || "application/octet-stream",
+          }, { headers });
 
-        const presigns = normalizePresigns(data?.url ?? data?.presigned_urls ?? data?.urls);
-        for (const entry of presigns) {
-          await uploadViaPresigned(entry, file);
+          // Start with `data.url`. If it is missing, the first `if` tries
+          // `data.presigned_urls`. If that is also missing, the second `if`
+          // tries `data.urls`.
+          // Optional chaining: `data?.url` means "use data.url if data exists;
+          // otherwise return undefined instead of throwing an error".
+          let presignSource = data?.url;
+          
+          
+          if (presignSource === null || presignSource === undefined) {
+            presignSource = data?.presigned_urls;
+          }
+          if (presignSource === null || presignSource === undefined) {
+            presignSource = data?.urls;
+          }
+          const presigns = normalizePresigns(presignSource);
+          for (const entry of presigns) {
+            await uploadViaPresigned(entry, file);
+          }
+
+          await http.post("/tree/files/upload/complete", {
+            instance_name: endpointName,
+            file_id: data.file_id,
+          }, { headers });
         }
 
-        await http.post("/tree/files/upload/complete", {
-          instance_name: endpointName,
-          file_id: data.file_id,
-        }, { headers });
+        if (onMutate) onMutate(); // refresh dashboard with ?refresh=1 upstream  ------> TODO: need to further investigate refresh dashboard after upload or cerated new policy
+        console.log(`[Upload] Successfully uploaded ${files.length} file(s) in endpoint "${endpointName}"`);
+        alert("File upload complete.");
+      } catch (e) {
+        console.error(`[Upload] Upload failed for endpoint "${endpointName}":`, e);
+        if (e?.response?.status === 409) {
+          alert(`Upload failed! A file with the same name already exists in this folder.`);
+        } else {
+          alert(`Upload failed: ${formatError(e)}`);
+        }
+      } finally {
+        setBusy(null);
+        setBusyID(null);
+        try { document.body.removeChild(input); } catch {}
       }
-              
+    };
+
+    input.click();
+  };
+
+  // Upload a local directory by recreating its relative paths in Postgres first,
+  // then reusing the existing per-file presigned upload flow for each file.
+  const handleFolderUpload = async () => {
+    const target = await getWriteUploadTarget();
+    if (!target) return;
+
+    const { folderId, bucket } = target;
+    const input = document.createElement("input");
+    input.type = "file";
+    input.webkitdirectory = true;
+    input.multiple = true;
+    input.style.position = "fixed";
+    input.style.left = "-9999px";
+    document.body.appendChild(input);
+
+    input.onchange = async () => {
+      if (!input.files || input.files.length === 0) {
+        document.body.removeChild(input);
+        return;
+      }
+      setBusy("up");
+      setBusyID(endpointUuid)
+      try {
+        // flat list of File object returned by webkitdirectory
+        const files = Array.from(input.files).filter(file => !isDirectoryPlaceholder(file));
+        const headers = await authHeaders();
+
+        // Cache folder ids per relative path so repeated siblings do not keep
+        // calling the backend for the same nested directory chain.
+        const folderIdByRelativePath = new Map([["", Number(folderId)]]); // create a map and initilize it
+
+        for (const file of files) {
+          // Example:
+          // webkitRelativePath = "StudyA/session1/image.nii.gz"
+          // parentRelativePath = "StudyA/session1"
+          const relativeFilePath = getRelativeFilePath(file);
+          const parentRelativePath = getParentRelativePath(relativeFilePath);
+          let targetFolderId = folderIdByRelativePath.get(parentRelativePath);
+
+          if (!targetFolderId) {
+            const { data: folderData } = await http.post("/tree/folders/ensure-path", {
+              instance_name: endpointName,
+              bucket,
+              parent_id: Number(folderId),
+              relative_path: parentRelativePath,
+            }, { headers });
+            targetFolderId = Number(folderData.id);
+            folderIdByRelativePath.set(parentRelativePath, targetFolderId);
+          }
+
+          const { data } = await http.post("/tree/files/upload/init", {
+            instance_name: endpointName,
+            bucket,
+            folder_id: targetFolderId,
+            filename: file.name,
+            content_type: file.type || "application/octet-stream",
+          }, { headers });
+
+          // Optional chaining: `data?.url` means "use data.url if data exists;
+          // otherwise return undefined instead of throwing an error".
+          let presignSource = data?.url;
+          if (presignSource === null || presignSource === undefined) {
+            presignSource = data?.presigned_urls;
+          }
+          if (presignSource === null || presignSource === undefined) {
+            presignSource = data?.urls;
+          }
+          const presigns = normalizePresigns(presignSource);
+          for (const entry of presigns) {
+            await uploadViaPresigned(entry, file);
+          }
+
+          await http.post("/tree/files/upload/complete", {
+            instance_name: endpointName,
+            file_id: data.file_id,
+          }, { headers });
+        }
 
         if (onMutate) onMutate(); // refresh dashboard with ?refresh=1 upstream  ------> TODO: need to further investigate refresh dashboard after upload or cerated new policy
-        console.log(`[Upload] Successfully uploaded ${input.files.length} file(s) to "${destDir}" in endpoint "${endpointName}"`);
-        alert("Upload complete.");
+        console.log(`[Upload] Successfully uploaded ${files.length} file(s) in endpoint "${endpointName}"`);
+        alert("Folder upload complete.");
       } catch (e) {
-        console.error(`[Upload] Upload failed for endpoint "${endpointName}" to destination "${destDir}":`, e);
+        console.error(`[Upload] Upload failed for endpoint "${endpointName}":`, e);
         if (e?.response?.status === 409) {
           alert(`Upload failed! A file with the same name already exists in this folder.`);
         } else {
@@ -411,7 +524,7 @@ const handleDownload = async () => {
                     <div style={{ fontWeight: 600 }}>Write</div>
                     <div style={{ display: "flex", gap: 8 }}>
                       <button
-                        onClick={handleUpload}
+                        onClick={handleFileUpload}
                         disabled={!!busy}
                         style={{
                           background: busy ? "#9ca3af" : "#10b981",
@@ -431,7 +544,30 @@ const handleDownload = async () => {
                         )}
                         {busy === "up" && busyID == endpointUuid
                           ? "Uploading…"
-                          : "Upload"}
+                          : "Upload File"}
+                      </button>
+                      <button
+                        onClick={handleFolderUpload}
+                        disabled={!!busy}
+                        style={{
+                          background: busy ? "#9ca3af" : "#059669",
+                          cursor: busy ? "not-allowed" : "pointer",
+                          color: "#fff",
+                          border: 0,
+                          borderRadius: 8,
+                          padding: "6px 10px",
+                          fontSize: 13,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                        }}
+                      >
+                        {busy === "up" && busyID == endpointUuid && (
+                          <CircularProgress size={14} sx={{ color: "#fff" }} />
+                        )}
+                        {busy === "up" && busyID == endpointUuid
+                          ? "Uploading…"
+                          : "Upload Folder"}
                       </button>
                     </div>
                   </div>
@@ -545,9 +681,22 @@ function getSelectedTopFolders(list, sel) {
   return chosenFolders.filter(id => !chosenSet.has(parentOf.get(id)));
 }
 
-function joinPath(dir, name) {
-  if (!dir) return name;
-  return dir.endsWith("/") ? dir + name : `${dir}/${name}`;
+function isDirectoryPlaceholder(file) {
+  return file.size === 0 && getRelativeFilePath(file).endsWith("/");
+}
+
+// Files selected via `webkitdirectory` preserve the path relative to the picked
+// folder root. Normal file picks fall back to the plain file name here.
+function getRelativeFilePath(file) {
+  return String(file.webkitRelativePath || file.name || "").replace(/^\/+|\/+$/g, "");
+}
+
+// We only need the parent directory chain because the filename itself is still
+// uploaded through the existing single-file init/complete endpoints.
+function getParentRelativePath(relativeFilePath) {
+  const normalized = String(relativeFilePath || "").replace(/^\/+|\/+$/g, "");
+  const lastSlash = normalized.lastIndexOf("/");
+  return lastSlash === -1 ? "" : normalized.slice(0, lastSlash);
 }
 
 // --- presigned upload helpers ---

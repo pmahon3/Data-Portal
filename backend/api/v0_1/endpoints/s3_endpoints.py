@@ -34,6 +34,15 @@ class CreateFolderIn(BaseModel):
     name: str = Field(..., min_length=1, max_length=512)
 
 
+class EnsureFolderPathIn(BaseModel):
+    # `relative_path` is the folder chain relative to the selected destination
+    # folder in the UI, e.g. "StudyA/session1".
+    instance_name: str
+    bucket: str
+    parent_id: int
+    relative_path: str = Field(..., max_length=4096)
+
+
 class UploadInitIn(BaseModel):
     instance_name: str
     bucket: str
@@ -158,6 +167,45 @@ async def create_folder(
 
     tree_svc = TreeService(session)
     folder = await tree_svc.create_folder(payload.bucket, payload.parent_id, payload.name)
+    return {"id": folder.id, "name": folder.name, "full_path": folder.full_path}
+
+####################################################################################
+@router.post("/folders/ensure-path")
+async def ensure_folder_path(
+    payload: EnsureFolderPathIn,
+    user: dict = Depends(decode_token),
+    session: AsyncSession = Depends(get_session),
+    user_manager: AbstractUserManager = Depends(get_user_manager),
+    policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
+    instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
+):
+    user_uuid = user_manager.get_user_uuid(user["preferred_username"])
+    instance_uuid, _agent = get_instance_agent(instance_manager, payload.instance_name)
+
+    # Load the folder selected in the write tree. Folder uploads create nested
+    # DB folders underneath this starting parent.
+    parent = (await session.execute(
+        select(Folder).where(Folder.id == payload.parent_id, Folder.bucket == payload.bucket)
+    )).scalar_one()
+
+    # Apply the same write-permission check as normal file uploads: the user
+    # must have write access on the selected parent folder before nested
+    # folders can be created under it.
+    policy = Policy(
+        user_uuid=user_uuid,
+        instance_uuid=instance_uuid,
+        resource=resource_for_folder(payload.bucket, parent.full_path),
+        action="write",
+    )
+    policy_or_403(policy_manager, policy)
+
+    tree_svc = TreeService(session)
+    # Example:
+    # - selected parent folder: /research/
+    # - relative_path: StudyA/session1
+    # This ensures /research/StudyA/ and /research/StudyA/session1/ exist in
+    # Postgres, then returns the final folder row to the frontend.
+    folder = await tree_svc.ensure_folder_path(payload.bucket, payload.parent_id, payload.relative_path)
     return {"id": folder.id, "name": folder.name, "full_path": folder.full_path}
 
 #################################################################################### initialize upload.It creates the DB record and returns a presigned URL so the client can start uploading the file bytes
