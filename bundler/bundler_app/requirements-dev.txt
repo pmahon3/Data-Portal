@@ -1,0 +1,16 @@
+# Dev dependencies (unpinned spec)
+-r requirements.txt
+
+anyio>=4.11.0
+commitizen>=4.13.9
+httpx>=0.28.1
+pytest>=9.0.1
+
+##
+## Pinned dev dependencies
+## -----------------------
+## These are an informational snapshot of the versions in uv.lock,
+## including the main runtime dependencies. Regenerate with:
+##   uv export --format requirements-txt --group dev > requirements-dev.lock.txt
+##
+
