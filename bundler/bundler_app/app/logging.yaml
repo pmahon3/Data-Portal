@@ -1,0 +1,34 @@
+# Loguru-config — https://pypi.org/project/loguru-config/
+#
+# enqueue: true — records go through a multiprocessing-safe queue; a single
+#   background thread writes to the sink. This makes log emission fast and
+#   non-blocking (friendlier under async), avoids concurrent writes from many
+#   threads, and is the recommended setup for logging from multiple processes
+#   to one sink (see Loguru recipes: "Compatibility with multiprocessing").
+#
+# After fork/spawn, call flush_logging() (or logger.complete()) before a child
+# process exits so the queue drains. If you mix multiprocessing contexts
+# (e.g. spawn vs fork), you may need to pass matching `context` to handlers
+# (see Loguru logger.add(..., context=...)).
+handlers:
+  - sink: ext://sys.stderr
+    level: INFO
+    enqueue: true
+    # If the sink or formatter raises, log the failure to stderr instead of propagating (default: true).
+    catch: true
+    # 2026-03-27 14:42:03.891 | INFO     | app.worker:create_job:175 - Created job for key abc123
+    format: >-
+      <green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> |
+      <level>{level: <8}</level> |
+      <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> -
+      <level>{message}</level>
+
+# File sinks only (`catch` and `enqueue` apply to any sink; rotation/retention/compression are file-only).
+# Example handler with rotation / retention / compression disabled (null = off):
+#  - sink: /tmp/bundler.log
+#    level: INFO
+#    enqueue: true     # Same as above: queue + one writer thread; safe for threads/multiprocessing.
+#    catch: true        # Same as stderr handler: swallow sink errors so logging never crashes callers.
+#    rotation: null     # Roll log file on size/time; null = never rotate.
+#    retention: null    # Prune old rotated files; null = keep all.
+#    compression: null  # Compress after rotation/close; null = none.

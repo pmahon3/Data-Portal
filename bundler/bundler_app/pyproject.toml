@@ -1,0 +1,35 @@
+[project]
+name = "bundler_app"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    # Library only: `app/bundles.py` uses Pydantic models; HTTP servers live elsewhere (e.g. bundler_app_server_gen).
+    "anyio>=4.11.0",
+    "httpx>=0.28.1",
+    "loguru>=0.7.3",
+    "loguru-config>=0.1.0",
+    "pydantic>=2.10.0",
+    "pyyaml>=6.0.0",
+    "typing-extensions>=4.12.0",
+]
+
+[dependency-groups]
+dev = [
+    "anyio>=4.11.0",
+    "commitizen>=4.13.9",
+    "httpx>=0.28.1",
+    "pytest>=9.0.1",
+    "openapi-spec-validator>=0.7.1",
+    "pyyaml>=6.0.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+version = "0.1.0"
+tag_format = "bundler-v$version"
+update_changelog_on_bump = true
