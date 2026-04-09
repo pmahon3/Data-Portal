@@ -7,6 +7,7 @@ from enum import Enum
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from typing_extensions import Annotated
 
+# Canonical URL string type: trim surrounding whitespace and reject empty values.
 NonEmptyUrlString = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
 
@@ -30,6 +31,8 @@ def can_transition(current: BundleState, new_state: BundleState) -> bool:
 
 
 class CreateBundleRequest(BaseModel):
+    # Allow both Python field names (folder_name) and JSON aliases (folderName)
+    # when constructing/validating this model.
     model_config = ConfigDict(populate_by_name=True)
 
     folder_name: str | None = Field(default=None, alias="folderName")

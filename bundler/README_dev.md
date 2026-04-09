@@ -82,7 +82,7 @@ The Makefile’s `check-tools` target also expects **`sed`** and **`ed`**.
 
 **Windows:** Recipes use **POSIX shell** features and typical Unix CLI tools (`sed`, `ed`, `printf`, shell conditionals, etc.). A plain **cmd.exe** or **PowerShell** session often will **not** run these targets reliably. Prefer **WSL2**, **Git Bash**, **MSYS2**, or another Unix-like environment where `make` invokes a compatible shell, or run the same steps from a Linux/macOS machine or container.
 
-Install **Node.js** so **`npx`** is available. For **`uv`** / **`uvx`**, use **Installing `uv`** next.
+Install **Node.js** so **`npx`** is available. For **`uv`** / **`uvx`**, see **Installing `uv`** next.
 
 ### Installing `uv`
 
@@ -99,3 +99,24 @@ curl -Ls https://astral.sh/uv/install.sh | sh
 - **Changing the HTTP API**: edit `bundler/openapi.yaml`, then run `make generate-openapi APP_DIR=<app_dir>`.
 - **Implementing/altering behavior**: edit `bundler/<app_dir>/` (business logic) and `<app_name>_server_gen/.../impl/` (adapter glue).
 - **Do not edit generated routers/models** under `<app_name>_server_gen/src/openapi_server/apis` and `.../models`—those will be overwritten.
+
+## Testing boundaries and separation of concerns
+
+Use the two test suites for different questions:
+
+- `bundler/bundler_app/tests/` (core/domain tests)
+  - Validates business behavior directly: state transitions, dedupe, archive path rules, and bundle workflow internals.
+  - Uses stubs/monkeypatches at the domain layer to keep tests deterministic and independent from external HTTP.
+  - `tests/test_bundles.py` boundary: verifies public bundle domain API behavior
+    (create/get/download responses, dedupe, and not-found handling), while explicit
+    lifecycle transition semantics live in `tests/test_state_transitions.py` and
+    archive-path/content rules live in `tests/test_bundle_zip_paths.py`.
+
+- `bundler/bundler_app_server_gen/tests/` (HTTP contract tests)
+  - Validates API contract behavior of the generated FastAPI adapter: endpoint status codes, payload validation, and HTTP error mapping.
+  - Focuses on protocol-level expectations (`202/409/404/422/...`) rather than deep archive-building semantics.
+
+Practical rule of thumb:
+
+- If the question is **"Does bundling logic do the right thing?"** -> add/update tests in `bundler_app/tests`.
+- If the question is **"Does the HTTP endpoint return the right status/body?"** -> add/update tests in `bundler_app_server_gen/tests`.

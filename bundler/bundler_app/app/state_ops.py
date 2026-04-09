@@ -12,6 +12,11 @@ def _transition_state(
     *,
     error_message: str | None = None,
 ) -> None:
+    """Apply a validated bundle state transition and refresh metadata.
+
+    Raises ``RuntimeError`` when the requested transition is not allowed by the
+    state machine rules declared in :mod:`app.models`.
+    """
     if not can_transition(record.status, new_state):
         raise RuntimeError(f"Illegal state transition: {record.status} -> {new_state}")
     record.status = new_state
@@ -21,6 +26,7 @@ def _transition_state(
 
 
 def _finalize_complete(record: BundleRecord, archive_path: Path) -> None:
+    """Persist archive metadata on the record and transition it to ``COMPLETE``."""
     record.archive_path = str(archive_path)
     record.archive_size_bytes = archive_path.stat().st_size
     record.content_type = "application/zip"
@@ -29,6 +35,7 @@ def _finalize_complete(record: BundleRecord, archive_path: Path) -> None:
 
 
 def _mark_failed(record: BundleRecord, exc: Exception) -> None:
+    """Transition a non-terminal bundle into ``FAILED`` with the exception message."""
     if record.status in {BundleState.COMPLETE, BundleState.FAILED}:
         return
     _transition_state(record, BundleState.FAILED, error_message=str(exc))

@@ -225,7 +225,7 @@ def test_post_bundles_returns_409_when_request_is_duplicate(
 @_V2_AND_CURRENT
 def test_assert_status_surfaces_actual_code_when_status_unexpected(
     client: TestClient,
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
     _API_PREFIX: str,
 ):
     import openapi_server.impl.default_api_impl as impl

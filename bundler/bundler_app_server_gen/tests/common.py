@@ -41,7 +41,9 @@ def valid_create_json(
     """``api_prefix`` sets ``folderName`` (see :func:`_folder_tag_from_api_prefix`); optional ``urls`` overrides defaults."""
     v = _folder_tag_from_api_prefix(api_prefix)
     return {
-        "urls": urls if urls is not None else ["https://example.com/presigned/one"],
+        # Pathless default URL keeps contract tests network-independent because
+        # bundler path-mapping ignores URLs without path segments.
+        "urls": urls if urls is not None else ["https://example.com"],
         "folderName": f"out-{v}",
         "compression": "zip",
     }
@@ -67,7 +69,7 @@ def schema_malformed_create_json_missing_urls() -> dict:
 def duplicate_create_json(*, api_prefix: str | None = None) -> dict:
     v = _folder_tag_from_api_prefix(api_prefix)
     return {
-        "urls": ["https://example.com/presigned/one"],
+        "urls": ["https://example.com"],
         "folderName": f"out-duplicate-{v}",
         "compression": "zip",
     }
