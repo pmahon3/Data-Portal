@@ -7,7 +7,7 @@ from typing import Any
 import os
 import shutil
 import tempfile
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 import zipfile
 
 import anyio
@@ -28,6 +28,16 @@ class _PortalRuntime:
     This is infrastructure-only state (event-loop bridge), while BundleService
     owns domain state and workflow logic for bundle jobs.
 
+    We use AnyIO's BlockingPortal because the public service entrypoints are
+    synchronous (called by HTTP adapters/tests) while worker orchestration is
+    asynchronous. The portal enables safe sync->async handoff, including
+    scheduling long-lived worker supervisors and calling async queue operations
+    from synchronous code paths.
+
+    Keeping this in a dedicated runtime helper preserves separation of concerns:
+    BundleService remains focused on domain transitions and job orchestration,
+    and portal lifecycle/error handling stays isolated in one place.
+
     Terminology in this module:
     - runtime: the full background execution environment (portal lifecycle +
       worker task-group + queue stream wiring)
@@ -46,6 +56,7 @@ class _PortalRuntime:
     def start(self) -> BlockingPortal:
         if self.portal is not None:
             return self.portal
+        # Start a dedicated AnyIO event loop in a worker thread so sync code can call async workers safely.
         portal_cm = start_blocking_portal()
         portal = portal_cm.__enter__()
         self._portal_cm = portal_cm
@@ -83,6 +94,7 @@ class BundleService:
         http_timeout_seconds: float,
         queue_max_size: int,
     ) -> None:
+        # RLock is used because some code paths can re-enter lock-protected helpers on the same thread.
         self.state_lock = RLock()
         # Keep two indexes for different concerns:
         # - bundle_by_id: primary lookup for status/download by public bundle id
@@ -93,7 +105,7 @@ class BundleService:
         # dedupe fingerprint so equivalent requests map to one bundle id.
         self.bundle_by_id: dict[str, BundleRecord] = {}
         self.bundle_id_by_key: dict[str, str] = {}
-        
+
         self._runtime = _PortalRuntime()
         self._send_stream: anyio.streams.memory.MemoryObjectSendStream[str] | None = None
 
@@ -106,6 +118,8 @@ class BundleService:
         self.queue_max_size = queue_max_size
 
     def _to_response(self, record: BundleRecord) -> dict[str, Any]:
+        """Return HTTP-serializable bundle fields from domain state without adapter-model coupling."""
+        # This stays a plain dict so core/domain logic is independent of server-layer Pydantic models.
         status_value = record.status.value if isinstance(record.status, BundleState) else str(record.status)
         return {
             "id": record.id,
@@ -115,10 +129,16 @@ class BundleService:
             "resultUrl": record.result_url,
         }
 
+    # ------------------------------------------------------------------
+    # Runtime Lifecycle (portal + queue wiring)
+    # ------------------------------------------------------------------
+    # Runtime lifecycle (portal + queue wiring).
     def start_runtime(self) -> None:
         with self.state_lock:
             if self._runtime.is_running:
                 return
+            # AnyIO memory streams integrate naturally with async task groups/cancellation and explicit close semantics.
+            # A vanilla thread-safe queue would require extra bridging code for async workers and shutdown signaling.
             send_stream, receive_stream = anyio.create_memory_object_stream[str](self.queue_max_size)
             portal = self._runtime.start()
             portal.start_task_soon(self._worker_supervisor, receive_stream)
@@ -146,7 +166,18 @@ class BundleService:
         self._runtime.stop()
         logger.debug("Bundle worker runtime stopped")
 
+    async def _enqueue_bundle_id(self, bundle_id: str) -> None:
+        """Enqueue one bundle id onto the async worker stream."""
+        if self._send_stream is None:
+            raise RuntimeError("Bundle worker queue unavailable")
+        await self._send_stream.send(bundle_id)
+
+    # ------------------------------------------------------------------
+    # Public Domain API
+    # ------------------------------------------------------------------
+    # Public domain API methods.
     def create_bundle_job(self, create_bundle_request: Any) -> dict[str, Any]:
+        """Validate input, persist a pending bundle record, and enqueue it for async processing."""
         payload: Any = create_bundle_request
         if hasattr(create_bundle_request, "model_dump"):
             payload = create_bundle_request.model_dump(by_alias=True, exclude_none=True)
@@ -196,75 +227,58 @@ class BundleService:
             raise KeyError(f"Bundle not found: {bundle_id}")
         return self._to_response(record)
 
-    async def _download_url_to_file(
-        self,
-        client: httpx.AsyncClient,
-        semaphore: anyio.Semaphore,
-        url: str,
-        target: Path,
-    ) -> None:
-        if _TEST_STUB_MODE_ENABLED and url == "__bundler_stub__":
-            async with await anyio.open_file(target, "wb") as out_f:
-                await out_f.write(b"stub")
-            return
+    def download_bundle_archive(self, bundle_id: str) -> bytes:
+        with self.state_lock:
+            record = self.bundle_by_id.get(bundle_id)
+            if record is None:
+                raise KeyError(f"Bundle not found: {bundle_id}")
+            if record.status != BundleState.COMPLETE:
+                raise RuntimeError(f"Bundle not ready:{self._to_response(record)}")
+            archive_path = record.archive_path
 
-        async with semaphore:
-            async with client.stream("GET", url) as response:
-                response.raise_for_status()
-                async with await anyio.open_file(target, "wb") as out_f:
-                    async for chunk in response.aiter_bytes():
-                        await out_f.write(chunk)
-
-    async def _enqueue_bundle_id(self, bundle_id: str) -> None:
-        if self._send_stream is None:
-            raise RuntimeError("Bundle worker queue unavailable")
-        await self._send_stream.send(bundle_id)
-
-    @staticmethod
-    def _zip_from_files(files: list[tuple[str, Path]], bundle_id: str) -> Path:
-        with tempfile.NamedTemporaryFile(prefix=f"bundle-{bundle_id}-", suffix=".zip", delete=False) as tmp:
-            tmp_path = Path(tmp.name)
-        with zipfile.ZipFile(tmp_path, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-            for archive_name, file_path in files:
-                zf.write(file_path, arcname=archive_name)
-        return tmp_path
-
-    async def _build_bundle_archive(self, record: BundleRecord) -> Path:
-        temp_dir = Path(tempfile.mkdtemp(prefix=f"bundle-stage-{record.id}-"))
-        downloaded_files: list[tuple[str, Path]] = []
-        timeout = httpx.Timeout(self.http_timeout_seconds)
-        # Bound concurrent downloads to avoid unbounded sockets/memory usage when
-        # a bundle contains many URLs. TaskGroup structures task lifetime; this
-        # semaphore enforces capacity/backpressure.
-        semaphore = anyio.Semaphore(self.download_concurrency)
-
+        if archive_path is None:
+            raise RuntimeError("Bundle not ready")
         try:
-            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-                async with anyio.create_task_group() as tg:
-                    for index, url in enumerate(record.urls, start=1):
-                        source = urlsplit(url)
-                        archive_name = Path(source.path).name or f"file-{index}"
-                        stage_path = temp_dir / f"{index:05d}-{archive_name}"
-                        downloaded_files.append((archive_name, stage_path))
-                        tg.start_soon(self._download_url_to_file, client, semaphore, url, stage_path)
+            return Path(archive_path).read_bytes()
+        except Exception as exc:
+            with self.state_lock:
+                _mark_failed(record, exc)
+            logger.exception("Failed to read bundle archive: bundle_id={}", bundle_id)
+            raise RuntimeError(f"Failed to read bundle archive: {exc}") from exc
 
-            # Keep download and zipping separate: downloads are async IO-bound
-            # work, while zip creation is blocking file/CPU work offloaded to a
-            # worker thread to keep the event loop responsive.
-            archive_path = await anyio.to_thread.run_sync(
-                self._zip_from_files,
-                downloaded_files,
-                record.id,
-            )
-            return archive_path
-        finally:
-            await anyio.to_thread.run_sync(shutil.rmtree, temp_dir, True)
-
+    # ------------------------------------------------------------------
+    # Sync/Async Bridge
+    # ------------------------------------------------------------------
+    # Sync/async bridge helper for tests/debug tooling.
     @logger.catch
     def build_bundle_zip(self, record: BundleRecord) -> Path:
         return anyio.run(self._build_bundle_archive, record)
 
+    # ------------------------------------------------------------------
+    # Worker Orchestration
+    # ------------------------------------------------------------------
+    # Worker orchestration and job execution.
+    async def _worker_supervisor(
+        self, receive_stream: anyio.streams.memory.MemoryObjectReceiveStream[str]
+    ) -> None:
+        async with receive_stream:
+            async with anyio.create_task_group() as tg:
+                for _ in range(self.worker_count):
+                    tg.start_soon(self._worker_consumer, receive_stream.clone())
+
+    async def _worker_consumer(
+        self, receive_stream: anyio.streams.memory.MemoryObjectReceiveStream[str]
+    ) -> None:
+        async with receive_stream:
+            while True:
+                try:
+                    bundle_id = await receive_stream.receive()
+                except anyio.EndOfStream:
+                    return
+                await self._process_bundle_job(bundle_id)
+
     async def _process_bundle_job(self, bundle_id: str) -> None:
+        """Process one queued bundle id through transition, build, and completion/failure finalization."""
         with self.state_lock:
             record = self.bundle_by_id.get(bundle_id)
             if record is None:
@@ -301,44 +315,104 @@ class BundleService:
                     record.archive_size_bytes,
                 )
 
-    async def _worker_consumer(
-        self, receive_stream: anyio.streams.memory.MemoryObjectReceiveStream[str]
+    # ------------------------------------------------------------------
+    # Bundling Internals (name mapping, download, archive assembly)
+    # ------------------------------------------------------------------
+    # Bundling internals (name mapping, download, archive assembly).
+    @staticmethod
+    def _archive_name_from_url(url: str, index: int) -> str | None:
+        """Map source URL to archive path using URL-derived root prefix.
+
+        Contract:
+        - Keep the first decoded path segment as the archive root (for example bucket name).
+        - Preserve remaining decoded nested path segments.
+        - If URL path is a trailing slash directory marker, treat it as an empty
+          folder reference and return ``None`` so no ZIP member is created.
+        - If no usable path segment exists, treat as pathless and return ``None``
+          so no ZIP member is created.
+        """
+        raw_decoded_path = unquote(urlsplit(url).path)
+        decoded_path = raw_decoded_path.lstrip("/")
+        segments = [segment for segment in decoded_path.split("/") if segment]
+        if not segments:
+            return None
+
+        if raw_decoded_path.endswith("/"):
+            return None
+
+        root = segments[0]
+        tail = segments[1:]
+        if not tail:
+            return None
+        return "/".join([root, *tail])
+
+    async def _download_url_to_file(
+        self,
+        client: httpx.AsyncClient,
+        semaphore: anyio.Semaphore,
+        url: str,
+        target: Path,
     ) -> None:
-        async with receive_stream:
-            while True:
-                try:
-                    bundle_id = await receive_stream.receive()
-                except anyio.EndOfStream:
-                    return
-                await self._process_bundle_job(bundle_id)
+        if _TEST_STUB_MODE_ENABLED and url == "__bundler_stub__":
+            async with await anyio.open_file(target, "wb") as out_f:
+                await out_f.write(b"stub")
+            return
 
-    async def _worker_supervisor(
-        self, receive_stream: anyio.streams.memory.MemoryObjectReceiveStream[str]
-    ) -> None:
-        async with receive_stream:
-            async with anyio.create_task_group() as tg:
-                for _ in range(self.worker_count):
-                    tg.start_soon(self._worker_consumer, receive_stream.clone())
+        async with semaphore:
+            async with client.stream("GET", url) as response:
+                response.raise_for_status()
+                async with await anyio.open_file(target, "wb") as out_f:
+                    async for chunk in response.aiter_bytes():
+                        await out_f.write(chunk)
 
-    def download_bundle_archive(self, bundle_id: str) -> bytes:
-        with self.state_lock:
-            record = self.bundle_by_id.get(bundle_id)
-            if record is None:
-                raise KeyError(f"Bundle not found: {bundle_id}")
-            if record.status != BundleState.COMPLETE:
-                raise RuntimeError(f"Bundle not ready:{self._to_response(record)}")
-            archive_path = record.archive_path
+    async def _build_bundle_archive(self, record: BundleRecord) -> Path:
+        """Build one bundle archive by downloading eligible URLs and zipping staged files."""
+        # Per-bundle staging workspace: isolates concurrent jobs and simplifies cleanup/debugging.
+        temp_dir = Path(tempfile.mkdtemp(prefix=f"bundle-stage-{record.id}-"))
+        downloaded_files: list[tuple[str, Path]] = []
+        timeout = httpx.Timeout(self.http_timeout_seconds)
+        # Bound concurrent downloads to avoid unbounded sockets/memory usage when
+        # a bundle contains many URLs. TaskGroup structures task lifetime; this
+        # semaphore enforces capacity/backpressure.
+        semaphore = anyio.Semaphore(self.download_concurrency)
 
-        if archive_path is None:
-            raise RuntimeError("Bundle not ready")
         try:
-            return Path(archive_path).read_bytes()
-        except Exception as exc:
-            with self.state_lock:
-                _mark_failed(record, exc)
-            logger.exception("Failed to read bundle archive: bundle_id={}", bundle_id)
-            raise RuntimeError(f"Failed to read bundle archive: {exc}") from exc
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+                async with anyio.create_task_group() as tg:
+                    for index, url in enumerate(record.urls, start=1):
+                        archive_name = self._archive_name_from_url(url, index)
+                        if archive_name is None:
+                            continue
+                        # Stable local temp filename (not URL-derived) to avoid path traversal and name collisions.
+                        stage_path = temp_dir / f"download-{index:05d}.bin"
+                        downloaded_files.append((archive_name, stage_path))
+                        tg.start_soon(self._download_url_to_file, client, semaphore, url, stage_path)
 
+            # Keep download and zipping separate: downloads are async IO-bound
+            # work, while zip creation is blocking file/CPU work offloaded to a
+            # worker thread to keep the event loop responsive.
+            archive_path = await anyio.to_thread.run_sync(
+                self._zip_from_files,
+                downloaded_files,
+                record.id,
+            )
+            return archive_path
+        finally:
+            await anyio.to_thread.run_sync(shutil.rmtree, temp_dir, True)
+
+    @staticmethod
+    def _zip_from_files(files: list[tuple[str, Path]], bundle_id: str) -> Path:
+        with tempfile.NamedTemporaryFile(prefix=f"bundle-{bundle_id}-", suffix=".zip", delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+        with zipfile.ZipFile(tmp_path, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for archive_name, file_path in files:
+                zf.write(file_path, arcname=archive_name)
+        return tmp_path
+
+    # ------------------------------------------------------------------
+    # Test Hook
+    # ------------------------------------------------------------------
+    # Test hook.
     def reset_runtime_state_for_tests(self) -> None:
         with self.state_lock:
             records = list(self.bundle_by_id.values())
@@ -363,29 +437,12 @@ _STATE_LOCK = _DEFAULT_SERVICE.state_lock
 _BUNDLE_BY_ID = _DEFAULT_SERVICE.bundle_by_id
 _BUNDLE_ID_BY_KEY = _DEFAULT_SERVICE.bundle_id_by_key
 
-
-def _ensure_worker_running() -> None:
-    _DEFAULT_SERVICE.start_runtime()
-
-
-def start_bundle_runtime() -> None:
-    _DEFAULT_SERVICE.start_runtime()
-
-
-def stop_bundle_runtime() -> None:
-    _DEFAULT_SERVICE.stop_runtime()
-
-
 def create_bundle_job(create_bundle_request: Any) -> dict[str, Any]:
     return _DEFAULT_SERVICE.create_bundle_job(create_bundle_request)
 
 
 def get_bundle_status(bundle_id: str) -> dict[str, Any]:
     return _DEFAULT_SERVICE.get_bundle_status(bundle_id)
-
-
-def _build_bundle_zip(record: BundleRecord) -> Path:
-    return _DEFAULT_SERVICE.build_bundle_zip(record)
 
 
 def download_bundle_archive(bundle_id: str) -> bytes:

@@ -17,6 +17,10 @@
 Failures use :func:`assert_status` so the response body and actual status code
 appear in assertion messages.
 
+Rule of thumb: if the question is "does the HTTP endpoint return the right
+status/body?", this suite (and sibling ``bundler_app_server_gen/tests`` modules)
+is the right place.
+
 Seeding runs once when ``tests.common`` is imported (``tests/seed_demo_bundles.py``).
 Payloads pass ``api_prefix=_API_PREFIX`` into :mod:`tests.common` helpers so ``folderName`` keys stay distinct from ``test_v2.py``.
 
@@ -165,7 +169,10 @@ def test_post_bundles_returns_409_when_request_is_duplicate(client: TestClient):
     # Cleanup — none
 
 
-def test_assert_status_surfaces_actual_code_when_status_unexpected(client: TestClient, monkeypatch):
+def test_assert_status_surfaces_actual_code_when_status_unexpected(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
     """If the server returns something other than the expected code, the failure shows it."""
     import openapi_server.impl.default_api_impl as impl
 

@@ -20,6 +20,12 @@ _VOLATILE_QUERY_KEYS = {
 
 
 def _normalize_url_for_key(url: str) -> str:
+    """Return a canonical URL string for dedupe key generation.
+
+    Normalization trims whitespace, lowercases scheme/netloc, removes known
+    volatile signing query params (for example presign signatures and expiry),
+    and sorts remaining query items to stabilize ordering.
+    """
     parts = urlsplit(url.strip())
     filtered_query = sorted(
         (k, v)
@@ -39,6 +45,12 @@ def _normalize_url_for_key(url: str) -> str:
 
 
 def _bundle_key(request: CreateBundleRequest, *, compression_version: str = "v1") -> str:
+    """Build a deterministic bundle fingerprint from request semantics.
+
+    The key hashes folder name, compression settings, compression version, and
+    normalized URLs. Equivalent URL lists (different order or volatile presign
+    params) resolve to the same key.
+    """
     normalized_urls = sorted(_normalize_url_for_key(url) for url in request.urls)
     folder_name = (request.folder_name or "").strip()
     material = "\n".join(
