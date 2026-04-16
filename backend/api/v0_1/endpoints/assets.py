@@ -1,4 +1,5 @@
 import logging
+import os
 from uuid import UUID
 
 from fastapi import HTTPException, APIRouter, Depends, status, Query
@@ -19,7 +20,10 @@ from api.v0_1.common.utils import convert_file_tree_to_dict
 assets_router = APIRouter(prefix='/assets', tags=["Asset Management"])
 logger = logging.getLogger("api.endpoints")
 
+BUNDLER_URL = os.getenv("BUNDLER_URL", "http://bundler:8082")
 
+
+# LEGACY endpoint, replace in s3_endpoints
 @assets_router.put("/upload", dependencies=[Depends(decode_token)])
 def put_asset(asset: PutAssetRequest = Depends(),
               user: dict = Depends(decode_token),
@@ -64,6 +68,7 @@ def put_asset(asset: PutAssetRequest = Depends(),
                             detail="User does not have write access to this resource")
 
 
+# LEGACY endpoint, replace in s3_endpoints
 @assets_router.delete("/delete", dependencies=[Depends(decode_token)])
 def delete_asset(asset: DeleteAssetRequest = Depends(),
                  user: dict = Depends(decode_token),
@@ -106,6 +111,7 @@ def delete_asset(asset: DeleteAssetRequest = Depends(),
                             detail="User does not have delete access to this resource")
 
 
+# LEGACY endpoint, replace in s3_endpoints
 @assets_router.get("/download", dependencies=[Depends(decode_token)])
 def get_asset(asset: GetAssetRequest = Depends(),
               user: dict = Depends(decode_token),
@@ -301,6 +307,7 @@ async def get_asset_dashboard(
 
 
 # Get assets for a specific instance to allow for lazy loading
+# LEGACY endpoint. Deprecated and replaced by /api/tree/dashboard/{instance_uuid}
 @assets_router.get(
     "/dashboard/{instance}",
     response_model=AssetManagementData,

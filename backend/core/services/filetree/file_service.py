@@ -43,6 +43,11 @@ class FileService:
             select(File).where(File.id == file_id)
         )).scalar_one_or_none()
 
+    async def get_files(self, file_ids: list[int]) -> list[File]:
+        return list((await self.session.execute(
+            select(File).where(File.id.in_(file_ids))
+        )).scalars().all())
+
     async def update_from_head(self, file: File, head: dict) -> None:
         file.size = head.get("ContentLength", file.size)
         file.etag = head.get("ETag", file.etag)

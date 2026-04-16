@@ -20,6 +20,18 @@ class GetAssetResponse(BaseModel):
     file_paths: list[str] = Field(..., description="The file paths for the asset.")
 
 
+class BundleCreateRequest(BaseModel):
+    instance_name: str = Field(..., description="The name of the access point.")
+    file_ids: list[int] = Field(..., description="List of file IDs to bundle.")
+    folder_name: Union[str, None] = Field(default="archive", description="Optional folder name for the bundle.")
+
+
+class BundleCreateResponse(BaseModel):
+    bundle_id: str = Field(..., description="The ID of the requested bundle.")
+    status: str = Field(..., description="The current status of the bundle request.")
+    folder_name: str = Field(..., description="The name of the archive file.")
+
+
 class PutAssetRequest(BaseModel):
     resource: str = Field(..., description="Target path/key to write to (e.g. 'folder/sub/file.txt').")
     instance_name: str = Field(..., description="Name of the storage access point.")

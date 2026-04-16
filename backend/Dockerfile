@@ -25,8 +25,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Python deps
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt \
- && pip install --no-cache-dir pydevd-pycharm
+RUN pip install --no-cache-dir -r requirements.txt 
+# \ && pip install --no-cache-dir pydevd-pycharm
 
 # App code
 COPY . .

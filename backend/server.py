@@ -59,7 +59,7 @@ if __name__ == "__main__":
     logging.getLogger("app").info("Starting application...")
 
     # ---- Resolve/absolutize paths (provided by Compose)
-    path_envs = ["ENFORCER_MODEL", "INSTANCE_CONFIGS"]
+    path_envs = ["ENFORCER_MODEL"]
     for k in path_envs:
         v = os.getenv(k)
         if not v:

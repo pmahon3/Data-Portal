@@ -26,13 +26,13 @@ def agent_factory(config: dict) -> AbstractStorageAgent:
         return AVAILABLE_FLAVOURS[flavour](**config['agent'])
     
     except PermissionError as e:
-        raise PermissionError(f"Permission denied during '{flavour}' storage agent initialization") from e
+        raise PermissionError(f"Permission denied during '{flavour}' storage agent initialization {e}") from e
     
     except ConnectionError as e:
-        raise ConnectionError(f"Connection failed during '{flavour}' storage agent initialization") from e
+        raise ConnectionError(f"Connection failed during '{flavour}' storage agent initialization {e}") from e
     
     except ValueError as e:
-        raise ValueError(f"Invalid configuration or credentials during '{flavour}' storage agent initialization") from e
+        raise ValueError(f"Invalid configuration or credentials during '{flavour}' storage agent initialization {e}") from e
     
     except Exception as e:
-        raise RuntimeError(f"Unexpected error initializing '{flavour}' storage agent") from e
+        raise RuntimeError(f"Unexpected error initializing '{flavour}' storage agent {e}") from e
