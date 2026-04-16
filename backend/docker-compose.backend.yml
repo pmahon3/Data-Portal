@@ -6,7 +6,10 @@ secrets:
 services:
   backend:
     container_name: ams-backend
-    build: .
+    build: 
+      context: .
+      platforms:
+        - "linux/amd64"
     depends_on:
     # Require keycloak be ready before backend starts up
       keycloak:

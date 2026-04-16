@@ -34,25 +34,40 @@ class S3StorageAgent(AbstractStorageAgent):
             endpoint_url=instance_url,
             aws_access_key_id=aws_access_key_id,
             aws_secret_access_key=aws_secret_access_key,
-            config=Config(signature_version="s3v4")
+            config=Config(signature_version="s3v4"),
+            region_name="us-east-2",
         )
 
-
+        logger.info(f"S3Client initialized with endpoint_url: {instance_url}")
         try:
             # boto3 is lazy and doesn't throw an error until the client is actually used
             self.s3_client.list_buckets()
 
         except ClientError as e:
             error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+            error_msg = e.response.get('Error', {}).get('Message', 'No message')
+
+            logger.error(f"S3 ClientError: {error_code} - {error_msg}")
+
             if error_code == 'AccessDenied':
                 raise PermissionError("S3 Access Denied") from e
             raise ValueError(f"S3 Client Error [{error_code}]") from e
         
         except BotoCoreError as e:
+            error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+            error_msg = e.response.get('Error', {}).get('Message', 'No message')
+
+            logger.error(f"S3 ClientError: {error_code} - {error_msg}")
+
             # Handles DNS, Timeouts, and Connection Refused
             raise ConnectionError("S3 Connection failed") from e
             
         except Exception as e:
+            error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+            error_msg = e.response.get('Error', {}).get('Message', 'No message')
+
+            logger.error(f"S3 ClientError: {error_code} - {error_msg}")
+
             raise RuntimeError("Unexpected S3 error") from e
         
         # Attempt to build the in-memory file tree

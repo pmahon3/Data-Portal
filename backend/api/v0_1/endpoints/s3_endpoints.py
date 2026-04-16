@@ -1,11 +1,17 @@
 
+import os
+import httpx
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # INN dependencies
 from api.v0_1.endpoints.auth import decode_token
+from api.v0_1.common.models import BundleCreateRequest, BundleCreateResponse
 # DB models
 from core.db.postgres.session import get_session
 from core.services.injectors import get_instance_manager, get_policy_manager, get_user_manager
@@ -20,6 +26,11 @@ from core.services.filetree.tree_service import TreeService
 from core.util.paths import normalize_folder_full_path
 
 router = APIRouter(prefix="/tree", tags=["Tree"])
+logger = logging.getLogger("api.endpoints")
+BUNDLER_URL = os.getenv("BUNDLER_URL", "http://bundler:8082")
+
+# Global async HTTP client for interacting with the bundler service
+bundler_client = httpx.AsyncClient(timeout=httpx.Timeout(60.0))
 
 #################################################################################### Pydantic models
 class TreeRootQuery(BaseModel):
@@ -395,94 +406,194 @@ async def delete_folder(
     await tree_svc.delete_folder_subtree(bucket, folder_id)
     return {"deleted": True, "folder_id": folder_id}
 
+# --------------- Bundler Endpoints ---------------
 
-
-######################################################################################################################
-##### to downlaod a folder, instead of returning all presigned urls, we can also create an archive in the object storage
-##### and create a presigned url for it and return it#####
-##### problems with this: it creates an archive locally  which is not efficient at all.
-##### tempfile.TemporaryDirectory() creates a folder in the system temp location (e.g., /tmp on Linux/macOS). It's
-##### automatically deleted when the with block ends. However, this is not a good choice for large files.
-######################################################################################################################
-import tempfile
-import zipfile
-from pathlib import Path
-
-@router.post("/folders/{folder_id}/archive")
-async def create_folder_archive(
-    folder_id: int,
-    instance_name: str,
-    bucket: str,
+@router.post(
+    "/bundle/zip",
+    response_model=BundleCreateResponse,
+    summary="Create an asset zip bundle",
+    description="Generates a zip archive of requested files using the bundler service."
+)
+async def create_asset_bundle(
+    request: BundleCreateRequest,
     user: dict = Depends(decode_token),
     session: AsyncSession = Depends(get_session),
     user_manager: AbstractUserManager = Depends(get_user_manager),
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
-    instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
+    instance_manager: AbstractInstanceManager = Depends(get_instance_manager)
 ):
     """
-    Create a ZIP archive in S3 for a folder subtree and return a presigned URL.
+    Create a zip bundle of requested assets.
+    
+    Takes a list of file IDs, verifies read access for each, 
+    generates presigned URLs, and sends to the bundler to process.
+    
+    Args:
+        request: The bundle request containing instance_name, folder_name, and file_ids
+        user: Current authenticated user
+        session: Async database session dependency
+        user_manager: User manager dependency
+        policy_manager: Policy manager dependency
+        instance_manager: Instance manager dependency
+        
+    Returns:
+        BundleCreateResponse: Response containing bundle_id, status and folder_name
     """
-    user_uuid = user_manager.get_user_uuid(user["preferred_username"])
-    instance_uuid, agent = get_instance_agent(instance_manager, instance_name)
+    logger.info(f"Asset bundle request from user '{user['preferred_username']}' on instance '{request.instance_name}' with {len(request.file_ids)} file_ids.")
+    
+    if not request.file_ids:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No files provided for bundling.")
 
-    folder = (await session.execute(
-        select(Folder).where(Folder.id == folder_id, Folder.bucket == bucket)
-    )).scalar_one()
-    if folder.full_path == "/":
-        raise HTTPException(status_code=400, detail="Refusing to archive root folder")
-
-    policy = Policy(
-        user_uuid=user_uuid,
-        instance_uuid=instance_uuid,
-        resource=resource_for_folder(bucket, folder.full_path),
-        action="read"
-    )
-    policy_or_403(policy_manager, policy)
+    user_uuid = user_manager.get_user_uuid(user['preferred_username'])
+    instance_uuid, agent = get_instance_agent(instance_manager, request.instance_name)
 
     if not hasattr(agent, "s3_client"):
         raise HTTPException(status_code=501, detail="Storage agent does not expose s3_client")
 
-    files_q = (
-        select(File, Folder.full_path)
-        .join(Folder, Folder.id == File.folder_id)
-        .where(
-            File.bucket == bucket,
-            Folder.bucket == bucket,
-            Folder.path.op("<@")(folder.path),
+    file_svc = FileService(session)
+    all_presigned_urls = []
+
+    # Retrieve the file objects from DB based on file ids
+    files = await file_svc.get_files(request.file_ids)
+    file_map = {f.id: f for f in files}
+
+    # Get presigned urls for each file
+    for file_id in request.file_ids:
+        file = file_map.get(file_id)
+        if not file:
+            logger.warning(f"File ID {file_id} not found in DB.")
+            continue
+            
+        policy = Policy(
+            user_uuid=user_uuid,
+            instance_uuid=instance_uuid,
+            resource=resource_for_key(file.bucket, file.key),
+            action="read"
         )
-        .order_by(Folder.full_path, File.name)
+        policy_or_403(policy_manager, policy)
+
+        try:
+            url = agent.s3_client.generate_presigned_url(
+                ClientMethod="get_object",
+                Params={"Bucket": file.bucket, "Key": file.key},
+                ExpiresIn=600,
+            )
+            all_presigned_urls.append(url)
+        except Exception as e:
+            logger.error(f"Unable to generate presigned URL for file_id {file_id}: {str(e)}")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                                detail=f"Unable to generate presigned URL for file_id {file_id}: {str(e)}")
+
+    if not all_presigned_urls:
+         logger.warning("No files found to bundle from the requested resources")
+         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No files found to bundle.")
+
+    # POST to Bundler service's create archive endpoint
+    folder_name = request.folder_name or "archive"
+    
+    init_payload = {
+        "urls": all_presigned_urls,
+        "folderName": folder_name
+    }
+    
+    try:
+        init_res = await bundler_client.post(f"{BUNDLER_URL}/bundles", json=init_payload, timeout=10.0)
+    except httpx.RequestError as e:
+        logger.error(f"Request error while communicating with Bundler: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Bundler service is unreachable.")
+
+    if init_res.status_code != 202:
+        logger.error(f"Bundler service returned unexpected status {init_res.status_code} during initiation")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to initialize bundle generation.")
+
+    bundle_data = init_res.json()
+    bundle_id = bundle_data.get("id")
+    if not bundle_id:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Invalid response from bundler.")
+
+    # Send bundle id and status back to client
+    return BundleCreateResponse(bundle_id=bundle_id, status="processing", folder_name=folder_name)
+
+@router.get(
+    "/bundle/{bundle_id}/status",
+    summary="Check status of an asset bundle",
+    description="Check the processing status of a previously requested bundle."
+)
+async def get_bundle_status(
+    bundle_id: str,
+    user: dict = Depends(decode_token)
+):
+    """
+    Check the processing status of a previously requested bundle.
+    
+    Args:
+        bundle_id: The ID of the bundle to check.
+        user: Current authenticated user.
+        
+    Returns:
+        dict: The current status of the bundle.
+    """
+    try:
+        poll_res = await bundler_client.get(f"{BUNDLER_URL}/bundles/{bundle_id}", timeout=5.0)
+    except httpx.RequestError as e:
+        logger.error(f"Bundler status check failed for bundle {bundle_id}: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Bundle status check failed.")
+        
+    if poll_res.status_code == 202:
+        return poll_res.json()
+    elif poll_res.status_code == 404:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bundle not found.")
+    else:
+        logger.error(f"Bundler status check returned status {poll_res.status_code}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Bundle error.")
+
+@router.get(
+    "/bundle/{bundle_id}/download",
+    summary="Download an asset zip bundle",
+    description="Streams the completed zip archive from the bundler service."
+)
+async def download_bundle(
+    bundle_id: str,
+    folder_name: str = "archive",
+    user: dict = Depends(decode_token)
+):
+    """
+    Download a completed asset zip bundle.
+    
+    Streams the zip archive from the bundler service to the client.
+    
+    Args:
+        bundle_id: The ID of the bundle to download.
+        folder_name: The name to use for the downloaded zip file (without .zip). Defaults to "archive".
+        
+    Returns:
+        StreamingResponse: Streaming response containing the zip archive.
+    """
+    try:
+        # Ensure we connect but leave the stream open.
+        req = bundler_client.build_request('GET', f"{BUNDLER_URL}/bundles/{bundle_id}/download")
+        response = await bundler_client.send(req, stream=True)
+    except httpx.RequestError as e:
+        logger.error(f"Stream connection failed: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Bundler connection error.")
+
+    # Reject if the bundler throws an error.
+    if response.status_code != 200:
+        await response.aclose()
+        if response.status_code == 404:
+            raise HTTPException(status_code=404, detail="Bundle not found.")
+        logger.error(f"Failed to download bundle {bundle_id}, status {response.status_code}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Bundle download error.")
+
+    async def stream_zip():
+        try:
+            async for chunk in response.aiter_bytes(chunk_size=8192):
+                yield chunk
+        finally:
+            await response.aclose()
+
+    return StreamingResponse(
+        stream_zip(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename={folder_name}.zip"}
     )
-    rows = list((await session.execute(files_q)).all())
-
-    root_full = normalize_folder_full_path(folder.full_path)
-    top_folder_name = folder.name.strip("/") or "folder"
-
-    # Build ZIP locally, then upload to S3
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmp_zip = Path(tmpdir) / f"{top_folder_name}.zip"
-
-        with zipfile.ZipFile(tmp_zip, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-            for file, folder_full_path in rows:
-                folder_full_path = normalize_folder_full_path(folder_full_path)
-                if root_full == "/":
-                    rel_prefix = folder_full_path.lstrip("/")
-                else:
-                    rel_prefix = folder_full_path.replace(root_full, "", 1)
-                inner_path = f"{rel_prefix}{file.name}" if rel_prefix else file.name
-                arcname = f"{top_folder_name}/{inner_path}"
-
-                # download object to temp file and add to zip
-                obj = agent.s3_client.get_object(Bucket=bucket, Key=file.key)
-                data = obj["Body"].read()
-                zf.writestr(arcname, data)
-
-        # Upload ZIP to S3
-        archive_key = f"archives/{top_folder_name}-{folder_id}.zip"
-        agent.s3_client.upload_file(str(tmp_zip), bucket, archive_key)
-
-    url = agent.s3_client.generate_presigned_url(
-        ClientMethod="get_object",
-        Params={"Bucket": bucket, "Key": archive_key},
-        ExpiresIn=900,
-    )
-    return {"archive_key": archive_key, "url": url}

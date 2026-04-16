@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import Tree from "./Tree.js";
 import { CircularProgress } from "@mui/material";
 import { formatError } from "../../../utils/errorUtils";
+import { downloadAssetBundle } from "./download";
 
 export default function EndpointCard({
   endpointName,
@@ -121,38 +122,37 @@ export default function EndpointCard({
   // --------------------
 const handleDownload = async () => {
   if (!hasRead) return alert("No read permission.");
-  if (readLeaves.length === 0) return alert("Select files in READ.");
+  if (readLeaves.length === 0) return alert("Select files or folders in READ.");
 
   setBusy("down");
   setBusyID(endpointUuid);
   try {
-    for (const id of readLeaves) {
-      if (!String(id).startsWith("file-")) continue;
-      const fileId = String(id).replace("file-", "");
+    const fileIds = readLeaves
+      .filter((id) => String(id).startsWith("file-"))
+      .map((id) => parseInt(String(id).replace("file-", ""), 10));
 
-      const headers = await authHeaders();
-      const { data } = await http.get(`/tree/files/${fileId}/download-url`, {
-        params: { instance_name: endpointName},
-        headers,
-      });
-
-      const url = data?.url;
-      if (!url) throw new Error("No download URL returned");
-
-      // Trigger browser download
-      const a = document.createElement("a");
-      a.href = url;
-      a.target = "_blank";
-      a.rel = "noopener";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+    if (fileIds.length === 0) {
+      alert("No valid files selected for download.");
+      setBusy(null);
+      setBusyID(null);
+      return;
     }
 
-    console.log(`[Download] Triggered downloads for ${readLeaves.length} file(s) from "${endpointName}"`);
+    await downloadAssetBundle(http, endpointName, fileIds, authHeaders);
+    console.log(`[Download] Triggered downloads for ${fileIds.length} file(s) from "${endpointName}"`);
   } catch (e) {
     console.error(`[Download] Download failed for endpoint "${endpointName}":`, e);
-    alert(`Download failed: ${formatError(e)}`);
+    let errMsg = formatError(e);
+    if (e.response && e.response.data instanceof Blob) {
+      try {
+        const text = await e.response.data.text();
+        const json = JSON.parse(text);
+        errMsg = json.detail || json.message || text;
+      } catch (err) {
+        // use default errMsg
+      }
+    }
+    alert(`Download failed: ${errMsg}`);
   } finally {
     setBusy(null);
     setBusyID(null);
@@ -501,8 +501,7 @@ const handleDownload = async () => {
                     nodes={readArray}
                     selected={selectedByAccess.read || new Set()}
                     onChange={onTreeChange("read")}
-                      disableFolderSelection={true}
-
+                    cascadeSelection={true}
                   />
                 </div>
               )}

@@ -12,7 +12,9 @@ import { Checkbox } from "@mui/material";
 export default function Tree({ 
   nodes = [], selected, onChange, 
   disableFileSelection = false,  
-   disableFolderSelection = false}) {
+  disableFolderSelection = false,
+  cascadeSelection = false
+}) {
   const tree = buildTreeFromFlat(nodes);      // nested [{ id, text, children }]
   if (tree.length === 0) {
     return <div style={{ fontSize: 12, color: "#6b7280" }}>No items.</div>;
@@ -26,13 +28,14 @@ export default function Tree({
       {tree.map((n) => (
         <TreeNode key={n.id} node={n} selected={selected} onChange={onChange} disableFileSelection={disableFileSelection}
         disableFolderSelection={disableFolderSelection}
+        cascadeSelection={cascadeSelection}
         />
       ))}
     </SimpleTreeView>
   );
 }
 
-function TreeNode({ node, selected, onChange, disableFileSelection, disableFolderSelection}) {
+function TreeNode({ node, selected, onChange, disableFileSelection, disableFolderSelection, cascadeSelection}) {
    const id = String(node.id);
   const isFile = id.startsWith("file-");
   const checked = selected.has(String(node.id));
@@ -42,14 +45,14 @@ function TreeNode({ node, selected, onChange, disableFileSelection, disableFolde
      if ((disableFileSelection && isFile) || (disableFolderSelection && isFolder)) return;
     const next = new Set(selected);
 
-    // Old cascade behaviour (kept for later):
-    // if (checked) unselectSubtree(next, node);
-    // else selectSubtree(next, node);
-
-    // New: only toggle this node (no cascade)
-    const id = String(node.id);
-    if (checked) next.delete(id);
-    else next.add(id);
+    if (cascadeSelection) {
+      if (checked) unselectSubtree(next, node);
+      else selectSubtree(next, node);
+    } else {
+      const id = String(node.id);
+      if (checked) next.delete(id);
+      else next.add(id);
+    }
 
     onChange(next);
   };
@@ -78,7 +81,8 @@ function TreeNode({ node, selected, onChange, disableFileSelection, disableFolde
           selected={selected} 
           onChange={onChange} 
           disableFileSelection={disableFileSelection}
-       disableFolderSelection={disableFolderSelection}
+          disableFolderSelection={disableFolderSelection}
+          cascadeSelection={cascadeSelection}
           />
         ))}
     </TreeItem>
