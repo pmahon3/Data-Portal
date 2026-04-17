@@ -6,7 +6,7 @@ from typing import List, Tuple
 import boto3
 import treelib
 from botocore.config import Config
-from botocore.exceptions import BotoCoreError, ClientError
+from botocore.exceptions import EndpointConnectionError
 
 from core.storage_agents.abstract_storage_agent import AbstractStorageAgent
 
@@ -29,46 +29,57 @@ class S3StorageAgent(AbstractStorageAgent):
                  aws_secret_access_key: str):
         super().__init__(instance_url)
 
-        self.s3_client = boto3.client(
-            's3',
-            endpoint_url=instance_url,
-            aws_access_key_id=aws_access_key_id,
-            aws_secret_access_key=aws_secret_access_key,
-            config=Config(signature_version="s3v4"),
-            region_name="us-east-2",
-        )
-
-        logger.info(f"S3Client initialized with endpoint_url: {instance_url}")
         try:
+            self.s3_client = boto3.client(
+                's3',
+                endpoint_url=instance_url,
+                aws_access_key_id=aws_access_key_id,
+                aws_secret_access_key=aws_secret_access_key,
+                config=Config(signature_version="s3v4"),
+                region_name="us-east-2"
+            )
+
             # boto3 is lazy and doesn't throw an error until the client is actually used
             self.s3_client.list_buckets()
 
-        except ClientError as e:
-            error_code = e.response.get('Error', {}).get('Code', 'Unknown')
-            error_msg = e.response.get('Error', {}).get('Message', 'No message')
-
-            logger.error(f"S3 ClientError: {error_code} - {error_msg}")
-
-            if error_code == 'AccessDenied':
-                raise PermissionError("S3 Access Denied") from e
-            raise ValueError(f"S3 Client Error [{error_code}]") from e
-        
-        except BotoCoreError as e:
-            error_code = e.response.get('Error', {}).get('Code', 'Unknown')
-            error_msg = e.response.get('Error', {}).get('Message', 'No message')
-
-            logger.error(f"S3 ClientError: {error_code} - {error_msg}")
-
-            # Handles DNS, Timeouts, and Connection Refused
-            raise ConnectionError("S3 Connection failed") from e
-            
+        # Map technical S3/connection errors to user-friendly exceptions.
+        # Detailed diagnostic are logged within the storage agent.
+        # Reference: https://docs.aws.amazon.com/AmazonS3/latest/API/ErrorResponses.html
         except Exception as e:
-            error_code = e.response.get('Error', {}).get('Code', 'Unknown')
-            error_msg = e.response.get('Error', {}).get('Message', 'No message')
+            # Handle botocore specific exceptions
+            logger.error(f"Failed to initialize S3 client: {e}", exc_info=True)
 
-            logger.error(f"S3 ClientError: {error_code} - {error_msg}")
+            if isinstance(e, EndpointConnectionError):
+                raise ConnectionError(
+                    "Unable to reach the storage server. Please verify that the endpoint URL is correct and your network connection is stable."
+                ) from e
 
-            raise RuntimeError("Unexpected S3 error") from e
+            # Attempt to extract the AWS error code; fall back to 'Unknown'
+            try:
+                error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+            except Exception:
+                error_code = 'Unknown'
+
+            # Permissions and Authentication
+            if error_code in ["AccessDenied", "InvalidAccessKeyId", "SignatureDoesNotMatch", "AllAccessDisabled"]:
+                raise PermissionError(
+                    "Authentication failed. Please verify your storage credentials, access keys, and permission policies."
+                ) from e
+
+            # Regional/Routing Errors
+            elif error_code in ["PermanentRedirect", "AuthorizationHeaderMalformed"]:
+                raise ValueError(
+                    "The storage configuration is incorrect. Please contact your system administrator if the problem persists."
+                ) from e
+
+            # Throttling/Server Side
+            elif error_code in ["SlowDown", "InternalError", "ServiceUnavailable"]:
+                raise ConnectionError(
+                    "The storage service is currently overloaded or experiencing temporary issues. Please wait a moment and try again."
+                ) from e
+
+            # Unhandled S3/botocore error
+            raise RuntimeError("A technical issue occurred while setting up the storage agent. Please contact your system administrator if the problem persists.") from e
         
         # Attempt to build the in-memory file tree
         self.file_tree = treelib.Tree()

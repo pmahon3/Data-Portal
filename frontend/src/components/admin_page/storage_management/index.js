@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { useKeycloak } from "@react-keycloak/web";
+import { CircularProgress } from '@mui/material';
 import "./StorageManagement.css";
 import { formatError } from "../../../utils/errorUtils";
 
@@ -13,6 +14,7 @@ export default function StorageManagement() {
 
   const [instances, setInstances] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
   const [err, setErr] = useState("");
 
   // form state
@@ -72,14 +74,18 @@ export default function StorageManagement() {
     }
 
     try {
+      setCreating(true);
       const headers = { ...(await authHeaders()) };
       await http.post(`${INSTANCES_BASE}/`, payload, { headers });
       await loadInstances();
       // light reset of sensitive fields
       setS3Key(""); setS3Secret("");
+      setFlavour("");
       alert("Instance created.");
     } catch (e) {
       setErr(formatError(e));
+    } finally {
+      setCreating(false);
     }
   }
 
@@ -134,7 +140,9 @@ export default function StorageManagement() {
           )}
 
           <div className="im-actions">
-            <button className="im-btn im-btn-primary" type="submit" disabled={!flavour}>Create</button>
+            <button className="im-btn im-btn-primary" type="submit" disabled={!flavour || creating}>
+              {creating ? <CircularProgress size={20} color="inherit" /> : "Create"}
+            </button>
             {err && <div className="im-error">{err}</div>}
           </div>
         </form>

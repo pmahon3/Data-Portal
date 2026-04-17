@@ -64,8 +64,11 @@ def get_policy_manager() -> CasbinPolicyManager:
         # Lazy import to avoid circular dependencies
         from core.services.policies.casbin import CasbinPolicyManager
 
+        logger.info("Initializing policy manager...")
+
         # Initialize policy manager with all user UUIDs to load policies from disk
         _policy_manager = CasbinPolicyManager()
+        logger.info("CasbinPolicyManager instance created successfully")
 
     return _policy_manager
 
@@ -80,10 +83,14 @@ def get_instance_manager() -> AbstractInstanceManager:
         from core.services.instances import InstanceManager
         from core.db.mongodb.mongo_client import get_mongo_client
 
+        logger.info("Initializing instance manager...")
+
         mongo_client = get_mongo_client()
         db = mongo_client[os.getenv('MONGO_DB', 'inn-mongo')]
         collection = db[os.getenv('MONGO_INSTANCE_COLLECTION', 'connection-storage-instances')]
 
         _instance_manager = InstanceManager(collection=collection)
+
+        logger.info("InstanceManager instance created successfully...")
 
     return _instance_manager

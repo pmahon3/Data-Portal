@@ -2,6 +2,9 @@
 from core.db.postgres.init_db import ensure_roots_for_instances
 from core.db.postgres.session import AsyncSessionMaker
 from core.services.injectors import get_instance_manager
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 #DB init for s3
@@ -12,5 +15,8 @@ async def init_db_roots():
 
 # Central place to run all startup tasks such as DB init. We may end up adding more start up tasks
 async def run_startup_tasks():
+    logger.info("Running postgres startup tasks")
 
     await init_db_roots()
+
+    logger.info("Completed postgres startup tasks")

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { useKeycloak } from "@react-keycloak/web";
+import { CircularProgress } from "@mui/material";
 import EndpointCard from "./EndpointCard.js";
 import { formatError } from "../../../utils/errorUtils";
 

@@ -190,7 +190,7 @@ async def create_instance(
             status_code=500,
             detail=f"Failed to add administrator policy for new instance: {str(e)}"
         )
-
+    logger.info(f"Created instance '{name_value}' (UUID: {instance_uuid}) by user '{admin_user.get('preferred_username')}'")
     return JSONResponse(
         status_code=201,
         content={
@@ -269,6 +269,8 @@ async def delete_instance(
         # The instance is already removed
         logger.warning(f"Failed to remove policies for deleted instance '{instance.name}': {str(e)}")
         pass
+
+    logger.info(f"Deleted instance '{instance.name}' (UUID: {instance_id}) by user '{admin_user.get('preferred_username')}'")
 
     return JSONResponse(
         status_code=200,

@@ -38,6 +38,7 @@ def get_mongo_client() -> MongoClient:
         host = os.getenv("MONGO_HOST", "")
         port = os.getenv("MONGO_PORT", "27017")
 
+        logger.info("Initializing MongoDB connection...")
 
         # Singleton synchronous shared MongoDB client connection. Using a singleton ensures that all consumers are ACID. 
         # If there are multiple instances of the client (e.g., multiple backends), the synchronous client does not 
@@ -52,6 +53,6 @@ def get_mongo_client() -> MongoClient:
             _mongo_client = None
             raise
         
-        logger.info('Initialized Mongo client connection')
+        logger.info('Successfully connected to MongoDB')
 
     return _mongo_client
