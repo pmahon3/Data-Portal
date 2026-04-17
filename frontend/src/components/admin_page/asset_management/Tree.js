@@ -13,7 +13,7 @@ export default function Tree({
   nodes = [], selected, onChange, 
   disableFileSelection = false,  
   disableFolderSelection = false,
-  cascadeSelection = false
+  disableCascade = false
 }) {
   const tree = buildTreeFromFlat(nodes);      // nested [{ id, text, children }]
   if (tree.length === 0) {
@@ -28,14 +28,14 @@ export default function Tree({
       {tree.map((n) => (
         <TreeNode key={n.id} node={n} selected={selected} onChange={onChange} disableFileSelection={disableFileSelection}
         disableFolderSelection={disableFolderSelection}
-        cascadeSelection={cascadeSelection}
+        disableCascade={disableCascade}
         />
       ))}
     </SimpleTreeView>
   );
 }
 
-function TreeNode({ node, selected, onChange, disableFileSelection, disableFolderSelection, cascadeSelection}) {
+function TreeNode({ node, selected, onChange, disableFileSelection, disableFolderSelection, disableCascade}) {
    const id = String(node.id);
   const isFile = id.startsWith("file-");
   const checked = selected.has(String(node.id));
@@ -45,13 +45,18 @@ function TreeNode({ node, selected, onChange, disableFileSelection, disableFolde
      if ((disableFileSelection && isFile) || (disableFolderSelection && isFolder)) return;
     const next = new Set(selected);
 
-    if (cascadeSelection) {
-      if (checked) unselectSubtree(next, node);
-      else selectSubtree(next, node);
-    } else {
+    if (disableCascade) {
       const id = String(node.id);
       if (checked) next.delete(id);
       else next.add(id);
+    } else {
+      if (checked) {
+        unselectSubtree(next, node);
+        uncheckAncestors(next, node);
+      } else {
+        selectSubtree(next, node);
+        checkAncestors(next, node);
+      }
     }
 
     onChange(next);
@@ -82,7 +87,7 @@ function TreeNode({ node, selected, onChange, disableFileSelection, disableFolde
           onChange={onChange} 
           disableFileSelection={disableFileSelection}
           disableFolderSelection={disableFolderSelection}
-          cascadeSelection={cascadeSelection}
+          disableCascade={disableCascade}
           />
         ))}
     </TreeItem>
@@ -91,30 +96,46 @@ function TreeNode({ node, selected, onChange, disableFileSelection, disableFolde
 
 /* ---------------- helpers  ---------------- */
 
+// Converts a flat array of objects into a hierarchical tree structure.
 function buildTreeFromFlat(list) {
   if (!Array.isArray(list) || list.length === 0) return [];
   const map = Object.create(null);
 
-  // create a node shell for every id once
+  // First Pass: Create a "shell" or reference for every node in the list
   for (const it of list) {
     const id = String(it.id);
+
+    // If the node isn't in our map yet, initialize it with basic properties
     if (!map[id]) map[id] = { id, text: it.text || nameFromId(id), children: [] };
+    // If the node exists, ensure its text is populated
     else if (!map[id].text) map[id].text = it.text || nameFromId(id);
+
+    // Store the parent reference temporarily on the node object.
+    // Handles "#" as a common convention for "root" or no parent.
+    map[id]._parentId = it.parent && it.parent !== "#" ? String(it.parent) : null;
   }
 
   const roots = [];
 
-  // attach each node to its parent (or make it a root)
+  // Second Pass: Establish parent-child relationships
   for (const it of list) {
     const id = String(it.id);
     const parent = it.parent;
     const node = map[id];
 
+    // Check if the node has a valid parent
     if (parent && parent !== "#" && parent !== id) {
       const pid = String(parent);
+      // Placeholder Logic: If the parent doesn't exist in the map yet
       if (!map[pid]) map[pid] = { id: pid, text: nameFromId(pid), children: [] };
+
+      // Link the current node to its parent's children array
       map[pid].children.push(node);
+
+      // Store reference of parent in current node  
+      node._parentRef = map[pid];
     } else {
+      // If no valid parent exists, this node is a top-level root
       roots.push(node);
     }
   }
@@ -138,6 +159,40 @@ function selectSubtree(sel, node) {
 function unselectSubtree(sel, node) {
   sel.delete(String(node.id));
   if (node.children) node.children.forEach((c) => unselectSubtree(sel, c));
+}
+
+function checkAncestors(sel, node) {
+  // If there is no parent reference, we've reached the root of the tree
+  if (!node._parentRef) return;
+
+  const p = node._parentRef;
+
+  // Check the status of all children belonging to this parent
+  const allSiblingsChecked = p.children.every((c) => sel.has(String(c.id)));
+
+  // If all children (the current node and its siblings) are checked, add the parent
+  if (allSiblingsChecked) {
+    sel.add(String(p.id));
+
+    // Continue moving up the tree to check the grandparent
+    checkAncestors(sel, p);
+  }
+}
+
+function uncheckAncestors(sel, node) {
+  // If there is no parent reference, we've reached the root
+  if (!node._parentRef) return;
+
+  const p = node._parentRef;
+
+  // If the parent is marked as selected, we must remove it because 
+  // one of its child (this node) was just unselected.
+  if (sel.has(String(p.id))) {
+    sel.delete(String(p.id));
+
+    // Continue moving up the tree to uncheck the grandparent
+    uncheckAncestors(sel, p);
+  }
 }
 
 function nameFromId(id) {
