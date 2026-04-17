@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import { useKeycloak } from "@react-keycloak/web";
+import { CircularProgress } from '@mui/material';
 import "./PolicyManagement.css";
 import { formatError } from "../../../utils/errorUtils";
 // Constants and the component states
@@ -173,7 +174,7 @@ export default function PolicyManagement() {
 
           <div className="pm-actions">
             <button className="pm-btn pm-btn-primary" type="submit" disabled={creating}>
-              {creating ? "Creating…" : "Create Policy"}
+              {creating ? <CircularProgress size={20} color="inherit" /> : "Create Policy"}
             </button>
             {/* {err && <div className="pm-error">{err}</div>} */}
           </div>

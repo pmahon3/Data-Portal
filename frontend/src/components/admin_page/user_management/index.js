@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { useKeycloak } from '@react-keycloak/web';
+import { CircularProgress } from '@mui/material';
 import './User_Management.css';
 import { formatError } from '../../../utils/errorUtils';
 
@@ -11,6 +12,7 @@ export default function UserManagement() {
 
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
   const [err, setErr] = useState('');
 
   // form state
@@ -71,6 +73,7 @@ export default function UserManagement() {
     setErr('');
     if (!username) return setErr('Username is required.');
     if (!email) return setErr('Email is required');
+    setCreating(true);
     try {
       await apiCreateUser({
         username,
@@ -91,6 +94,8 @@ export default function UserManagement() {
       alert(`User ${username} created/updated.`);
     } catch (e) {
       setErr(formatError(e));
+    } finally {
+      setCreating(false);
     }
   }
 
@@ -139,7 +144,9 @@ export default function UserManagement() {
           </label>
 
           <div className="um-actions">
-            <button className="um-btn um-btn-primary" type="submit">Create User</button>
+            <button className="um-btn um-btn-primary" type="submit" disabled={creating}>
+              {creating ? <CircularProgress size={20} color="inherit" /> : "Create User"}
+            </button>
             {err && <div className="um-error">{err}</div>}
           </div>
         </form>
