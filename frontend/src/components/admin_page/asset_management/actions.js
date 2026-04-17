@@ -1,3 +1,8 @@
+// Asset Management Utilities
+// This file contains asynchronous functions for download, upload and delete actions
+
+// Initiates an asynchronous server-side bundling process for specific assets,
+// polls for completion, and triggers a browser download once the ZIP is ready.
 export const downloadAssetBundle = async (http, endpointName, fileIds, authHeaders) => {
   const headers = await authHeaders();
   
@@ -55,3 +60,22 @@ export const downloadAssetBundle = async (http, endpointName, fileIds, authHeade
   // Clean up object URL after a brief delay to ensure download starts
   setTimeout(() => window.URL.revokeObjectURL(url), 1000);
 };
+
+// Iterates through a selection of asset IDs and performs sequential delete requests.
+// It distinguishes between files and folders based on ID prefixes and metadata.
+export async function deleteAssets(http, endpointName, deleteTopSelected, deleteIndex, authHeaders) {
+  for (const id of deleteTopSelected) {
+    const headers = await authHeaders();
+    const node = deleteIndex.get(String(id));
+
+    if (String(id).startsWith("file-")) {
+      const fileId = String(id).replace("file-", "");
+      await http.delete(`/tree/files/${fileId}`, { params: { instance_name: endpointName }, headers });
+    } else {
+      const folderId = String(id);
+      const bucket = node?.li_attr?.bucket;
+      if (!bucket) throw new Error("Missing bucket for folder delete.");
+      await http.delete(`/tree/folders/${folderId}`, { params: { instance_name: endpointName, bucket }, headers });
+    }
+  }
+}

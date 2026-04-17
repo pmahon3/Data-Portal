@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import Tree from "./Tree.js";
 import { CircularProgress } from "@mui/material";
 import { formatError } from "../../../utils/errorUtils";
-import { downloadAssetBundle } from "./download";
+import { downloadAssetBundle, deleteAssets } from "./actions.js";
 
 export default function EndpointCard({
   endpointName,
@@ -72,8 +72,8 @@ export default function EndpointCard({
 
   // Compute selections we need
   const readLeaves = getSelectedLeaves(readArray, selectedByAccess.read || new Set());
-  const writeTopFolders = getSelectedTopFolders(writeArray, selectedByAccess.write || new Set());
-  const deleteLeaves = getSelectedLeaves(deleteArray, selectedByAccess.delete || new Set());
+  const writeTopFolders = getSelectTopLevel(writeArray, selectedByAccess.write || new Set(), false);
+  const deleteTopSelected = getSelectTopLevel(deleteArray, selectedByAccess.delete || new Set(), true);
 
   // This one allows multiple items to be selected at the same time. We may need to get back to this
   const onTreeChange = (accessKey) => (nextSet) =>
@@ -81,45 +81,6 @@ export default function EndpointCard({
 
   // --------------------- Download (from READ selection) ---------------------
 
-  // This is based on old structure
-  const handleDownload_OLD = async () => {
-    if (!hasRead) return alert("No read permission.");
-    if (readLeaves.length === 0) return alert("Select files/folders in READ.");
-
-    setBusy("down");
-    setBusyID(endpointUuid)
-    try {
-      const [{ default: JSZip }, { saveAs }] = await Promise.all([
-        import("jszip"),
-        import("file-saver"),
-      ]);
-      const zip = new JSZip();
-
-      for (const id of readLeaves) {
-        const headers = await authHeaders();
-        const params = { instance_name: endpointName, resource: String(id), action: "read" };
-        const { data } = await http.get("/assets/download", { params, headers });
-        const urls = data?.presigned_urls || [];
-        const paths = data?.file_paths || [];
-        for (let i = 0; i < urls.length; i++) {
-          const resp = await fetch(urls[i], { method: "GET", credentials: "omit", cache: "no-store" });
-          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-          zip.file(paths[i] || `file_${i}`, await resp.blob());
-        }
-      }
-
-      const blob = await zip.generateAsync({ type: "blob" });
-      saveAs(blob, `${endpointName}_download.zip`);
-      console.log(`[Download] Successfully downloaded ${readLeaves.length} file(s) from endpoint "${endpointName}"`);
-    } catch (e) {
-      console.error(`[Download] Download failed for endpoint "${endpointName}":`, e);
-      alert(`Download failed: ${formatError(e)}`);
-    } finally {
-      setBusy(null);
-      setBusyID(null);
-    }
-  };
-  // --------------------
 const handleDownload = async () => {
   if (!hasRead) return alert("No read permission.");
   if (readLeaves.length === 0) return alert("Select files or folders in READ.");
@@ -383,39 +344,31 @@ const handleDownload = async () => {
 
     // Ensure files are selected in the UI
     if (!selectedByAccess.delete || selectedByAccess.delete.size === 0) {
-      return alert("Select files to delete.");
+      return alert("Select files or folders to delete.");
     }
 
-    // Verify deleteLeaves is not empty
-    if (deleteLeaves.length === 0) {
-      return alert("No valid files selected for deletion.");
+    // Verify deleteTopSelected is not empty
+    if (deleteTopSelected.length === 0) {
+      return alert("No valid items selected for deletion.");
     }
 
-    if (!window.confirm(`Delete ${deleteLeaves.length} file(s)? This cannot be undone.`)) return;
+    const numFilesToDelete = Array.from(selectedByAccess.delete).filter(
+      id => String(id).startsWith("file-") && deleteIndex.has(String(id))
+    ).length;
+
+    if (!window.confirm(`Delete ${numFilesToDelete} file(s)? This cannot be undone.`)) return;
 
     setBusy("del");
     setBusyID(endpointUuid)
     try {
-
-      for (const id of deleteLeaves) {
-  const headers = await authHeaders();
-  const node = deleteIndex.get(String(id));
-
-  if (String(id).startsWith("file-")) {
-    const fileId = String(id).replace("file-", "");
-    await http.delete(`/tree/files/${fileId}`, { params: { instance_name: endpointName }, headers });
-  } else {
-    const folderId = String(id);
-    const bucket = node?.li_attr?.bucket;
-    if (!bucket) throw new Error("Missing bucket for folder delete.");
-    await http.delete(`/tree/folders/${folderId}`, { params: { instance_name: endpointName, bucket }, headers });
-  }
-}
-      console.log(`[Delete] Successfully deleted ${deleteLeaves.length} file(s) from endpoint "${endpointName}"`);
+      await deleteAssets(http, endpointName, deleteTopSelected, deleteIndex, authHeaders);
+      
+      console.log(`[Delete] Successfully deleted selected item(s) from endpoint "${endpointName}"`);
       if (onMutate) onMutate(); // refresh dashboard
+      onSelectedChange("delete", new Set());
       alert("Delete complete.");
     } catch (e) {
-      console.error(`[Delete] Delete failed for endpoint "${endpointName}" while attempting to delete ${deleteLeaves.length} file(s):`, e);
+      console.error(`[Delete] Delete failed for endpoint "${endpointName}" while attempting to delete item(s):`, e);
       alert(`Delete failed: ${formatError(e)}`);
     } finally {
       setBusy(null);
@@ -501,7 +454,6 @@ const handleDownload = async () => {
                     nodes={readArray}
                     selected={selectedByAccess.read || new Set()}
                     onChange={onTreeChange("read")}
-                    cascadeSelection={true}
                   />
                 </div>
               )}
@@ -575,14 +527,14 @@ const handleDownload = async () => {
                     selected={selectedByAccess.write || new Set()}
                     onChange={onTreeChange("write")}
                     disableFileSelection={true}
-
+                    disableCascade={true}
                   />
                 </div>
               )}
               {hasDelete && (
                 <div
                   style={{
-                    borderTop: hasRead | hasWrite ? "2px dashed #c9c9c9" : "none",
+                    borderTop: hasRead || hasWrite ? "2px dashed #c9c9c9" : "none",
                     paddingTop: hasRead ? 8 : 0,
                   }}
                 >
@@ -621,12 +573,10 @@ const handleDownload = async () => {
                       </button>
                     </div>
                   </div>
-                    <Tree
+                  <Tree
                     nodes={deleteArray}
                     selected={selectedByAccess.delete || new Set()}
                     onChange={onTreeChange("delete")}
-                    disableFolderSelection={true}
-
                   />
                 </div>
               )}
@@ -665,19 +615,50 @@ function getSelectedLeaves(list, sel) {
   return out;
 }
 
-// selected top-most folders for WRITE
-function getSelectedTopFolders(list, sel) {
-  const parentOf = new Map(list.map(n => [String(n.id), String(n.parent)]));
-  const parentIds = new Set(list.filter(n => n.parent !== "#").map(n => String(n.parent)));
+// Get selected top level nodes (files and folders) for WRITE and DELETE
+// If a folder and its child are both selected, only the folder is returned.
+// File selection is disabled for WRITE elsewhere
+function getSelectTopLevel(list, sel, excludeRoot) {
+  // Create of a map of Node Id -> Parent Id
+  const parentMap = new Map();
+  for (const node of list) {
+    parentMap.set(String(node.id), String(node.parent));
+  }
 
-  // Include both folders with children AND top-level buckets (parent === "#")
-  const chosenFolders = Array.from(sel).map(String).filter(id => {
-    const node = list.find(n => String(n.id) === id);
-    return node && (parentIds.has(id) || node.parent === "#");
-  });
+  const result = [];
 
-  const chosenSet = new Set(chosenFolders);
-  return chosenFolders.filter(id => !chosenSet.has(parentOf.get(id)));
+  // Iterate through selections
+  for (const id of sel) {
+    // Skip if the ID isn't in our list
+    if (!parentMap.has(id)) continue;
+
+    // Do not include root nodes if excludeRoot is true
+    if (excludeRoot && parentMap.get(id) === "#") continue;
+
+    let currentParent = parentMap.get(id);
+    let isTopLevel = true;
+
+    // Climb the tree until we reach the top most selected node
+    while (currentParent && currentParent !== "#") {
+      // If this node's parent is in the selection it is not a top level node
+      if (sel.has(currentParent)) {
+
+        // We only mark as not top level if we aren't excluding roots 
+        // OR if the parent isn't actually a root.
+        if (!excludeRoot || parentMap.get(currentParent) !== "#") {
+          isTopLevel = false;
+          break;
+        }
+      }
+      currentParent = parentMap.get(currentParent);
+    }
+
+    if (isTopLevel) {
+      result.push(id);
+    }
+  }
+
+  return result;
 }
 
 function isDirectoryPlaceholder(file) {

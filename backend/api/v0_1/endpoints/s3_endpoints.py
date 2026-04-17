@@ -397,10 +397,12 @@ async def delete_folder(
     prefix = normalize_folder_full_path(folder.full_path).lstrip("/")
     keys = list_keys_under_prefix(agent.s3_client, bucket, prefix)
     if keys:
-        agent.s3_client.delete_objects(
-            Bucket=bucket,
-            Delete={"Objects": [{"Key": k} for k in keys], "Quiet": True},
-        )
+        for i in range(0, len(keys), 1000):
+            batch = keys[i:i + 1000]
+            agent.s3_client.delete_objects(
+                Bucket=bucket,
+                Delete={"Objects": [{"Key": k} for k in batch], "Quiet": True},
+            )
 
     tree_svc = TreeService(session)
     await tree_svc.delete_folder_subtree(bucket, folder_id)
