@@ -490,6 +490,15 @@ async def create_asset_bundle(
          logger.warning("No files found to bundle from the requested resources")
          raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No files found to bundle.")
 
+    # If only one file is requested, return its presigned URL directly.
+    if len(all_presigned_urls) == 1:
+        return BundleCreateResponse(
+            bundle_id="single-file",
+            status="completed",
+            folder_name=request.folder_name or "archive",
+            single_file_url=all_presigned_urls[0]
+        )
+
     # POST to Bundler service's create archive endpoint
     folder_name = request.folder_name or "archive"
     

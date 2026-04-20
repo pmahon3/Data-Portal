@@ -30,6 +30,7 @@ class BundleCreateResponse(BaseModel):
     bundle_id: str = Field(..., description="The ID of the requested bundle.")
     status: str = Field(..., description="The current status of the bundle request.")
     folder_name: str = Field(..., description="The name of the archive file.")
+    single_file_url: Union[str, None] = Field(default=None, description="Direct presigned URL if downloading a single file.")
 
 
 class PutAssetRequest(BaseModel):
