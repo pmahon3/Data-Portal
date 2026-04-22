@@ -4,6 +4,7 @@ import { useKeycloak } from "@react-keycloak/web";
 import { CircularProgress } from "@mui/material";
 import EndpointCard from "./EndpointCard.js";
 import { formatError } from "../../../utils/errorUtils";
+import { getAuthHeaders } from '../../../utils/authUtils';
 
 // const http = axios.create({ baseURL: "http://localhost:8000" });
 const http = axios.create({ baseURL: "/api" });
@@ -47,18 +48,12 @@ export default function AssetManagement({ bootstrap }) {
     };
   };
 
-  const authHeaders = async () => {
-    if (!initialized) return {};
-    try { await keycloak.updateToken(30); } catch {}
-    return keycloak?.token ? { Authorization: `Bearer ${keycloak.token}` } : {};
-  };
-
   // Fetch dashboard; set refresh=1 only when we want the backend to rebuild trees
   const reloadDashboard = async (forceRefresh = false) => {
     try {
       setLoading(true);
       setError(null);
-      const headers = await authHeaders();
+      const headers = await getAuthHeaders();
       // Get username from keycloak token
       const username = keycloak?.tokenParsed?.preferred_username;
       if (!username) {
@@ -110,7 +105,6 @@ export default function AssetManagement({ bootstrap }) {
                 onSelectedChange={(access, nextSet) =>
                   handleSelectedChange(endpointUuid, access, nextSet)
                 }
-                authHeaders={authHeaders}
                 http={http}
                 busy={busy}
                 setBusy={setBusy}

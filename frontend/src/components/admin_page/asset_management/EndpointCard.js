@@ -3,13 +3,13 @@ import Tree from "./Tree.js";
 import { CircularProgress } from "@mui/material";
 import { formatError } from "../../../utils/errorUtils";
 import { downloadAssetBundle, deleteAssets } from "./actions.js";
+import { getAuthHeaders } from '../../../utils/authUtils';
 
 export default function EndpointCard({
   endpointName,
   endpointUuid,
   selectedByAccess,       // { read: Set<string>, write: Set<string>, delete: Set<string> }
   onSelectedChange,       // (access: 'read'|'write'|'delete', nextSet: Set<string>) => void
-  authHeaders,
   http,
   busy,
   setBusy,
@@ -26,11 +26,11 @@ export default function EndpointCard({
     try {
       setLoadingAssets(true);
       setAssetError(null);
-      const headers = await authHeaders();
+      const authHeaders = await getAuthHeaders();
       //const { data } = await http.get(`/assets/dashboard/${encodeURIComponent(endpointUuid)}`, {
       const { data } = await http.get(`/tree/dashboard/${encodeURIComponent(endpointUuid)}`, {
  
-      headers,
+      headers: authHeaders,
         params: { _t: Date.now(), ...(forceRefresh ? { refresh: 1 } : {}) },
       });
       setTreesByAccess(data.assets[endpointUuid] || {});
@@ -99,7 +99,7 @@ const handleDownload = async () => {
       return;
     }
 
-    await downloadAssetBundle(http, endpointName, fileIds, authHeaders);
+    await downloadAssetBundle(http, endpointName, fileIds);
     console.log(`[Download] Triggered downloads for ${fileIds.length} file(s) from "${endpointName}"`);
   } catch (e) {
     console.error(`[Download] Download failed for endpoint "${endpointName}":`, e);
@@ -182,17 +182,17 @@ const handleDownload = async () => {
       setBusy("up");
       setBusyID(endpointUuid)
       try {
-        const headers = await authHeaders();
         const files = Array.from(input.files);
 
         for (const file of files) {
+          let authHeaders = await getAuthHeaders();
           const { data } = await http.post("/tree/files/upload/init", {
             instance_name: endpointName,
             bucket,
             folder_id: Number(folderId),
             filename: file.name,
             content_type: file.type || "application/octet-stream",
-          }, { headers });
+          }, { headers: authHeaders });
 
           // Start with `data.url`. If it is missing, the first `if` tries
           // `data.presigned_urls`. If that is also missing, the second `if`
@@ -213,10 +213,12 @@ const handleDownload = async () => {
             await uploadViaPresigned(entry, file);
           }
 
+          // Refresh auth headers in case they expired between init and complete
+          authHeaders = await getAuthHeaders();
           await http.post("/tree/files/upload/complete", {
             instance_name: endpointName,
             file_id: data.file_id,
-          }, { headers });
+          }, { headers: authHeaders });
         }
 
         if (onMutate) onMutate(); // refresh dashboard with ?refresh=1 upstream  ------> TODO: need to further investigate refresh dashboard after upload or cerated new policy
@@ -264,13 +266,13 @@ const handleDownload = async () => {
       try {
         // flat list of File object returned by webkitdirectory
         const files = Array.from(input.files).filter(file => !isDirectoryPlaceholder(file));
-        const headers = await authHeaders();
 
         // Cache folder ids per relative path so repeated siblings do not keep
         // calling the backend for the same nested directory chain.
         const folderIdByRelativePath = new Map([["", Number(folderId)]]); // create a map and initilize it
 
         for (const file of files) {
+          let authHeaders = await getAuthHeaders();
           // Example:
           // webkitRelativePath = "StudyA/session1/image.nii.gz"
           // parentRelativePath = "StudyA/session1"
@@ -284,7 +286,7 @@ const handleDownload = async () => {
               bucket,
               parent_id: Number(folderId),
               relative_path: parentRelativePath,
-            }, { headers });
+            }, { headers: authHeaders });
             targetFolderId = Number(folderData.id);
             folderIdByRelativePath.set(parentRelativePath, targetFolderId);
           }
@@ -295,7 +297,7 @@ const handleDownload = async () => {
             folder_id: targetFolderId,
             filename: file.name,
             content_type: file.type || "application/octet-stream",
-          }, { headers });
+          }, { headers: authHeaders });
 
           // Optional chaining: `data?.url` means "use data.url if data exists;
           // otherwise return undefined instead of throwing an error".
@@ -311,10 +313,12 @@ const handleDownload = async () => {
             await uploadViaPresigned(entry, file);
           }
 
+          // Refresh auth headers in case they expired between init and complete
+          authHeaders = await getAuthHeaders();
           await http.post("/tree/files/upload/complete", {
             instance_name: endpointName,
             file_id: data.file_id,
-          }, { headers });
+          }, { headers: authHeaders });
         }
 
         if (onMutate) onMutate(); // refresh dashboard with ?refresh=1 upstream  ------> TODO: need to further investigate refresh dashboard after upload or cerated new policy
@@ -361,7 +365,7 @@ const handleDownload = async () => {
     setBusy("del");
     setBusyID(endpointUuid)
     try {
-      await deleteAssets(http, endpointName, deleteTopSelected, deleteIndex, authHeaders);
+      await deleteAssets(http, endpointName, deleteTopSelected, deleteIndex);
       
       console.log(`[Delete] Successfully deleted selected item(s) from endpoint "${endpointName}"`);
       if (onMutate) onMutate(); // refresh dashboard

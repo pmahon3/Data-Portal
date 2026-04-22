@@ -4,11 +4,12 @@ import { useKeycloak } from '@react-keycloak/web';
 import { CircularProgress } from '@mui/material';
 import './User_Management.css';
 import { formatError } from '../../../utils/errorUtils';
+import { getAuthHeaders } from '../../../utils/authUtils';
 
 const http = axios.create({ baseURL: "/api" });
 
 export default function UserManagement() {
-  const { keycloak, initialized } = useKeycloak();
+  const { initialized } = useKeycloak();
 
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -22,29 +23,22 @@ export default function UserManagement() {
   const [email, setEmail] = useState('');
   const [rolesText, setRolesText] = useState('');
 
-  // helper to build Authorization header
-  const authHeaders = async () => {
-    if (!initialized) return {};
-    try { await keycloak.updateToken(30); } catch {}
-    return keycloak?.token ? { Authorization: `Bearer ${keycloak.token}` } : {};
-  };
-
   // API calls (use the hook-provided token each time)
   const apiListUsers = async () => {
-    const headers = await authHeaders();
+    const headers = await getAuthHeaders();
     const { data } = await http.get('/users/', { headers });
     return data;
   };
 
   const apiCreateUser = async (payload) => {
-    const headers = await authHeaders();
+    const headers = await getAuthHeaders();
     const res= await http.post('/users/', payload, { headers });
     console.log("This is user created: ");
     console.dir(res.data)
   };
 
   const apiDeleteUser = async (uname) => {
-    const headers = await authHeaders();
+    const headers = await getAuthHeaders();
     await http.delete(`/users/${encodeURIComponent(uname)}`, { headers });
   };
 

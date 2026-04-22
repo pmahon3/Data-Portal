@@ -4,6 +4,7 @@ import { useKeycloak } from "@react-keycloak/web";
 import { CircularProgress } from '@mui/material';
 import "./PolicyManagement.css";
 import { formatError } from "../../../utils/errorUtils";
+import { getAuthHeaders } from '../../../utils/authUtils';
 // Constants and the component states
 // const http = axios.create({ baseURL: "http://localhost:8000" });
 const http = axios.create({ baseURL: "/api" });
@@ -28,16 +29,9 @@ export default function PolicyManagement() {
 
   /////////////////////////////////////////////
 
-  // keycloack token handling
-  const authHeaders = async () => {
-    if (!initialized) return {};
-    try { await keycloak.updateToken(30); } catch {}
-    return keycloak?.token ? { Authorization: `Bearer ${keycloak.token}` } : {};
-  };
-
   // Load instances to be displayed in a deop down list
   async function loadInstances() {
-    const headers = await authHeaders();
+    const headers = await getAuthHeaders();
     const { data } = await http.get(`${INSTANCES_BASE}/`, { headers });
     setInstances(Array.isArray(data?.instances) ? data.instances : []);
   }
@@ -45,7 +39,7 @@ export default function PolicyManagement() {
   // Load polices to be displayed
   // TODO ----> policies are returned based user_uuid and instance_uuid , which are not human readable. This needs to be changed to return username and instance names. These changes impact th ebody request of create/delete policies.  
   async function loadPolicies() {
-    const headers = await authHeaders();
+    const headers = await getAuthHeaders();
     const { data } = await http.get(`${POLICIES_BASE}/`, { headers });
     console.log("These are policies")
     console.log(data)
@@ -82,7 +76,7 @@ export default function PolicyManagement() {
     if (!a) { setCreating(false); return setErr("Action is required."); }
 
     try {
-      const headers = await authHeaders();
+      const headers = await getAuthHeaders();
       await http.post(
         `${POLICIES_BASE}/`,
         { username: u, instance_name: i, resource: r, action: a },
@@ -105,7 +99,7 @@ export default function PolicyManagement() {
     if (!window.confirm(`Delete policy:\nresource="${p.resource}" action="${p.action}" ?`)) return;
     setErr("");
 
-    const headers = await authHeaders();
+    const headers = await getAuthHeaders();
     await http.delete(`${POLICIES_BASE}/`, {
       headers,
       data: {
