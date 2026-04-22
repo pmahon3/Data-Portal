@@ -1,10 +1,11 @@
 // Asset Management Utilities
 // This file contains asynchronous functions for download, upload and delete actions
+import { getAuthHeaders } from '../../../utils/authUtils';
 
 // Initiates an asynchronous server-side bundling process for specific assets,
 // polls for completion, and triggers a browser download once the ZIP is ready.
-export const downloadAssetBundle = async (http, endpointName, fileIds, authHeaders) => {
-  const headers = await authHeaders();
+export const downloadAssetBundle = async (http, endpointName, fileIds) => {
+  let headers = await getAuthHeaders();
   
   // Call the backend endpoint to initiate the zip bundle creation
   const response = await http.post("/tree/bundle/zip", {
@@ -27,6 +28,7 @@ export const downloadAssetBundle = async (http, endpointName, fileIds, authHeade
   for (let i = 0; i < maxRetries; i++) {
     await new Promise(resolve => setTimeout(resolve, pollInterval));
     
+    headers = await getAuthHeaders();
     const statusResp = await http.get(`/tree/bundle/${bundle_id}/status`, { headers });
     status = statusResp.data.status;
     
@@ -42,6 +44,7 @@ export const downloadAssetBundle = async (http, endpointName, fileIds, authHeade
   }
 
   // Fetch the completed bundle blob
+  headers = await getAuthHeaders();
   const downloadResponse = await http.get(`/tree/bundle/${bundle_id}/download`, {
     headers,
     responseType: "blob"
@@ -63,9 +66,9 @@ export const downloadAssetBundle = async (http, endpointName, fileIds, authHeade
 
 // Iterates through a selection of asset IDs and performs sequential delete requests.
 // It distinguishes between files and folders based on ID prefixes and metadata.
-export async function deleteAssets(http, endpointName, deleteTopSelected, deleteIndex, authHeaders) {
+export async function deleteAssets(http, endpointName, deleteTopSelected, deleteIndex) {
   for (const id of deleteTopSelected) {
-    const headers = await authHeaders();
+    const headers = await getAuthHeaders();
     const node = deleteIndex.get(String(id));
 
     if (String(id).startsWith("file-")) {

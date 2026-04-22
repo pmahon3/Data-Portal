@@ -4,6 +4,7 @@ import { useKeycloak } from "@react-keycloak/web";
 import { CircularProgress } from '@mui/material';
 import "./StorageManagement.css";
 import { formatError } from "../../../utils/errorUtils";
+import { getAuthHeaders } from '../../../utils/authUtils';
 
 const http = axios.create({ baseURL: "/api" });
 const INSTANCES_BASE = "/instances";
@@ -25,14 +26,8 @@ export default function StorageManagement() {
   const [s3Key, setS3Key] = useState("");
   const [s3Secret, setS3Secret] = useState("");
 
-  const authHeaders = async () => {
-    if (!initialized) return {};
-    try { await keycloak.updateToken(30); } catch {}
-    return keycloak?.token ? { Authorization: `Bearer ${keycloak.token}` } : {};
-  };
-
   async function loadInstances() {
-    const headers = await authHeaders();
+    const headers = await getAuthHeaders();
     const { data } = await http.get(`${INSTANCES_BASE}/`, { headers });
     setInstances(Array.isArray(data?.instances) ? data.instances : []);
   }
@@ -75,7 +70,7 @@ export default function StorageManagement() {
 
     try {
       setCreating(true);
-      const headers = { ...(await authHeaders()) };
+      const headers = { ...(await getAuthHeaders()) };
       await http.post(`${INSTANCES_BASE}/`, payload, { headers });
       await loadInstances();
       // light reset of sensitive fields
@@ -93,7 +88,7 @@ export default function StorageManagement() {
     if (!window.confirm(`Delete instance "${i.name}" (${i.uuid})?`)) return;
     setErr("");
     try {
-      const headers = await authHeaders();
+      const headers = await getAuthHeaders();
       await http.delete(`${INSTANCES_BASE}/${encodeURIComponent(i.uuid)}`, { headers });
       setInstances(prev => prev.filter(x => x.uuid !== i.uuid));
     } catch (e) {
