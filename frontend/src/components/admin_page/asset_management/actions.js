@@ -15,7 +15,19 @@ export const downloadAssetBundle = async (http, endpointName, fileIds) => {
     headers
   });
 
-  const { bundle_id } = response.data;
+  const { bundle_id, status: initStatus, single_file_url } = response.data;
+
+  // If a single file was requested, download it directly from the presigned URL
+  if (initStatus === "completed" && single_file_url) {
+    const a = document.createElement("a");
+    a.href = single_file_url;
+    a.download = ""; 
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    return;
+  }
+
   if (!bundle_id) {
     throw new Error("Failed to initialize bundle: Missing bundle ID.");
   }
