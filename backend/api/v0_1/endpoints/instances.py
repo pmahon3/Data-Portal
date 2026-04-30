@@ -16,7 +16,7 @@ from core.services.injectors import get_instance_manager, get_policy_manager
 from core.services.instances import AbstractInstanceManager
 from core.services.policies import CasbinPolicyManager
 from core.services.policies import Policy
-from api.v0_1.common.models import InstanceCreate
+from api.v0_1.common.models import InstanceCreate, InstanceUpdate
 
 instances_router = APIRouter(prefix='/instances', tags=["Storage Instance Management"])
 logger = logging.getLogger("api.endpoints")
@@ -153,14 +153,19 @@ async def create_instance(
     # Save the instance directly to database
     try:
         instance_uuid = instance_manager.save_instance(config)
-    except ValueError as error_msg:
-        logger.error(f"Error when saving instance '{name_value}': {str(error_msg)}")
-        if "already exists" in str(error_msg):
-            raise HTTPException(status_code=409, detail=str(error_msg))
-        elif "failed to create storage agent" in str(error_msg):
-            raise HTTPException(status_code=400, detail=str(error_msg))
+    except ValueError as e:
+        error_msg = str(e)
+        logger.error(f"Error when saving instance '{name_value}': {error_msg}")
+        if "already exists" in error_msg:
+            # Differentiate between name colllision and URL+key collision for friendliness
+            if "name" in error_msg:
+                raise HTTPException(status_code=409, detail=f"An instance with the name '{name_value}' already exists. Please choose a different name.")
+            else:
+                raise HTTPException(status_code=409, detail="An instance with this URL and access key combination already exists.")
+        elif "failed to create storage agent" in error_msg.lower():
+            raise HTTPException(status_code=400, detail="Failed to connect to the requested storage service. Please check your credentials and URL.")
         else:
-            raise HTTPException(status_code=422, detail=str(error_msg))
+            raise HTTPException(status_code=422, detail="Invalid instance configuration provided.")
     except Exception as e:
         logger.error(f"Failed to save configuration for instance '{name_value}': {str(e)}")
         raise HTTPException(
@@ -188,7 +193,7 @@ async def create_instance(
         instance_manager.delete_instance(instance_uuid)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to add administrator policy for new instance: {str(e)}"
+            detail="Failed to grant administrator access for the new instance"
         )
     logger.info(f"Created instance '{name_value}' (UUID: {instance_uuid}) by user '{admin_user.get('preferred_username')}'")
     return JSONResponse(
@@ -203,6 +208,53 @@ async def create_instance(
         }
     )
 
+@instances_router.patch(
+    "/{instance_id}",
+    summary="Update a storage instance",
+    description="Update an existing storage instance."
+)
+async def update_instance(
+    instance_id: str,
+    admin_user: dict = Depends(require_admin),
+    instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
+    config: InstanceUpdate = Body(...)
+):
+    # Format the instance id to be update to UUID
+    try:
+        instance_uuid = UUID(instance_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid instance ID format. Must be a valid UUID."
+        )
+
+    # Retrieve instance to be update
+    instances = instance_manager.get_instances_by_uuid([instance_uuid])
+    if not instances:
+        raise HTTPException(status_code=404, detail="Instance not found")
+        
+    instance = instances[0]
+
+    # Try to update instance
+    try:
+        updated = instance_manager.update_instance(instance_uuid, config.instance_name)
+        if not updated:
+            raise HTTPException(status_code=422, detail="No changes were detected or the update failed.")
+    except ValueError as e:
+        if "already exists" in str(e):
+            raise HTTPException(status_code=409, detail=f"An instance with the name '{config.instance_name}' already exists. Please choose a different name.")
+        raise HTTPException(status_code=422, detail="Invalid instance configuration provided.")
+    except Exception as e:
+        logger.error(f"Failed to update instance '{instance.name}': {str(e)}")
+        raise HTTPException(status_code=422, detail="An unexpected error occurred while updating the instance.")
+    
+    return JSONResponse(
+        status_code=200,
+        content={
+            "message": f"Instance updated successfully",
+            "uuid": str(instance_uuid)
+        }
+    )
 
 @instances_router.delete(
     "/{instance_id}",
@@ -255,7 +307,7 @@ async def delete_instance(
         logger.error(f"Failed to remove instance '{instance.name}' ({instance_id}): {str(e)}")
         raise HTTPException(
             status_code=404,
-            detail=f"Failed to remove instance: {str(e)}"
+            detail="The requested instance could not be found for deletion."
         )
 
     # Delete associated policies

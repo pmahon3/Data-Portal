@@ -1,5 +1,6 @@
 import logging
 from uuid import UUID
+from pymongo.errors import DuplicateKeyError
 
 from .abstract_instance_manager import AbstractInstanceManager
 from .models import Instance
@@ -76,21 +77,14 @@ class InstanceManager(AbstractInstanceManager):
         :param config: The instance configuration model (InstanceCreate).
         :return: The created Instance's UUID.
         """
-        from uuid import uuid5, NAMESPACE_DNS
+        from uuid import uuid4
         from core.storage_agents import agent_factory
 
         name_value = getattr(config, "instance_name", None)
         flavour = config.flavour
         
-        # Generate stable UUID for the instance from its name
-        instance_uuid = uuid5(NAMESPACE_DNS, name_value)
-
-        # Check for duplicate instance URL
-        instance_url = getattr(config, "instance_url", None)
-        if instance_url:
-            query = {"agent.instance_url": instance_url}
-            if self._collection.find_one(query):
-                raise ValueError(f"Instance with URL '{instance_url}' already exists")
+        # Generate UUID for the instance
+        instance_uuid = uuid4()
 
         # Convert Pydantic model to dict for instance factory
         agent_cfg = config.dict(exclude={"flavour", "instance_name", "name"})
@@ -115,8 +109,36 @@ class InstanceManager(AbstractInstanceManager):
             self._agents[str(instance.uuid)] = instance.agent
             
             return instance.uuid
-        except Exception:
-            raise
+        except DuplicateKeyError as e:
+            if "name" in str(e):
+                raise ValueError(f"Instance with name '{name_value}' already exists")
+            else:
+                instance_url = getattr(config, "instance_url", None)
+                aws_access_key_id = getattr(config, "aws_access_key_id", None)
+                if aws_access_key_id:
+                    raise ValueError(f"Instance with URL '{instance_url}' and the provided access key already exists")
+                else:
+                    raise ValueError(f"Instance with URL '{instance_url}' already exists")
+
+    def update_instance(self, instance_id: UUID, new_instance_name: str) -> bool:
+        """
+        Update an existing instance configuration.
+
+        :param instance_id: The UUID of the instance to update.
+        :param new_instance_name: The new name for the instance.
+        :return: True if successful, False if the instance was not found.
+        """
+        if not new_instance_name or not new_instance_name.strip():
+            return False
+            
+        try:
+            result = self._collection.update_one(
+                {"uuid": str(instance_id)},
+                {"$set": {"name": new_instance_name}} 
+            )
+            return result.modified_count > 0 or result.matched_count > 0
+        except DuplicateKeyError:
+            raise ValueError(f"Instance with name '{new_instance_name}' already exists")
 
     def get_instances_by_uuid(self, uuids: list[UUID]) -> list[Instance]:
         """
