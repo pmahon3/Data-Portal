@@ -81,14 +81,11 @@ def get_instance_manager() -> AbstractInstanceManager:
     if _instance_manager is None:
         # Lazy import to avoid circular dependencies
         from core.services.instances import InstanceManager
-        from core.db.mongodb.mongo_client import get_mongo_client
+        from core.db.mongodb.mongo_client import get_instance_collection
 
         logger.info("Initializing instance manager...")
 
-        mongo_client = get_mongo_client()
-        db = mongo_client[os.getenv('MONGO_DB', 'inn-mongo')]
-        collection = db[os.getenv('MONGO_INSTANCE_COLLECTION', 'connection-storage-instances')]
-
+        collection = get_instance_collection()
         _instance_manager = InstanceManager(collection=collection)
 
         logger.info("InstanceManager instance created successfully...")

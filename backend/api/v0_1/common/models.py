@@ -208,3 +208,6 @@ InstanceCreate = Annotated[
     Union[S3InstanceCreate, DummyInstanceCreate],
     Field(discriminator="flavour")
 ]
+
+class InstanceUpdate(BaseModel):
+    instance_name: str | None = None

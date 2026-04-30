@@ -14,6 +14,8 @@ import logging
 import os
 
 from pymongo import MongoClient
+from pymongo.collection import Collection
+from pymongo.database import Database
 from pymongo.errors import ConnectionFailure
 
 logger = logging.getLogger('policy-manager')
@@ -56,3 +58,19 @@ def get_mongo_client() -> MongoClient:
         logger.info('Successfully connected to MongoDB')
 
     return _mongo_client
+
+
+def get_mongo_database() -> Database:
+    """
+    Return the configured MongoDB database.
+    """
+    client = get_mongo_client()
+    return client[os.getenv("MONGO_DB", "inn-mongo")]
+
+
+def get_instance_collection() -> Collection:
+    """
+    Return the MongoDB collection used for storage instances.
+    """
+    db = get_mongo_database()
+    return db[os.getenv("MONGO_INSTANCE_COLLECTION", "connection-storage-instances")]

@@ -30,6 +30,16 @@ class AbstractInstanceManager(ABC):
         """
 
     @abstractmethod
+    def update_instance(self, instance_id: UUID, new_instance_name: str) -> bool:
+        """
+        Update an existing instance configuration.
+
+        :param instance_id: The UUID of the instance to update.
+        :param new_instance_name: The new name for the instance.
+        :return: True if successful, False if the instance was not found.
+        """
+
+    @abstractmethod
     def get_instances_by_uuid(self, uuids: list[UUID]) -> list[Instance]:
         """
         Get instances by UUID.
