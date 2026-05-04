@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import Tree from "./Tree.js";
+import Tree from "./tree/index.js";
 import { CircularProgress } from "@mui/material";
 import { formatError } from "../../../utils/errorUtils";
 import { downloadAssetBundle, deleteAssets } from "./actions.js";
@@ -145,7 +145,7 @@ const handleDownload = async () => {
     }
 
     // Ensure exactly one folder is selected
-    if (writeTopFolders.length > 1) {
+    if (selectedByAccess.write.size > 1) {
       alert("Please select exactly ONE folder to upload to.");
       return null;
     }
@@ -458,6 +458,7 @@ const handleDownload = async () => {
                     nodes={readArray}
                     selected={selectedByAccess.read || new Set()}
                     onChange={onTreeChange("read")}
+                    enableSearch={true}
                   />
                 </div>
               )}

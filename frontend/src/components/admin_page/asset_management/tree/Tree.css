@@ -1,0 +1,97 @@
+.tree-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tree-filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tree-search-row {
+  display: flex;
+  gap: 6px;
+}
+
+.tree-input {
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  outline: none;
+  box-sizing: border-box;
+  border: 1px solid #d1d5db;
+}
+
+.tree-search-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #f9fafb;
+  color: #374151;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tree-search-button:hover {
+  background: #f3f4f6;
+}
+
+.tree-search-button:disabled {
+  color: #9ca3af;
+  cursor: not-allowed;
+  background: #f9fafb;
+}
+
+.tree-search-toggle-active {
+  border-color: #0f766e;
+  background: #0f766e;
+  color: #fff;
+}
+
+.tree-search-toggle-active:hover {
+  background: #115e59;
+}
+
+.tree-search-primary {
+  border-color: #2563eb;
+  background: #2563eb;
+  color: #fff;
+}
+
+.tree-search-primary:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.tree-search-primary:disabled {
+  border-color: #d1d5db;
+}
+
+.tree-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: #4b5563;
+  user-select: none;
+}
+
+.tree-filter-helper {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.tree-filter-helper-error {
+  color: #b91c1c;
+}
+
+.tree-empty-state {
+  font-size: 12px;
+  color: #6b7280;
+}
