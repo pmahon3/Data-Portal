@@ -4,14 +4,15 @@ from pymongo.errors import DuplicateKeyError
 
 from .abstract_instance_manager import AbstractInstanceManager
 from .models import Instance
+from core.utils.encryption import decrypt_secret, encrypt_secret
 
 logger = logging.getLogger("instance-manager")
 
-
 class InstanceManager(AbstractInstanceManager):
 
-    def __init__(self, collection=None):
+    def __init__(self, collection=None, encryption_key: str = ""):
         self._collection = collection
+        self._encryption_key = encryption_key
         # Dictionary of instance uuid to agent object
         self._agents = {}
         
@@ -22,10 +23,42 @@ class InstanceManager(AbstractInstanceManager):
             for doc in self._collection.find():
                 instance_label = doc.get('name') or doc.get('uuid') or "Unknown"
                 try:
-                    # Initialize the agent and store it in the dictionary
-                    self._agents[str(doc["uuid"])] = agent_factory(doc)
+                    # Initialize the agent, decrypt its secrets, then establish connections.
+                    agent = agent_factory(doc)
+                    self._decrypt_agent_secrets(agent)
+                    agent.connect()
+                    self._agents[str(doc["uuid"])] = agent
                 except Exception as e:
                     logger.error(f"Failed to initialize instance '{instance_label}': {e}. Skipping agent.")
+
+    def _encrypt_instance_doc(self, doc: dict, agent) -> dict:
+        """
+        Encrypt the fields the storage agent declares as secrets.
+        """
+        agent_config = doc["agent"]
+        secret_fields = agent.secrets()
+
+        # Go through all fields and encrypt if it is secret
+        for field, value in agent_config.items():
+            if field not in secret_fields or value is None:
+                continue
+
+            agent_config[field] = encrypt_secret(value, self._encryption_key)
+        return doc
+
+    def _decrypt_agent_secrets(self, agent):
+        """
+        Decrypt persisted secret values on an instantiated storage agent.
+        """
+        for field in agent.secrets():
+            value = getattr(agent, field, None)
+            if value is None:
+                continue
+            
+            # Decrypt and set field as the decrypted value
+            # The agent will clear this value after it connects
+            setattr(agent, field, decrypt_secret(value, self._encryption_key))
+        return agent
 
     @property
     def instances(self) -> list[Instance]:
@@ -90,7 +123,7 @@ class InstanceManager(AbstractInstanceManager):
         agent_cfg = config.dict(exclude={"flavour", "instance_name", "name"})
         config_dict = {"agent": agent_cfg, "flavour": flavour}
 
-        # Create the storage agent for the instance (letting specific errors propagate up)
+        # Create and connect the storage agent for the instance (letting specific errors propagate up)
         agent = agent_factory(config_dict)
 
         # Create the instance object
@@ -100,10 +133,10 @@ class InstanceManager(AbstractInstanceManager):
             flavour=flavour,
             agent=agent
         )
-            
         # Save instance to MongoDB
         try:
-            db_config = instance.config(secrets=True)
+            db_config = self._encrypt_instance_doc(instance.config(secrets=True), agent)
+            agent.connect()
             self._collection.insert_one(db_config)
             
             self._agents[str(instance.uuid)] = instance.agent

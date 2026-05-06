@@ -38,7 +38,7 @@ from core.db import AsyncSessionMaker
 from core.services.filetree.models.folder import Folder
 from core.services.filetree.models.file import File
 from core.storage_agents.s3_agent import S3StorageAgent
-from core.util.paths import (
+from core.utils.paths import (
     normalize_folder_full_path,
     split_segments,
     to_ltree_label,

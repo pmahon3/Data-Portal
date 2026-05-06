@@ -1,7 +1,7 @@
 import logging
 import re
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import boto3
 import treelib
@@ -16,6 +16,7 @@ logger = logging.getLogger('storage.s3')
 class S3StorageAgent(AbstractStorageAgent):
     FLAVOUR = 's3'
     CONFIG = {
+        "instance_url": str,
         "aws_access_key_id": str,
         "aws_secret_access_key": str
     }
@@ -26,17 +27,22 @@ class S3StorageAgent(AbstractStorageAgent):
     def __init__(self,
                  instance_url: str,
                  aws_access_key_id: str,
-                 aws_secret_access_key: str):
+                 aws_secret_access_key: str,
+                 region_name: Optional[str] = None):
         super().__init__(instance_url)
+        self.aws_access_key_id = aws_access_key_id
+        self.aws_secret_access_key = aws_secret_access_key
+        self.region_name = region_name.strip() if region_name and region_name.strip() else None
 
+    def connect(self):
         try:
             self.s3_client = boto3.client(
                 's3',
-                endpoint_url=instance_url,
-                aws_access_key_id=aws_access_key_id,
-                aws_secret_access_key=aws_secret_access_key,
+                endpoint_url=self.instance_url,
+                aws_access_key_id=self.aws_access_key_id,
+                aws_secret_access_key=self.aws_secret_access_key,
                 config=Config(signature_version="s3v4"),
-                region_name="us-east-2"
+                region_name=self.region_name # pass in region name or None
             )
 
             # boto3 is lazy and doesn't throw an error until the client is actually used
@@ -80,6 +86,8 @@ class S3StorageAgent(AbstractStorageAgent):
 
             # Unhandled S3/botocore error
             raise RuntimeError("A technical issue occurred while setting up the storage agent. Please contact your system administrator if the problem persists.") from e
+        finally:
+            self.clear_secrets()
         
         # Attempt to build the in-memory file tree
         self.file_tree = treelib.Tree()
@@ -183,26 +191,18 @@ class S3StorageAgent(AbstractStorageAgent):
             )
 
     def config(self, secrets: bool = False) -> dict:
-        return super().config(secrets)
+        config = super().config(secrets)
+        if self.region_name:
+            config["region_name"] = self.region_name
+        return config
 
-    def _secrets(self):
-        creds = self.s3_client._request_signer._credentials
-        return {
-            "aws_access_key_id": creds.access_key,
-            "aws_secret_access_key": creds.secret_key
-        }
-
-    def refresh_connection(self):
-        creds = self.s3_client._request_signer._credentials
-        self.s3_client = boto3.client(
-            's3',
-            instance_url=self.instance_url,
-            aws_access_key_id=creds.access_key,
-            aws_secret_access_key=creds.secret_key
-        )
+    @classmethod
+    def secrets(cls) -> set[str]:
+        return {"aws_secret_access_key"}
 
     def close(self):
-        self.s3_client.close()
+        if hasattr(self, "s3_client"):
+            self.s3_client.close()
 
     def smart_refresh_file_tree(self):
         """

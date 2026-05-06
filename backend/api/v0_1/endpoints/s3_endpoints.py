@@ -23,7 +23,7 @@ from core.services.filetree.models.file import File
 from core.services.filetree.models.folder import Folder
 from core.services.filetree.file_service import FileService
 from core.services.filetree.tree_service import TreeService
-from core.util.paths import normalize_folder_full_path
+from core.utils.paths import normalize_folder_full_path
 
 router = APIRouter(prefix="/tree", tags=["Tree"])
 logger = logging.getLogger("api.endpoints")

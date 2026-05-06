@@ -9,7 +9,7 @@ from sqlalchemy_utils import Ltree
 from core.db.postgres.init_db import ensure_root_for_bucket
 from core.services.filetree.models.file import File
 from core.services.filetree.models.folder import Folder
-from core.util.paths import (
+from core.utils.paths import (
     build_ltree_path,
     build_object_key,
     join_child_full_path,

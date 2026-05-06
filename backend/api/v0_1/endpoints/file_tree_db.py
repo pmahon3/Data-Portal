@@ -16,7 +16,7 @@ from core.services.policies import Policy
 from core.services.users import AbstractUserManager
 from core.services.filetree.models.file import File
 from core.services.filetree.models.folder import Folder
-from core.util.paths import normalize_folder_full_path
+from core.utils.paths import normalize_folder_full_path
 
 router = APIRouter(prefix="/tree", tags=["Tree-DB"])
 
