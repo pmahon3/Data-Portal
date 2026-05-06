@@ -9,6 +9,7 @@ export default function StorageInstanceForm({ onCreate, creating }) {
   const [s3Url, setS3Url] = useState("http://localhost:9000");
   const [s3Key, setS3Key] = useState("");
   const [s3Secret, setS3Secret] = useState("");
+  const [s3Region, setS3Region] = useState("");
   const [localErr, setLocalErr] = useState("");
 
   async function handleSubmit(e) {
@@ -30,6 +31,9 @@ export default function StorageInstanceForm({ onCreate, creating }) {
         aws_access_key_id: s3Key.trim(),
         aws_secret_access_key: s3Secret.trim(),
       };
+      if (s3Region.trim()) {
+        payload.region_name = s3Region.trim();
+      }
     } else {
       return setLocalErr(`Unsupported flavour: ${flavour}`);
     }
@@ -77,6 +81,10 @@ export default function StorageInstanceForm({ onCreate, creating }) {
             <label className="im-field">
               <span>Secret Key *</span>
               <input type="password" value={s3Secret} onChange={e => setS3Secret(e.target.value)} />
+            </label>
+            <label className="im-field">
+              <span>Region Name</span>
+              <input value={s3Region} onChange={e => setS3Region(e.target.value)} placeholder="us-east-2" />
             </label>
           </div>
         )}

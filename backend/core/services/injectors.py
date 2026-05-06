@@ -6,6 +6,7 @@ from fastapi import HTTPException, status
 from core.services.instances import AbstractInstanceManager
 from core.services.policies import CasbinPolicyManager
 from core.services.users import AbstractUserManager
+from core.utils.encryption import get_secret_encryption_key
 
 logger = logging.getLogger("user-manager")
 
@@ -86,7 +87,10 @@ def get_instance_manager() -> AbstractInstanceManager:
         logger.info("Initializing instance manager...")
 
         collection = get_instance_collection()
-        _instance_manager = InstanceManager(collection=collection)
+        _instance_manager = InstanceManager(
+            collection=collection,
+            encryption_key=get_secret_encryption_key()
+        )
 
         logger.info("InstanceManager instance created successfully...")
 

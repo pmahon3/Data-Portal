@@ -26,8 +26,9 @@ class AbstractStorageAgent(ABC):
     """
 
     FLAVOUR = None
-    CONFIG = None
-
+    CONFIG = {
+        'instance_url': str
+    }
     def __init__(self,
                  instance_url: str,
                  separator: str = '/'):
@@ -240,28 +241,29 @@ class AbstractStorageAgent(ABC):
 
     def config(self, secrets: bool = False) -> Dict[str, Any]:
         """
-        Return the configuration of the agent.
+        Return the configuration of the agent. 
 
         :return: The configuration of the agent.
         """
-        config = {
-            'instance_url': self.instance_url
-        }
+        config = {}
+        secret_fields = self.secrets()
 
-        if secrets:
-            for key, value in self._secrets().items():
-                config[key] = value
+        for key in self.CONFIG or {}:
+            if not secrets and key in secret_fields:
+                continue
+
+            config[key] = getattr(self, key)
 
         return config
 
-    @abstractmethod
-    def _secrets(self):
+    @classmethod
+    def secrets(cls) -> set[str]:
         """
-        Return the secrets of the agent.
+        Return the config field names that should be treated as secrets.
 
-        :return: The secrets of the agent.
+        :return: A set of secret config field names.
         """
-        pass
+        return set()
 
     def refresh_file_tree(self):
         """
@@ -269,6 +271,20 @@ class AbstractStorageAgent(ABC):
         This method should be implemented by subclasses to refresh the file tree.
         """
         self._load_file_tree()
+
+    def clear_secrets(self):
+        """
+        Remove plaintext secret values from this agent.
+        """
+        for field in self.secrets():
+            setattr(self, field, None)
+
+    @abstractmethod
+    def connect(self):
+        """
+        Establish any external connections needed before the agent is used.
+        """
+        pass
 
     @abstractmethod
     def smart_refresh_file_tree(self):
@@ -285,13 +301,6 @@ class AbstractStorageAgent(ABC):
         :return: None
         """
         raise NotImplementedError
-
-    @abstractmethod
-    def refresh_connection(self):
-        """
-        Refresh the agent's connection to the storage backend.
-        """
-        pass
 
     @abstractmethod
     def close(self):

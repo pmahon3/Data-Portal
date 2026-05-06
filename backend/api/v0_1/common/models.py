@@ -1,4 +1,4 @@
-from typing import Dict, Type, List, Any, Literal, Union, Annotated
+from typing import Dict, Type, List, Any, Literal, Union, Annotated, Optional
 
 from pydantic import BaseModel, Field, create_model
 
@@ -193,7 +193,8 @@ S3InstanceCreate = create_model(
     "S3InstanceCreate",
     __base__=InstanceBase,
     flavour=(Literal[S3StorageAgent.FLAVOUR], ...),
-    **{name: (typ, ...) for name, typ in S3StorageAgent.CONFIG.items()}
+    **{name: (typ, ...) for name, typ in S3StorageAgent.CONFIG.items()},
+    region_name=(Optional[str], None)
 )
 
 DummyInstanceCreate = create_model(

@@ -17,15 +17,17 @@ class DummyStorageAgent(AbstractStorageAgent):
     """
 
     FLAVOUR: str = 'dummy'
-    CONFIG: dict = {}  # No additional config required
-
+    CONFIG: dict = {
+        "instance_url": str
+    }
     def __init__(self, instance_url: str):
         """Initialize dummy storage agent."""
         super().__init__(instance_url)
 
-    def _secrets(self):
-        """Return empty secrets dict for dummy agent."""
-        return {}
+    @classmethod
+    def secrets(cls) -> set[str]:
+        """Return the secret config field names for this agent."""
+        return set()
 
     # Implement required abstract methods with no-op or minimal implementations
     # These won't be called during policy testing
@@ -50,9 +52,9 @@ class DummyStorageAgent(AbstractStorageAgent):
         """Dummy implementation - not used in policy tests."""
         return []
 
-    def refresh_connection(self):
-        """Dummy implementation - no connection to refresh."""
-        pass
+    def connect(self):
+        """Dummy implementation - no connection to establish."""
+        self.clear_secrets()
 
     def close(self):
         """Dummy implementation - no resources to clean up."""
