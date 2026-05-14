@@ -22,7 +22,6 @@ import "./Tree.css";
  *   - disableFileSelection: If true, disables the checkbox for file nodes (id starts with "file-").
  *   - disableFolderSelection: If true, disables the checkbox for folder nodes.
  *   - disableCascade: If true, prevents cascading checking/unchecking between parents and children.
- *   - enableSearch: If true, displays a search input to filter nodes by path
  *       or selection using glob or regex mode.
  */
 export default function Tree({
@@ -32,7 +31,6 @@ export default function Tree({
   disableFileSelection = false,
   disableFolderSelection = false,
   disableCascade = false,
-  enableSearch = false,
 }) {
   // States for draft input, applied input and whether to only filter selected nodes
   const [filterText, setFilterText] = useState("");
@@ -114,19 +112,17 @@ export default function Tree({
 
   return (
     <div className="tree-container">
-      {enableSearch && (
-        <TreeFilter
-          value={filterText}
-          mode={filterMode}
-          selectedOnly={filterSelectedOnly}
-          filterState={filterState}
-          onValueChange={setFilterText}
-          onModeChange={setFilterMode}
-          onSelectedOnlyChange={setFilterSelectedOnly}
-          onApply={applyFilter}
-          onClear={clearFilter}
-        />
-      )}
+      <TreeFilter
+        value={filterText}
+        mode={filterMode}
+        selectedOnly={filterSelectedOnly}
+        filterState={filterState}
+        onValueChange={setFilterText}
+        onModeChange={setFilterMode}
+        onSelectedOnlyChange={setFilterSelectedOnly}
+        onApply={applyFilter}
+        onClear={clearFilter}
+      />
 
       {tree.length === 0 ? (
         <div className="tree-empty-state">
