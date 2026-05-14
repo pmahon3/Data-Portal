@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import Tree from "./tree/index.js";
-import { CircularProgress } from "@mui/material";
+import { CircularProgress, Tab, Tabs } from "@mui/material";
 import { formatError } from "../../../utils/errorUtils";
 import { downloadAssetBundle, deleteAssets } from "./actions.js";
 import { getAuthHeaders } from '../../../utils/authUtils';
@@ -17,6 +17,7 @@ export default function EndpointCard({
   setBusyID,
 }) {
   const [open, setOpen] = useState(false);
+  const [activeAccess, setActiveAccess] = useState("read");
   const [treesByAccess, setTreesByAccess] = useState({});
   const [loadingAssets, setLoadingAssets] = useState(false);
   const [assetError, setAssetError] = useState(null);
@@ -69,6 +70,15 @@ export default function EndpointCard({
   const hasRead = readArray.length > 0;
   const hasWrite = writeArray.length > 0;
   const hasDelete = deleteArray.length > 0;
+  const availableAccessTabs = [
+    hasRead && { value: "read", label: "Download", color: "#2563eb" },
+    hasWrite && { value: "write", label: "Upload", color: "#059669" },
+    hasDelete && { value: "delete", label: "Delete", color: "#dc2626" },
+  ].filter(Boolean);
+  const activeTab = availableAccessTabs.some(tab => tab.value === activeAccess)
+    ? activeAccess
+    : availableAccessTabs[0]?.value;
+  const activeTabColor = availableAccessTabs.find(tab => tab.value === activeTab)?.color || "#2563eb";
 
   // Compute selections we need
   const readLeaves = getSelectedLeaves(readArray, selectedByAccess.read || new Set());
@@ -419,7 +429,37 @@ const handleDownload = async () => {
             <div style={{ color: "#6b7280" }}>No tree data.</div>
           ) : (
             <div style={{ display: "grid", gap: 16 }}>
-              {hasRead && (
+              <Tabs
+                value={activeTab}
+                onChange={(_, nextAccess) => setActiveAccess(nextAccess)}
+                aria-label="Asset access tabs"
+                sx={{
+                  borderBottom: "1px solid #e5e7eb",
+                  minHeight: 40,
+                  "& .MuiTabs-indicator": {
+                    backgroundColor: activeTabColor,
+                    height: 3,
+                  },
+                }}
+              >
+                {availableAccessTabs.map(tab => (
+                  <Tab
+                    key={tab.value}
+                    value={tab.value}
+                    label={tab.label}
+                    sx={{
+                      color: "#6b7280",
+                      fontWeight: 600,
+                      minHeight: 40,
+                      textTransform: "none",
+                      "&.Mui-selected": {
+                        color: tab.color,
+                      },
+                    }}
+                  />
+                ))}
+              </Tabs>
+              {hasRead && activeTab === "read" && (
                 <div>
                   <div
                     style={{
@@ -458,17 +498,11 @@ const handleDownload = async () => {
                     nodes={readArray}
                     selected={selectedByAccess.read || new Set()}
                     onChange={onTreeChange("read")}
-                    enableSearch={true}
                   />
                 </div>
               )}
-              {hasWrite && (
-                <div
-                  style={{
-                    borderTop: hasRead ? "2px dashed #c9c9c9" : "none",
-                    paddingTop: hasRead ? 8 : 0,
-                  }}
-                >
+              {hasWrite && activeTab === "write" && (
+                <div>
                   <div
                     style={{
                       display: "flex",
@@ -536,13 +570,8 @@ const handleDownload = async () => {
                   />
                 </div>
               )}
-              {hasDelete && (
-                <div
-                  style={{
-                    borderTop: hasRead || hasWrite ? "2px dashed #c9c9c9" : "none",
-                    paddingTop: hasRead ? 8 : 0,
-                  }}
-                >
+              {hasDelete && activeTab === "delete" && (
+                <div>
                   <div
                     style={{
                       display: "flex",
