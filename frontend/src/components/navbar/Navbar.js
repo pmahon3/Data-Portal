@@ -1,17 +1,19 @@
 import React from "react";
+import { Link } from "react-router-dom";
+import { useKeycloak } from "@react-keycloak/web";
 import PersonIcon from '@mui/icons-material/Person';
-import keycloak from "../../setting/Keycloak";
 import "./Navbar.css";
 
 function Navbar() {
+  const { keycloak } = useKeycloak();
   const isLoggedIn = keycloak.authenticated;
 
   return (
     <nav className="navbar">
       <div className="navbar-left">INN Data Portal</div>
       <div className="navbar-right">
-        <a href="/" className="navbar-link">Home</a>
-        <a href="/about" className="navbar-link">About</a>
+        <Link to={isLoggedIn ? "/app" : "/"} className="navbar-link">Home</Link>
+        <Link to="/about" className="navbar-link">About</Link>
         {isLoggedIn && (
           <div className="navbar-user">
             <span>{keycloak.tokenParsed?.preferred_username}</span>
