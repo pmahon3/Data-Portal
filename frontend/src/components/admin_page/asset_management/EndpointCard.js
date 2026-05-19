@@ -469,7 +469,7 @@ const handleDownload = async () => {
                       marginBottom: 6,
                     }}
                   >
-                    <div style={{ fontWeight: 600 }}>Read</div>
+                    <div style={{ fontWeight: 600 }}>Download</div>
                     <button
                       onClick={handleDownload}
                       disabled={!!busy}
@@ -511,7 +511,7 @@ const handleDownload = async () => {
                       marginBottom: 6,
                     }}
                   >
-                    <div style={{ fontWeight: 600 }}>Write</div>
+                    <div style={{ fontWeight: 600 }}>Upload</div>
                     <div style={{ display: "flex", gap: 8 }}>
                       <button
                         onClick={handleFileUpload}

@@ -4,7 +4,7 @@ import { CircularProgress } from '@mui/material';
 const FLAVOURS = ["s3"];
 
 export default function StorageInstanceForm({ onCreate, creating }) {
-  const [instanceName, setInstanceName] = useState("my-instance-id");
+  const [instanceName, setInstanceName] = useState("");
   const [flavour, setFlavour] = useState("");
   const [s3Url, setS3Url] = useState("http://localhost:9000");
   const [s3Key, setS3Key] = useState("");
@@ -55,7 +55,7 @@ export default function StorageInstanceForm({ onCreate, creating }) {
       <form onSubmit={handleSubmit} className="im-form">
         <label className="im-field">
           <span>Instance Name *</span>
-          <input value={instanceName} onChange={e => setInstanceName(e.target.value)} placeholder="my-instance-id" />
+          <input value={instanceName} onChange={e => setInstanceName(e.target.value)} placeholder="my-instance-name" />
           <small className="im-muted">Used to derive a stable UUID and shown in the UI</small>
         </label>
 

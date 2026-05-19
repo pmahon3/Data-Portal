@@ -66,7 +66,7 @@ export default function StorageInstanceCard({ instance: i, onDelete, onUpdate })
               <strong>{i.name}</strong>
               <button 
                 title="Edit name"
-                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 4px', fontSize: '14px', color: '#666' }}
+                style={{ background: 'none', border: 'none', borderRadius: 8, cursor: 'pointer', padding: '0 4px', fontSize: '14px', color: '#666' }}
                 onClick={() => {
                   setIsEditing(true);
                   setEditingName(i.name);

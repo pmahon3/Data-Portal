@@ -129,7 +129,11 @@ export default function Tree({
           {filterState.hasActiveFilter ? "No matches." : "Empty."}
         </div>
       ) : (
-        <SimpleTreeView>
+        <SimpleTreeView
+          className="tree-view"
+          expansionTrigger="iconContainer"
+          disableSelection
+        >
           {tree.map((node) => (
             <TreeNode
               key={node.id}

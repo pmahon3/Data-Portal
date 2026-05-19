@@ -37,7 +37,7 @@ export default function TreeFilter({
     ? filterState.isPatternValid
       ? "Regex mode uses JavaScript regular expressions."
       : "Invalid regex. Fix the pattern before searching."
-    : "Glob mode uses * for many characters and ? for a single character.";
+    : "Search uses * for many characters and ? for a single character.";
 
   return (
     <div className="tree-filter-group">
