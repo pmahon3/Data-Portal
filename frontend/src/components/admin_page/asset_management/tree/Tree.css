@@ -4,6 +4,186 @@
   gap: 8px;
 }
 
+.tree-view {
+  padding: 4px 0;
+}
+
+.tree-view .MuiTreeItem-content {
+  min-height: 38px;
+  border-radius: 6px;
+  padding: 3px 6px;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.tree-view .MuiTreeItem-content:hover {
+  background: #dbeafe;
+}
+
+.tree-view .MuiTreeItem-content.Mui-focused,
+.tree-view .MuiTreeItem-content.Mui-selected {
+  background: transparent !important;
+}
+
+.tree-view .MuiTreeItem-content.Mui-focused:hover,
+.tree-view .MuiTreeItem-content.Mui-selected:hover {
+  background: #dbeafe !important;
+}
+
+.tree-view .MuiTreeItem-iconContainer {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  color: #475569;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.tree-view .MuiTreeItem-content:hover > .MuiTreeItem-iconContainer {
+  color: #1d4ed8;
+}
+
+.tree-view .MuiTreeItem-iconContainer:hover {
+  background: #2563eb;
+  color: #fff !important;
+}
+
+.tree-view .MuiTreeItem-iconContainer svg {
+  font-size: 22px;
+  transition: transform 120ms ease;
+}
+
+.tree-view .MuiTreeItem-iconContainer:hover svg {
+  transform: scale(1.2);
+}
+
+.tree-view .MuiTreeItem-groupTransition {
+  margin-left: 17px;
+  padding-left: 10px;
+  border-left: 1px solid #e5e7eb;
+}
+
+.tree-node-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  color: #1f2937;
+  font-size: 15px;
+  line-height: 1.35;
+  cursor: pointer;
+  user-select: none;
+}
+
+.tree-node-control {
+  --tree-node-icon-size: 32px;
+
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 var(--tree-node-icon-size, 32px);
+  width: var(--tree-node-icon-size, 32px);
+  height: var(--tree-node-icon-size, 32px);
+}
+
+.tree-node-control .tree-checkbox {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: var(--tree-node-icon-size, 32px);
+  height: var(--tree-node-icon-size, 32px);
+  padding: 0;
+  margin: 0;
+  color: #4b5563;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.tree-node-control .tree-checkbox svg {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  font-size: 15px;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.08);
+}
+
+.tree-view .MuiTreeItem-content:hover .tree-checkbox,
+.tree-node-label-checked .tree-checkbox {
+  opacity: 1;
+}
+
+.tree-node-icon {
+  --tree-node-icon-color: #5b6678;
+  --tree-node-icon-background: #f1f4f7;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: var(--tree-node-icon-size, 32px);
+  height: var(--tree-node-icon-size, 32px);
+  border: 3px solid transparent;
+  border-radius: 6px;
+  font-size: 23px;
+  color: var(--tree-node-icon-color);
+  background: var(--tree-node-icon-background);
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.06);
+  transition: opacity 120ms ease;
+}
+
+.tree-node-icon-bucket {
+  --tree-node-icon-color: #4f6260;
+  --tree-node-icon-background: #edf3f2;
+}
+
+.tree-node-icon-folder {
+  --tree-node-icon-color: #6b6258;
+  --tree-node-icon-background: #f3f1ed;
+}
+
+.tree-node-icon-empty-folder {
+  --tree-node-icon-color: #6b7280;
+  --tree-node-icon-background: #f3f4f6;
+}
+
+.tree-node-icon-file {
+  --tree-node-icon-color: #5b6678;
+  --tree-node-icon-background: #f1f4f7;
+}
+
+.tree-node-label-checked {
+  color: #0f172a;
+}
+
+.tree-node-label-checked .tree-node-icon {
+  border-color: #2563eb;
+  box-shadow:
+    inset 0 0 0 1px rgba(37, 99, 235, 0.16),
+    0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.tree-node-label-disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.tree-node-label-disabled .tree-node-icon {
+  opacity: 0.68;
+}
+
+.tree-node-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .tree-filter-group {
   display: flex;
   flex-direction: column;
@@ -32,7 +212,7 @@
   gap: 4px;
   padding: 6px 10px;
   border: 1px solid #d1d5db;
-  border-radius: 6px;
+  border-radius: 8px;
   background: #f9fafb;
   color: #374151;
   font-size: 13px;

@@ -1,5 +1,9 @@
 import React from "react";
 import { Checkbox } from "@mui/material";
+import FolderOpenRoundedIcon from "@mui/icons-material/FolderOpenRounded";
+import FolderRoundedIcon from "@mui/icons-material/FolderRounded";
+import InsertDriveFileRoundedIcon from "@mui/icons-material/InsertDriveFileRounded";
+import Inventory2RoundedIcon from "@mui/icons-material/Inventory2Rounded";
 import { TreeItem } from "@mui/x-tree-view/TreeItem";
 import {
   checkAncestors,
@@ -7,6 +11,25 @@ import {
   uncheckAncestors,
   unselectSubtree,
 } from "./TreeUtils.js";
+
+const NODE_ICON_BY_TYPE = {
+  bucket: {
+    Icon: Inventory2RoundedIcon,
+    className: "tree-node-icon-bucket",
+  },
+  folder: {
+    Icon: FolderRoundedIcon,
+    className: "tree-node-icon-folder",
+  },
+  emptyFolder: {
+    Icon: FolderOpenRoundedIcon,
+    className: "tree-node-icon-empty-folder",
+  },
+  file: {
+    Icon: InsertDriveFileRoundedIcon,
+    className: "tree-node-icon-file",
+  },
+};
 
 /**
  * TreeNode renders one node plus all descendants.
@@ -30,9 +53,11 @@ export default function TreeNode({
   disableCascade,
 }) {
   const id = String(node.id);
-  const isFile = id.startsWith("file-");
+  const hasChildren = Array.isArray(node.children) && node.children.length > 0;
+  const nodeType = getNodeType(node, id, hasChildren);
+  const isFile = nodeType === "file";
+  const isFolder = nodeType !== "file";
   const checked = selected.has(id);
-  const isFolder = node.children && node.children.length > 0;
   const disabled =
     (disableFileSelection && isFile) ||
     (disableFolderSelection && isFolder);
@@ -63,28 +88,38 @@ export default function TreeNode({
     onChange(next);
   };
 
+  const handleLabelClick = () => {
+    toggle();
+  };
+
   return (
     <TreeItem
       itemId={id}
       label={
-        <div className="tree-node-label">
-          <Checkbox
-            size="small"
-            checked={checked}
-            disabled={disabled}
-            onChange={toggle}
-            // MUI tree items also listen for click events to expand/collapse.
-            // Stop propagation so checking a box does not also toggle the row.
-            onClick={(event) => event.stopPropagation()}
-            className="tree-checkbox"
-          />
+        <div
+          className={getNodeLabelClassName(checked, disabled)}
+          onClick={handleLabelClick}
+        >
+          <span className="tree-node-control">
+            <TreeNodeIcon type={nodeType} />
+            <Checkbox
+              size="small"
+              checked={checked}
+              disabled={disabled}
+              onChange={toggle}
+              // MUI tree items also listen for click events to expand/collapse.
+              // Stop propagation so checking a box does not also toggle the row.
+              onClick={(event) => event.stopPropagation()}
+              className="tree-checkbox"
+            />
+          </span>
           <span className="tree-node-text">{node.text}</span>
         </div>
       }
     >
       {/* Child nodes are rendered recursively so folder behavior stays the same
           no matter how deep the nesting goes. */}
-      {isFolder &&
+      {hasChildren &&
         node.children.map((child) => (
           <TreeNode
             key={child.id}
@@ -97,5 +132,32 @@ export default function TreeNode({
           />
         ))}
     </TreeItem>
+  );
+}
+
+function getNodeType(node, id, hasChildren) {
+  if (id.startsWith("file-")) return "file";
+  if (node._parentId === null || node.parent === "#") return "bucket";
+  return hasChildren ? "folder" : "emptyFolder";
+}
+
+function getNodeLabelClassName(checked, disabled) {
+  return [
+    "tree-node-label",
+    checked && "tree-node-label-checked",
+    disabled && "tree-node-label-disabled",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function TreeNodeIcon({ type }) {
+  const { Icon, className } =
+    NODE_ICON_BY_TYPE[type] ?? NODE_ICON_BY_TYPE.file;
+
+  return (
+    <span className={`tree-node-icon ${className}`} aria-hidden="true">
+      <Icon fontSize="inherit" />
+    </span>
   );
 }
