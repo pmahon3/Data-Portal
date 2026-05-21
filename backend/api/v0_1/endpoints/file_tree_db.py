@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,6 +34,7 @@ def resource_for_key(bucket: str, key: str) -> str:
 @router.get("/dashboard/{instance_uuid}")
 async def dashboard_db(
     instance_uuid: str,
+    access: Literal["read", "write", "delete"] | None = Query(None, description="Only return one access tree"),
     token_payload: dict = Depends(decode_token),
     session: AsyncSession = Depends(get_session),
     user_manager: AbstractUserManager = Depends(get_user_manager),
@@ -53,7 +55,7 @@ async def dashboard_db(
     allowed_buckets = set(agent.fetch_all_buckets()) if hasattr(agent, "fetch_all_buckets") else set()
 
     # Initialize response structure grouped by permission type
-    access_types = ["read", "write", "delete"]
+    access_types = [access] if access else ["read", "write", "delete"]
     assets: dict[str, dict[str, list[FileTreeNode]]] = {
         instance_uuid: {access: [] for access in access_types}
     }
