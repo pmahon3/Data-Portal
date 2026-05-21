@@ -23,7 +23,7 @@ export default function EndpointCard({
   const [assetError, setAssetError] = useState(null);
 
   // Fetch assets for this endpoint
-  const fetchAssets = async (forceRefresh = false) => {
+  const fetchAssets = async (accessKey = activeAccess, forceRefresh = false) => {
     try {
       setLoadingAssets(true);
       setAssetError(null);
@@ -32,9 +32,12 @@ export default function EndpointCard({
       const { data } = await http.get(`/tree/dashboard/${encodeURIComponent(endpointUuid)}`, {
  
       headers: authHeaders,
-        params: { _t: Date.now(), ...(forceRefresh ? { refresh: 1 } : {}) },
+        params: { access: accessKey, _t: Date.now(), ...(forceRefresh ? { refresh: 1 } : {}) },
       });
-      setTreesByAccess(data.assets[endpointUuid] || {});
+      setTreesByAccess((prev) => ({
+        ...prev,
+        [accessKey]: data.assets?.[endpointUuid]?.[accessKey] || [],
+      }));
     } catch (e) {
       console.error(`[EndpointCard] Failed to fetch assets for ${endpointName}:`, e);
       setAssetError(e?.response?.data?.detail || e?.message || "Failed to load assets");
@@ -49,12 +52,12 @@ export default function EndpointCard({
     setOpen(willOpen);
     // Fetch assets when opening if not already loaded
     if (willOpen && Object.keys(treesByAccess).length === 0 && !loadingAssets) {
-      fetchAssets(false);
+      fetchAssets("read", false);
     }
   };
 
   // onMutate callback to refresh assets after upload/delete
-  const onMutate = () => fetchAssets(true);
+  const onMutate = () => fetchAssets(activeAccess, true);
 
   // Normalize to explicit read/write arrays
   const access = normalizeAccess(treesByAccess);
@@ -71,13 +74,13 @@ export default function EndpointCard({
   const hasWrite = writeArray.length > 0;
   const hasDelete = deleteArray.length > 0;
   const availableAccessTabs = [
-    hasRead && { value: "read", label: "Download", color: "#2563eb" },
-    hasWrite && { value: "write", label: "Upload", color: "#059669" },
-    hasDelete && { value: "delete", label: "Delete", color: "#dc2626" },
-  ].filter(Boolean);
+    { value: "read", label: "Download", color: "#2563eb" },
+    { value: "write", label: "Upload", color: "#059669" },
+    { value: "delete", label: "Delete", color: "#dc2626" },
+  ];
   const activeTab = availableAccessTabs.some(tab => tab.value === activeAccess)
     ? activeAccess
-    : availableAccessTabs[0]?.value;
+    : "read";
   const activeTabColor = availableAccessTabs.find(tab => tab.value === activeTab)?.color || "#2563eb";
 
   // Compute selections we need
@@ -418,20 +421,13 @@ const handleDownload = async () => {
 
       {open && (
         <div style={{ padding: 12 }}>
-          {loadingAssets ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#6b7280" }}>
-              <CircularProgress size={16} />
-              Loading assets…
-            </div>
-          ) : assetError ? (
-            <div style={{ color: "#ef4444" }}>Error: {assetError}</div>
-          ) : !hasRead && !hasWrite && !hasDelete ? (
-            <div style={{ color: "#6b7280" }}>No tree data.</div>
-          ) : (
-            <div style={{ display: "grid", gap: 16 }}>
+          <div style={{ display: "grid", gap: 16 }}>
               <Tabs
                 value={activeTab}
-                onChange={(_, nextAccess) => setActiveAccess(nextAccess)}
+                onChange={(_, nextAccess) => {
+                  setActiveAccess(nextAccess);
+                  fetchAssets(nextAccess, false);
+                }}
                 aria-label="Asset access tabs"
                 sx={{
                   borderBottom: "1px solid #e5e7eb",
@@ -459,7 +455,19 @@ const handleDownload = async () => {
                   />
                 ))}
               </Tabs>
-              {hasRead && activeTab === "read" && (
+              {loadingAssets && (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#6b7280" }}>
+                  <CircularProgress size={16} />
+                  Loading assets...
+                </div>
+              )}
+              {!loadingAssets && assetError && (
+                <div style={{ color: "#ef4444" }}>Error: {assetError}</div>
+              )}
+              {!loadingAssets && !assetError && activeTab === "read" && !hasRead && (
+                <div style={{ color: "#6b7280" }}>No tree data.</div>
+              )}
+              {!loadingAssets && !assetError && hasRead && activeTab === "read" && (
                 <div>
                   <div
                     style={{
@@ -501,7 +509,10 @@ const handleDownload = async () => {
                   />
                 </div>
               )}
-              {hasWrite && activeTab === "write" && (
+              {!loadingAssets && !assetError && activeTab === "write" && !hasWrite && (
+                <div style={{ color: "#6b7280" }}>No tree data.</div>
+              )}
+              {!loadingAssets && !assetError && hasWrite && activeTab === "write" && (
                 <div>
                   <div
                     style={{
@@ -570,7 +581,10 @@ const handleDownload = async () => {
                   />
                 </div>
               )}
-              {hasDelete && activeTab === "delete" && (
+              {!loadingAssets && !assetError && activeTab === "delete" && !hasDelete && (
+                <div style={{ color: "#6b7280" }}>No tree data.</div>
+              )}
+              {!loadingAssets && !assetError && hasDelete && activeTab === "delete" && (
                 <div>
                   <div
                     style={{
@@ -615,7 +629,6 @@ const handleDownload = async () => {
                 </div>
               )}
             </div>
-          )}
         </div>
       )}
     </div>
