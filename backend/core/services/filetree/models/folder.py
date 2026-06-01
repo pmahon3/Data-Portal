@@ -3,7 +3,7 @@ from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, String, Text, U
 from sqlalchemy.orm import relationship
 from sqlalchemy_utils import LtreeType
 
-from core.services.filetree.models.base import Base
+from core.db.postgres.base import Base
 
 
 class Folder(Base):

@@ -3,7 +3,7 @@ from __future__ import annotations
 from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import relationship
 
-from core.services.filetree.models.base import Base
+from core.db.postgres.base import Base
 
 
 class File(Base):

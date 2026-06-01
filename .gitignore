@@ -809,7 +809,11 @@ buck-out/
 [Ll]ib
 [Ll]ib64
 [Ll]ocal
-[Ss]cripts
+# Windows virtualenv script directories.
+.venv/[Ss]cripts/
+venv/[Ss]cripts/
+env/[Ss]cripts/
+ENV/[Ss]cripts/
 pyvenv.cfg
 pip-selfcheck.json
 
@@ -863,3 +867,6 @@ $RECYCLE.BIN/
 *.lnk
 
 # End of https://www.toptal.com/developers/gitignore/api/linux,macos,windows,dotenv,git,python,java,node,react,reactnative,eclipse,visualstudiocode,pycharm+all,venv,virtualenv,jupyternotebooks
+
+# Local generated help files.
+HELP.md
