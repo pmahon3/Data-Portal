@@ -74,3 +74,11 @@ def get_instance_collection() -> Collection:
     """
     db = get_mongo_database()
     return db[os.getenv("MONGO_INSTANCE_COLLECTION", "connection-storage-instances")]
+
+
+def get_project_instance_association_collection() -> Collection:
+    """
+    Return the MongoDB collection used for project-instance associations.
+    """
+    db = get_mongo_database()
+    return db[os.getenv("MONGO_PROJECT_INSTANCE_ASSOCIATION_COLLECTION", "project-instance-associations")]

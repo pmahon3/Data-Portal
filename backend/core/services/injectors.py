@@ -24,6 +24,7 @@ def get_user_manager() -> AbstractUserManager:
     if _user_manager is None:
         # Lazy import to avoid circular dependencies
         from core.services.users import KeycloakUserManager
+        from core.db.mongodb.mongo_client import get_project_instance_association_collection
 
         # Check if required environment variables are available
         logger.info("Initializing user manager...")
@@ -48,7 +49,9 @@ def get_user_manager() -> AbstractUserManager:
             realm_name=os.getenv("KEYCLOAK_REALM"),
             client_id=os.getenv("KEYCLOAK_ADMIN_CLIENT_ID"),
             client_secret=admin_secret,
-            base_url=os.getenv("KEYCLOAK_DOMAIN")
+            base_url=os.getenv("KEYCLOAK_DOMAIN"),
+            project_instance_association_collection=get_project_instance_association_collection(),
+            instance_manager=get_instance_manager()
         )
         logger.info("KeycloakUserManager instance created successfully")
 

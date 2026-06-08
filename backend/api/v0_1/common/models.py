@@ -104,6 +104,25 @@ class GetPolicyResponse(BaseModel):
     details: list[Policy] = Field(..., description="The details of the policies that were retrieved.")
 
 
+class ProjectResponse(BaseModel):
+    name: str = Field(..., description="The project name.")
+    users: list[str] = Field(default_factory=list, description="Project users.")
+    managers: list[str] = Field(default_factory=list, description="Project managers.")
+    storageInstances: list[str] = Field(default_factory=list, description="Project storage instances.")
+
+
+class ProjectCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1, description="The project name.")
+
+
+class ProjectUserRequest(BaseModel):
+    username: str = Field(..., min_length=1, description="The username to add or remove.")
+
+
+class ProjectStorageInstanceRequest(BaseModel):
+    instance_name: str = Field(..., min_length=1, description="The storage instance name to add or remove.")
+
+
 # Model registration structure
 model_registry: Dict[str, Type[BaseModel]] = {}
 
@@ -186,6 +205,7 @@ class InstanceBase(BaseModel):
     flavour: Literal[tuple(AVAILABLE_FLAVOURS.keys())]
     instance_name: str
     instance_url: str
+    project_names: list[str] = Field(default_factory=list)
 
 
 # build per-flavour create models:

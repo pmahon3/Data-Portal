@@ -1,7 +1,7 @@
 import React from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
-import AdminFunctionNav from "./AdminFunctionNav";
 import UserManagement from "./user_management";
+import ProjectManagement from "./project_management";
 import AssetManagement from "./asset_management";
 import StorageManagement from "./storage_management";
 import AdminSidebar from "./AdminSidebar";
@@ -13,7 +13,6 @@ export default function AdminPage({ token }) {
   return (
     <div className="admin-layout">
 
-      {/* <AdminFunctionNav/> */}
       <AdminSidebar/>
       <div className="admin-content">
 
@@ -21,6 +20,7 @@ export default function AdminPage({ token }) {
         <Routes>
           {/* <Route path="/" element={<AdminHome />} /> */}
           <Route path="user-management" element={<UserManagement />} />
+          <Route path="project-management" element={<ProjectManagement />} />
           <Route path="policy-management" element={<PolicyManagement />} />
           <Route path="asset-management" element={<AssetManagement />} />
           <Route path="storage-management" element={<StorageManagement />} />

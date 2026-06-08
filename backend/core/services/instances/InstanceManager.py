@@ -120,7 +120,7 @@ class InstanceManager(AbstractInstanceManager):
         instance_uuid = uuid4()
 
         # Convert Pydantic model to dict for instance factory
-        agent_cfg = config.dict(exclude={"flavour", "instance_name", "name"})
+        agent_cfg = config.dict(exclude={"flavour", "instance_name", "name", "project_names"})
         config_dict = {"agent": agent_cfg, "flavour": flavour}
 
         # Create and connect the storage agent for the instance (letting specific errors propagate up)

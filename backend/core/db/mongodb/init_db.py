@@ -8,7 +8,7 @@ import logging
 
 from pymongo import ASCENDING, IndexModel
 
-from .mongo_client import get_instance_collection
+from .mongo_client import get_instance_collection, get_project_instance_association_collection
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +25,13 @@ INSTANCE_INDEXES = [
     ),
 ]
 
+PROJECT_INSTANCE_ASSOCIATION_INDEXES = [
+    IndexModel(
+        [("project_id", ASCENDING), ("instance_uuid", ASCENDING)],
+        unique=True,
+    ),
+]
+
 
 def ensure_instance_indexes() -> None:
     """
@@ -35,3 +42,14 @@ def ensure_instance_indexes() -> None:
     logger.info("Ensuring MongoDB instance indexes")
     collection.create_indexes(INSTANCE_INDEXES)
     logger.info("MongoDB instance indexes are ready")
+
+
+def ensure_project_instance_association_indexes() -> None:
+    """
+    Ensure unique indexes exist for the project-instance association collection.
+    """
+    collection = get_project_instance_association_collection()
+
+    logger.info("Ensuring MongoDB project-instance association indexes")
+    collection.create_indexes(PROJECT_INSTANCE_ASSOCIATION_INDEXES)
+    logger.info("MongoDB project-instance association indexes are ready")

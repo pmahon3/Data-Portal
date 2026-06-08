@@ -9,7 +9,9 @@ import { getAuthHeaders } from '../../../utils/authUtils';
 const http = axios.create({ baseURL: "/api" });
 
 export default function UserManagement() {
-  const { initialized } = useKeycloak();
+  const { keycloak, initialized } = useKeycloak();
+  const roles = keycloak?.tokenParsed?.realm_access?.roles || [];
+  const isAdmin = roles.includes("admin");
 
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -158,7 +160,9 @@ export default function UserManagement() {
               <div key={u.username} className="um-user-card">
                 <div className="um-user-card-head">
                   <strong>{u.username}</strong>
-                  <button className="um-btn um-btn-danger" onClick={() => handleDelete(u)}>Delete</button>
+                  {isAdmin && (
+                    <button className="um-btn um-btn-danger" onClick={() => handleDelete(u)}>Delete</button>
+                  )}
                 </div>
                 {u.full_name && <div className="um-user-fullname">{u.full_name}</div>}
                 {u.email && <div className="um-user-email">{u.email}</div>}

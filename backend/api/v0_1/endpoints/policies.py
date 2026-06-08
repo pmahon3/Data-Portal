@@ -6,11 +6,12 @@ All endpoints require admin privileges as policies control system access.
 """
 
 import logging
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 
-from api.v0_1.common.auth_dependencies import require_admin
+from api.v0_1.common.auth_dependencies import is_user_admin, require_admin, require_admin_or_manager
 from api.v0_1.startup import init_db_roots
 from core.services.injectors import get_user_manager, get_policy_manager, get_instance_manager
 from core.services.instances import AbstractInstanceManager
@@ -34,7 +35,7 @@ logger = logging.getLogger("api.endpoints")
 )
 async def get_policies(
     policy_filter: Policy = Depends(),
-    admin_user: dict = Depends(require_admin),
+    current_user: dict = Depends(require_admin_or_manager),
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     user_manager: AbstractUserManager = Depends(get_user_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
@@ -102,17 +103,17 @@ async def get_policies(
 )
 async def create_policy(
     new_policy: AddPolicyRequest,
-    admin_user: dict = Depends(require_admin),
+    current_user: dict = Depends(require_admin_or_manager),
     user_manager: AbstractUserManager = Depends(get_user_manager),
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ) -> AddPolicyResponse:
     """
-    Create a new access policy (admin only).
+    Create a new access policy.
     
     Args:
         new_policy: Policy creation request data
-        admin_user: Current user (must have admin privileges)
+        current_user: Current user (must be admin or project manager)
         user_manager: User manager dependency
         policy_manager: Policy manager dependency
         instance_manager: Instance manager dependency
@@ -136,6 +137,17 @@ async def create_policy(
     except KeyError:
         logger.error(f"Instance '{new_policy.instance_name}' not found for policy creation")
         raise HTTPException(status_code=404, detail="Instance not found")
+
+    # Managers can grant access only inside a project they manage.
+    if not is_user_admin(current_user) and not user_manager.can_manage_instance_for_user(
+        current_user,
+        new_policy.username,
+        instance_uuid
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: not a manager for this user and instance"
+        )
 
     # Create policy object
     policy = Policy(
@@ -180,7 +192,7 @@ async def create_policy(
 )
 async def delete_policy(
     old_policy: RemovePolicyRequest,
-    admin_user: dict = Depends(require_admin),
+    current_user: dict = Depends(require_admin_or_manager),
     user_manager: AbstractUserManager = Depends(get_user_manager),
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager)
@@ -204,20 +216,30 @@ async def delete_policy(
     """
     # Get user and instance UUIDs
     try:
-        #This is temporary
-        # user_uuid = user_manager.get_user_uuid(old_policy.username)
-        user_uuid = old_policy.user_uuid
-    except KeyError:
+        user_uuid = UUID(str(old_policy.user_uuid))
+    except (TypeError, ValueError):
         logger.error(f"User not found for policy deletion: {old_policy.user_uuid}")
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=400, detail="Invalid user UUID")
     
     try:
-        # This is temporary
-        # instance_uuid = instance_manager.get_instance_uuid(old_policy.instance_name)
-        instance_uuid = old_policy.instance_uuid
-    except KeyError:
+        instance_uuid = UUID(str(old_policy.instance_uuid))
+    except (TypeError, ValueError):
         logger.error(f"Instance not found for policy deletion: {old_policy.instance_uuid}")
-        raise HTTPException(status_code=404, detail="Instance not found")
+        raise HTTPException(status_code=400, detail="Invalid instance UUID")
+
+    if not is_user_admin(current_user):
+        # If manager
+        try:
+            username = user_manager.get_user_slug(user_uuid)
+        except Exception as e:
+            logger.error(f"User UUID {user_uuid} not found for policy deletion: {e}")
+            raise HTTPException(status_code=404, detail="User not found")
+
+        if not user_manager.can_manage_instance_for_user(current_user, username, instance_uuid):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: not a manager for this user and instance"
+            )
 
     # Create policy object to remove
     policy = Policy(

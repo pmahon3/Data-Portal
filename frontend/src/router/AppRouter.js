@@ -14,11 +14,13 @@ import About from "../components/about/About";
 // Check the role of user
 function AuthenticatedApp({ keycloak }) {
   const roles = keycloak.tokenParsed?.realm_access?.roles || [];
+  const projects = keycloak.tokenParsed?.projects || [];
+  const isProjectManager = projects.some(path => String(path).replace(/\/$/, "").endsWith("/managers"));
   const token = keycloak.token;
 
   console.log("This is the token: "+ token)
 
-  return roles.includes("admin") ? <AdminPage token={token} /> : <NormalUserPage />;
+  return roles.includes("admin") || isProjectManager ? <AdminPage token={token} /> : <NormalUserPage />;
 }
 
 //handle application routes

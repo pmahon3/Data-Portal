@@ -35,12 +35,17 @@ export function useStorageInstances() {
 
 
   // Creates a new storage instance
-  const createInstance = async (payload) => {
+  const createInstance = async (payload, selectedProjects = []) => {
     setCreating(true);
     setErr("");
     try {
       const headers = await getAuthHeaders();
-      await http.post(`${INSTANCES_BASE}/`, payload, { headers });
+      // Project attachment must happen in the create request for manager-scoped access.
+      await http.post(
+        `${INSTANCES_BASE}/`,
+        { ...payload, project_names: selectedProjects },
+        { headers }
+      );
 
       // Re-fetch the entire list to ensure the UI is in sync with the server
       await fetchInstances();
