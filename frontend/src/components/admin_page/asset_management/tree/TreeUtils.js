@@ -85,7 +85,10 @@ export function nameFromId(id) {
 /** Uses full path metadata for filtering when the backend provides it. */
 export function getSearchablePath(node) {
   const attrs = node.li_attr || {};
-  return String(attrs.key || attrs.full_path || node.text || "");
+  const path = String(attrs.key || attrs.full_path || node.text || "");
+  return attrs.bucket && path.startsWith("/")
+    ? `${attrs.bucket}${path}`
+    : path;
 }
 
 /**
@@ -103,6 +106,7 @@ export function filterNodes(nodes, { pathMatcher, selected, selectedOnly }) {
 
   const { nodeMap, childrenMap } = indexNodes(nodes);
   const visibleIds = new Set();
+  const includedDescendantIds = new Set();
 
   for (const node of nodes) {
     const id = String(node.id);
@@ -119,7 +123,7 @@ export function filterNodes(nodes, { pathMatcher, selected, selectedOnly }) {
         // Path searches keep matching folders useful by showing their contents.
         // Selected-only skip this so an explicitly selected folder
         // does not automatically reveal every unselected child.
-        includeDescendants(id, visibleIds, childrenMap);
+        includeDescendants(id, visibleIds, childrenMap, includedDescendantIds);
       }
     }
   }
@@ -201,13 +205,27 @@ export function trimFilterText(value) {
   return String(value || "").trim();
 }
 
-/** Converts `*` and `?` wildcards into a case-insensitive regular expression. */
-export function globToRegExp(glob) {
-  // Escape regex operators first so user text stays literal, then reintroduce
-  // only the two wildcard operators supported by glob mode.
-  const escaped = glob.replace(/[.+^${}()|[\]\\]/g, "\\$&");
-  const pattern = escaped.replace(/\*/g, ".*").replace(/\?/g, ".");
-  return new RegExp(`.*${pattern}.*`, "i");
+/** 
+ * Converts `*` and `?` wildcards into a case-insensitive regular expression. 
+ * Wildcards only match within a single path segment (they do not cross `/`).
+ */
+export function globToRegExp(globPattern) {
+  // Escape non supported regex characters
+  const escapedPattern = globPattern.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+  const hasWildcards = /[*?]/.test(globPattern);
+
+  // Early return for exact literal matches (no wildcards present)
+  if (!hasWildcards) {
+    return new RegExp(escapedPattern, "i");
+  }
+
+  // Convert glob wildcards into regex patterns that respect path boundaries
+  const regexString = escapedPattern
+    .replace(/\*/g, "[^/]*") // '*' -> Match zero or more non-slash characters
+    .replace(/\?/g, "[^/]"); // '?' -> Match exactly one non-slash character
+
+  // Wrap in boundary markers and return as a case-insensitive Regex
+  return new RegExp(`(^|/)${regexString}($|/)`, "i");
 }
 
 /** Marks a node and all of its ancestors as visible. */
@@ -225,7 +243,15 @@ export function includeWithAncestors(id, visibleIds, nodeMap) {
 }
 
 /** Marks a node's full subtree as visible. */
-export function includeDescendants(id, visibleIds, childrenMap) {
+export function includeDescendants(
+  id,
+  visibleIds,
+  childrenMap,
+  includedDescendantIds = new Set(),
+) {
+  if (includedDescendantIds.has(id)) return;
+  includedDescendantIds.add(id);
+
   const children = childrenMap.get(id);
   if (!children) return;
 

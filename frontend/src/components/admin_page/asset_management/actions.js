@@ -17,11 +17,12 @@ export const downloadAssetBundle = async (http, endpointName, fileIds) => {
 
   const { bundle_id, status: initStatus, single_file_url } = response.data;
 
-  // If a single file was requested, download it directly from the presigned URL
+  // If a single file was requested, open it in a new tab
   if (initStatus === "completed" && single_file_url) {
     const a = document.createElement("a");
     a.href = single_file_url;
-    a.download = ""; 
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
     document.body.appendChild(a);
     a.click();
     a.remove();

@@ -81,6 +81,23 @@ describe("tree helpers", () => {
     expect(singleCharMatcher.test("root/data-aa.csv")).toBe(false);
   });
 
+  test("createGlobMatcher applies filename globs to path segments", () => {
+    const txtStartingWithA = createGlobMatcher("a*.txt");
+
+    expect(txtStartingWithA.test("root/folder/alpha.txt")).toBe(true);
+    expect(txtStartingWithA.test("root/folder/ALPHA.TXT")).toBe(true);
+    expect(txtStartingWithA.test("root/folder/beta.txt")).toBe(false);
+    expect(txtStartingWithA.test("root/archive/beta.txt")).toBe(false);
+  });
+
+  test("createGlobMatcher keeps plain text searches as substring matches", () => {
+    const pngMatcher = createGlobMatcher(".png");
+
+    expect(pngMatcher.test("root/folder/chart.png")).toBe(true);
+    expect(pngMatcher.test("root/folder/chart.PNG")).toBe(true);
+    expect(pngMatcher.test("root/folder/chart.jpg")).toBe(false);
+  });
+
   test("createRegexMatcher supports case-insensitive regular expressions", () => {
     const regexMatcher = createRegexMatcher("\\.(txt|wav)$");
 
