@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useTransition } from "react";
+import { CircularProgress } from "@mui/material";
 import { SimpleTreeView } from "@mui/x-tree-view/SimpleTreeView";
 import TreeFilter from "./TreeFilter.js";
 import TreeNode from "./TreeNode.js";
@@ -23,6 +24,7 @@ import "./Tree.css";
  *   - disableFolderSelection: If true, disables the checkbox for folder nodes.
  *   - disableCascade: If true, prevents cascading checking/unchecking between parents and children.
  *       or selection using glob or regex mode.
+ *   - actions: Optional controls rendered inline with the search input.
  */
 export default function Tree({
   nodes = [],
@@ -31,6 +33,8 @@ export default function Tree({
   disableFileSelection = false,
   disableFolderSelection = false,
   disableCascade = false,
+  enableSearch = false,
+  actions = null,
 }) {
   // States for draft input, applied input and whether to only filter selected nodes
   const [filterText, setFilterText] = useState("");
@@ -38,6 +42,7 @@ export default function Tree({
   const [filterMode, setFilterMode] = useState(SEARCH_MODES.GLOB);
   const [appliedFilterMode, setAppliedFilterMode] = useState(SEARCH_MODES.GLOB);
   const [filterSelectedOnly, setFilterSelectedOnly] = useState(false);
+  const [isSearching, startSearchTransition] = useTransition();
 
   const isPatternValid = useMemo(
     () => isValidSearchPattern(filterText, filterMode),
@@ -88,14 +93,18 @@ export default function Tree({
   const applyFilter = () => {
     if (!isPatternValid) return;
 
-    setAppliedFilterText(filterText);
-    setAppliedFilterMode(filterMode);
+    startSearchTransition(() => {
+      setAppliedFilterText(filterText);
+      setAppliedFilterMode(filterMode);
+    });
   };
 
   // Clear draft and applied input and show unfiltered tree
   const clearFilter = () => {
-    setFilterText("");
-    setAppliedFilterText("");
+    startSearchTransition(() => {
+      setFilterText("");
+      setAppliedFilterText("");
+    });
   };
 
   // Filter the nodes based on user criteria
@@ -122,9 +131,15 @@ export default function Tree({
         onSelectedOnlyChange={setFilterSelectedOnly}
         onApply={applyFilter}
         onClear={clearFilter}
+        actions={actions}
       />
 
-      {tree.length === 0 ? (
+      {isSearching ? (
+        <div className="tree-loading-state" role="status" aria-live="polite">
+          <CircularProgress size={28} />
+          <span>Searching...</span>
+        </div>
+      ) : tree.length === 0 ? (
         <div className="tree-empty-state">
           {filterState.hasActiveFilter ? "No matches." : "Empty."}
         </div>

@@ -393,6 +393,117 @@ const handleDownload = async () => {
     }
   };
 
+  const downloadAction = (
+    <button
+      type="button"
+      onClick={handleDownload}
+      disabled={!!busy}
+      style={{
+        background: busy ? "#9ca3af" : "#3b82f6",
+        cursor: busy ? "not-allowed" : "pointer",
+        color: "#fff",
+        border: 0,
+        borderRadius: 8,
+        padding: "6px 10px",
+        fontSize: 13,
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {busy === "down" && busyID === endpointUuid && (
+        <CircularProgress size={14} sx={{ color: "#fff" }} />
+      )}
+      {busy === "down" && busyID === endpointUuid
+        ? "Downloading..."
+        : "Download"}
+    </button>
+  );
+
+  const uploadActions = (
+    <>
+      <button
+        type="button"
+        onClick={handleFileUpload}
+        disabled={!!busy}
+        style={{
+          background: busy ? "#9ca3af" : "#10b981",
+          cursor: busy ? "not-allowed" : "pointer",
+          color: "#fff",
+          border: 0,
+          borderRadius: 8,
+          padding: "6px 10px",
+          fontSize: 13,
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          whiteSpace: "nowrap",
+        }}
+      >
+        {busy === "up" && busyID === endpointUuid && (
+          <CircularProgress size={14} sx={{ color: "#fff" }} />
+        )}
+        {busy === "up" && busyID === endpointUuid
+          ? "Uploading..."
+          : "Upload File"}
+      </button>
+      <button
+        type="button"
+        onClick={handleFolderUpload}
+        disabled={!!busy}
+        style={{
+          background: busy ? "#9ca3af" : "#059669",
+          cursor: busy ? "not-allowed" : "pointer",
+          color: "#fff",
+          border: 0,
+          borderRadius: 8,
+          padding: "6px 10px",
+          fontSize: 13,
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          whiteSpace: "nowrap",
+        }}
+      >
+        {busy === "up" && busyID === endpointUuid && (
+          <CircularProgress size={14} sx={{ color: "#fff" }} />
+        )}
+        {busy === "up" && busyID === endpointUuid
+          ? "Uploading..."
+          : "Upload Folder"}
+      </button>
+    </>
+  );
+
+  const deleteAction = (
+    <button
+      type="button"
+      onClick={handleDelete}
+      disabled={!!busy}
+      style={{
+        background: busy ? "#9ca3af" : "#ef4444",
+        cursor: busy ? "not-allowed" : "pointer",
+        color: "#fff",
+        border: 0,
+        borderRadius: 8,
+        padding: "6px 10px",
+        fontSize: 13,
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {busy === "del" && busyID === endpointUuid && (
+        <CircularProgress size={14} sx={{ color: "#fff" }} />
+      )}
+      {busy === "del" && busyID === endpointUuid
+        ? "Deleting..."
+        : "Delete"}
+    </button>
+  );
+
   // ------------------------------- HTML  --------------------------------
   return (
     <div
@@ -472,40 +583,18 @@ const handleDownload = async () => {
                   <div
                     style={{
                       display: "flex",
-                      justifyContent: "space-between",
                       alignItems: "center",
                       marginBottom: 6,
                     }}
                   >
                     <div style={{ fontWeight: 600 }}>Download</div>
-                    <button
-                      onClick={handleDownload}
-                      disabled={!!busy}
-                      style={{
-                        background: busy ? "#9ca3af" : "#3b82f6",
-                        cursor: busy ? "not-allowed" : "pointer",
-                        color: "#fff",
-                        border: 0,
-                        borderRadius: 8,
-                        padding: "6px 10px",
-                        fontSize: 13,
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 6,
-                      }}
-                    >
-                      {busy === "down" && busyID == endpointUuid && (
-                        <CircularProgress size={14} sx={{ color: "#fff" }} />
-                      )}
-                      {busy === "down" && busyID == endpointUuid
-                        ? "Downloading…"
-                        : "Download"}
-                    </button>
                   </div>
                   <Tree
                     nodes={readArray}
                     selected={selectedByAccess.read || new Set()}
                     onChange={onTreeChange("read")}
+                    enableSearch={true}
+                    actions={downloadAction}
                   />
                 </div>
               )}
@@ -517,60 +606,11 @@ const handleDownload = async () => {
                   <div
                     style={{
                       display: "flex",
-                      justifyContent: "space-between",
                       alignItems: "center",
                       marginBottom: 6,
                     }}
                   >
                     <div style={{ fontWeight: 600 }}>Upload</div>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <button
-                        onClick={handleFileUpload}
-                        disabled={!!busy}
-                        style={{
-                          background: busy ? "#9ca3af" : "#10b981",
-                          cursor: busy ? "not-allowed" : "pointer",
-                          color: "#fff",
-                          border: 0,
-                          borderRadius: 8,
-                          padding: "6px 10px",
-                          fontSize: 13,
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 6,
-                        }}
-                      >
-                        {busy === "up" && busyID == endpointUuid && (
-                          <CircularProgress size={14} sx={{ color: "#fff" }} />
-                        )}
-                        {busy === "up" && busyID == endpointUuid
-                          ? "Uploading…"
-                          : "Upload File"}
-                      </button>
-                      <button
-                        onClick={handleFolderUpload}
-                        disabled={!!busy}
-                        style={{
-                          background: busy ? "#9ca3af" : "#059669",
-                          cursor: busy ? "not-allowed" : "pointer",
-                          color: "#fff",
-                          border: 0,
-                          borderRadius: 8,
-                          padding: "6px 10px",
-                          fontSize: 13,
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 6,
-                        }}
-                      >
-                        {busy === "up" && busyID == endpointUuid && (
-                          <CircularProgress size={14} sx={{ color: "#fff" }} />
-                        )}
-                        {busy === "up" && busyID == endpointUuid
-                          ? "Uploading…"
-                          : "Upload Folder"}
-                      </button>
-                    </div>
                   </div>
                   <Tree
                     nodes={writeArray}
@@ -578,6 +618,8 @@ const handleDownload = async () => {
                     onChange={onTreeChange("write")}
                     disableFileSelection={true}
                     disableCascade={true}
+                    enableSearch={true}
+                    actions={uploadActions}
                   />
                 </div>
               )}
@@ -595,36 +637,13 @@ const handleDownload = async () => {
                     }}
                   >
                     <div style={{ fontWeight: 600 }}>Delete</div>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <button
-                        onClick={handleDelete}
-                        disabled={!!busy}
-                        style={{
-                          background: busy ? "#9ca3af" : "#ef4444",
-                          cursor: busy ? "not-allowed" : "pointer",
-                          color: "#fff",
-                          border: 0,
-                          borderRadius: 8,
-                          padding: "6px 10px",
-                          fontSize: 13,
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 6,
-                        }}
-                      >
-                        {busy === "del" && busyID == endpointUuid && (
-                          <CircularProgress size={14} sx={{ color: "#fff" }} />
-                        )}
-                        {busy === "del" && busyID == endpointUuid
-                          ? "Deleting…"
-                          : "Delete"}
-                      </button>
-                    </div>
                   </div>
                   <Tree
                     nodes={deleteArray}
                     selected={selectedByAccess.delete || new Set()}
                     onChange={onTreeChange("delete")}
+                    enableSearch={true}
+                    actions={deleteAction}
                   />
                 </div>
               )}
