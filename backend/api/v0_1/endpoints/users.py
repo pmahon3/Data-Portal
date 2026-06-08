@@ -9,7 +9,13 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 
-from api.v0_1.common.auth_dependencies import require_admin, get_current_user, require_user_owner_or_admin
+from api.v0_1.common.auth_dependencies import (
+    get_current_user,
+    is_user_admin,
+    require_admin,
+    require_admin_or_manager,
+    require_user_owner_or_admin,
+)
 from core.services.injectors import get_user_manager, get_policy_manager, get_instance_manager
 from core.services.instances import AbstractInstanceManager
 from core.services.policies import CasbinPolicyManager
@@ -27,13 +33,13 @@ logger = logging.getLogger("api.endpoints")
     "/",
     response_model=list[User],
     summary="List all users",
-    description="Retrieve list of all users in the system. Requires admin privileges."
+    description="Retrieve list of all users in the system. Requires admin or project manager privileges."
 )
 async def list_users(
-    admin_user: dict = Depends(require_admin),
+    current_user: dict = Depends(require_admin_or_manager),
     user_manager: AbstractUserManager = Depends(get_user_manager)
 ) -> list[User]:
-    """Get list of all users (admin only)."""
+    """Get list of all users (admin or project manager)."""
     return user_manager.get_all_users()
 
 
@@ -118,16 +124,22 @@ async def get_user_instances(
     "/",
     response_model=AddUserResponse,
     summary="Create a new user",
-    description="Creates user in auth service and sets up policies. Admin only.",
+    description="Creates user in auth service and sets up policies. Admins and project managers only.",
     status_code=status.HTTP_201_CREATED
 )
 async def create_user(
     user_data: AddUserRequest,
-    admin_user: dict = Depends(require_admin),
+    current_user: dict = Depends(require_admin_or_manager),
     user_manager: AbstractUserManager = Depends(get_user_manager),
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager)
 ) -> AddUserResponse:
-    """Create new user with auth and policy setup (admin only)."""
+    """Create new user with auth and policy setup (admin or project manager)."""
+    if not is_user_admin(current_user) and "admin" in {role.lower() for role in user_data.roles}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Project managers cannot create admin users"
+        )
+
     user_create = UserCreate(
         username=user_data.username,
         email=user_data.email,

@@ -1,16 +1,56 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { CircularProgress } from '@mui/material';
+import axios from 'axios';
+import { getAuthHeaders } from '../../../utils/authUtils';
+import { formatError } from '../../../utils/errorUtils';
 
 const FLAVOURS = ["s3"];
+const http = axios.create({ baseURL: "/api" });
 
-export default function StorageInstanceForm({ onCreate, creating }) {
+export default function StorageInstanceForm({ onCreate, creating, initialized }) {
   const [instanceName, setInstanceName] = useState("");
   const [flavour, setFlavour] = useState("");
+  const [projects, setProjects] = useState([]);
+  const [loadingProjects, setLoadingProjects] = useState(true);
+  const [selectedProjects, setSelectedProjects] = useState([]);
   const [s3Url, setS3Url] = useState("http://localhost:9000");
   const [s3Key, setS3Key] = useState("");
   const [s3Secret, setS3Secret] = useState("");
   const [s3Region, setS3Region] = useState("");
   const [localErr, setLocalErr] = useState("");
+
+  useEffect(() => {
+    if (!initialized) return;
+
+    let cancelled = false;
+
+    async function loadProjects() {
+      try {
+        const headers = await getAuthHeaders();
+        const { data } = await http.get("/projects", { headers });
+        if (!cancelled) {
+          setProjects(Array.isArray(data) ? data.map(project => project.name).filter(Boolean) : []);
+        }
+      } catch (e) {
+        if (!cancelled) setLocalErr(formatError(e));
+      } finally {
+        if (!cancelled) setLoadingProjects(false);
+      }
+    }
+
+    loadProjects();
+    return () => {
+      cancelled = true;
+    };
+  }, [initialized]);
+
+  function toggleProject(projectId) {
+    setSelectedProjects(prev =>
+      prev.includes(projectId)
+        ? prev.filter(id => id !== projectId)
+        : [...prev, projectId]
+    );
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -39,8 +79,9 @@ export default function StorageInstanceForm({ onCreate, creating }) {
     }
 
     try {
-      await onCreate(payload);
+      await onCreate(payload, selectedProjects);
       // Light reset of sensitive fields
+      setSelectedProjects([]);
       setS3Key(""); 
       setS3Secret("");
       alert("Instance created.");
@@ -58,6 +99,33 @@ export default function StorageInstanceForm({ onCreate, creating }) {
           <input value={instanceName} onChange={e => setInstanceName(e.target.value)} placeholder="my-instance-name" />
           <small className="im-muted">Used to derive a stable UUID and shown in the UI</small>
         </label>
+
+        <div className="im-field">
+          <span>Projects</span>
+          <details className="im-project-select">
+            <summary className={selectedProjects.length === 0 ? "im-select-placeholder" : undefined}>
+              {selectedProjects.length === 0
+                ? "Select projects"
+                : selectedProjects.join(", ")}
+            </summary>
+            <div className="im-project-options">
+            {loadingProjects ? (
+              <div className="im-muted">Loading projects...</div>
+            ) : projects.length === 0 ? (
+              <div className="im-muted">No projects available.</div>
+            ) : projects.map(project => (
+                <label key={project} className="im-project-option">
+                  <input
+                    type="checkbox"
+                    checked={selectedProjects.includes(project)}
+                    onChange={() => toggleProject(project)}
+                  />
+                  <span>{project}</span>
+                </label>
+              ))}
+            </div>
+          </details>
+        </div>
 
         <label className="im-field">
           <span>Flavour *</span>

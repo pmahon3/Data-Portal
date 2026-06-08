@@ -15,9 +15,10 @@ from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import PyJWKClient
 
-from core.services.injectors import get_policy_manager
+from core.services.injectors import get_policy_manager, get_user_manager
 from core.services.policies import CasbinPolicyManager
 from core.services.policies import Policy
+from core.services.users import AbstractUserManager
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -114,6 +115,80 @@ def require_user_owner_or_admin(username_param: str = "username"):
         )
     
     return _require_user_owner_or_admin
+
+
+async def require_admin_or_manager(
+    current_user: dict = Depends(get_current_user)
+) -> dict:
+    """
+    Requires admin or manager-of-any-project privileges for endpoint access.
+
+    Allows access if the user is either:
+    1. An admin user, OR
+    2. A manager of at least one project
+
+    Raises:
+        HTTPException: 403 if user lacks admin or project manager privileges
+    """
+    if is_user_admin(current_user):
+        return current_user
+
+    jwt_projects = current_user.get("projects", [])
+    if any(str(path).rstrip("/").endswith("/managers") for path in jwt_projects):
+        return current_user
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Access denied: not a project manager or admin"
+    )
+
+
+def require_admin_or_project_manager(project_name_param: str = "project_name"):
+    """
+    Factory function for admin or specific project manager authorization.
+
+    Creates a dependency that allows access if the user is either:
+    1. An admin user, OR
+    2. A manager of the specified project
+
+    Args:
+        project_name_param: Name of the path parameter containing the project name
+
+    Returns:
+        Dependency function that validates specific project manager or admin privileges
+    """
+    async def _require_admin_or_project_manager(
+        request: Request,
+        current_user: dict = Depends(get_current_user)
+    ) -> dict:
+        """
+        Validates specific project manager or admin privileges.
+        """
+        # Check if admin - admins can access any project
+        if is_user_admin(current_user):
+            return current_user
+        
+        project_name = request.path_params.get(project_name_param)
+        if not project_name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Path parameter '{project_name_param}' is required"
+            )
+        
+        # Check the JWT directly, instead of querying Keycloak
+        jwt_projects = current_user.get("projects", [])
+
+        target_path = f"/{project_name}/managers"
+        
+        if target_path in jwt_projects:
+            return current_user
+            
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: not a project manager or admin"
+        )
+            
+    return _require_admin_or_project_manager
 
 
 def require_policy_permission(action: str):

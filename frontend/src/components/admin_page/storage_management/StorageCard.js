@@ -78,9 +78,11 @@ export default function StorageInstanceCard({ instance: i, onDelete, onUpdate })
           )}
           <span className="im-chip">{i.flavour}</span>
         </div>
-        <div className="im-actions-right">
-          <button className="im-btn im-btn-danger" onClick={() => onDelete(i)}>Delete</button>
-        </div>
+        {onDelete && (
+          <div className="im-actions-right">
+            <button className="im-btn im-btn-danger" onClick={() => onDelete(i)}>Delete</button>
+          </div>
+        )}
       </div>
 
       {localErr && <div className="im-error" style={{ fontSize: '12px', marginTop: '4px' }}>{localErr}</div>}

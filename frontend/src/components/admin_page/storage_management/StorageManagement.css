@@ -15,6 +15,23 @@
   padding: 10px 12px; border: 1px solid #e5e7eb; border-radius: 10px; background: #fff;
 }
 .im-muted { color:#6b7280; }
+.im-project-select {
+  position: relative;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background:#fff;
+}
+.im-project-select summary {
+  min-height: 22px;
+  padding: 10px 12px;
+  cursor:pointer;
+  list-style-position: inside;
+}
+.im-select-placeholder { color:#6b7280; }
+.im-project-options { display:grid; gap:2px; border-top:1px solid #e5e7eb; padding:6px; }
+.im-project-option { display:flex; align-items:center; gap:8px; padding:6px; border-radius:8px; cursor:pointer; }
+.im-project-option:hover { background:#f9fafb; }
+.im-project-option input[type="checkbox"] { width:16px; height:16px; padding:0; }
 
 .im-actions { display:flex; gap:10px; align-items:center; flex-wrap: wrap; }
 .im-actions-right { display:flex; gap:8px; }

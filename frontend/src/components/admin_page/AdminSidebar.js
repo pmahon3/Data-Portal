@@ -9,6 +9,7 @@ export default function AdminSidebar() {
   const navItems = [
 
     { path: "/app/user-management", label: "User Management" },
+    { path: "/app/project-management", label: "Project Management" },
     { path: "/app/policy-management", label: "Policy Management" },
     { path: "/app/asset-management", label: "Asset Management" },
     { path: "/app/storage-management", label: "Connection Management" }

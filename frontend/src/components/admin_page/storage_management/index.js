@@ -6,7 +6,9 @@ import StorageInstanceCard from "./StorageCard";
 import "./StorageManagement.css";
 
 export default function StorageManagement() {
-  const { initialized } = useKeycloak();
+  const { keycloak, initialized } = useKeycloak();
+  const roles = keycloak?.tokenParsed?.realm_access?.roles || [];
+  const isAdmin = roles.includes("admin");
 
   // Pulls everything from useStorageInstances hook to keep
   // this component purely focused on layout
@@ -32,7 +34,7 @@ export default function StorageManagement() {
     <div className="im-root">
       <h1>Storage Instances</h1>
 
-      <StorageInstanceForm onCreate={createInstance} creating={creating} />
+      <StorageInstanceForm onCreate={createInstance} creating={creating} initialized={initialized} />
 
       {err && <div className="im-error" style={{ marginBottom: "1rem" }}>{err}</div>}
 
@@ -50,7 +52,7 @@ export default function StorageManagement() {
             <StorageInstanceCard 
               key={i.uuid} 
               instance={i} 
-              onDelete={deleteInstance} 
+              onDelete={isAdmin ? deleteInstance : null}
               onUpdate={updateInstance} 
             />
           ))
