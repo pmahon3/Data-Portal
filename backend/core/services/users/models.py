@@ -14,3 +14,4 @@ class UserCreate(BaseModel):
     username: str
     email: str
     roles: list[str]
+    password: str

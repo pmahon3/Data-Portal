@@ -1,7 +1,8 @@
 import React from "react";
+import AssetManagement from "../admin_page/asset_management";
 
 function NormalUser() {
-  return <h1>Regular User Page</h1>;
+  return <AssetManagement title="My Assets" />;
 }
 
 export default NormalUser;

@@ -56,6 +56,7 @@ class DeleteAssetResponse(BaseModel):
 class AddUserRequest(BaseModel):
     username: str = Field(..., description="The username of the user.")
     email: str = Field(..., description="The email of the user.")
+    password: str = Field(..., description="The password for the user.")
     roles: list[str] = Field(..., description="The roles of the user.")
 
 
