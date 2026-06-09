@@ -69,6 +69,7 @@ export default function UserManagement() {
     setErr('');
     if (!username) return setErr('Username is required.');
     if (!email) return setErr('Email is required');
+    if (!password) return setErr('Password is required.');
     setCreating(true);
     try {
       await apiCreateUser({
@@ -120,8 +121,8 @@ export default function UserManagement() {
           </label>
 
           <label className="um-field">
-            <span>Password</span>
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" />
+            <span>Password *</span>
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" required />
           </label>
 
           <label className="um-field">

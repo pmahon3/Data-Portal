@@ -144,13 +144,17 @@ async def create_user(
         username=user_data.username,
         email=user_data.email,
         roles=user_data.roles,
-        password="default_password"
+        password=user_data.password
     )
 
     # Check if email field is present
     if not user_data.email:
         logger.error(f"Email is required for user creation: {user_data.username}")
         raise HTTPException(status_code=400, detail="Email is required")
+
+    if not user_data.password:
+        logger.error(f"Password is required for user creation: {user_data.username}")
+        raise HTTPException(status_code=400, detail="Password is required")
 
     # Check if user exists
     try:

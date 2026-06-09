@@ -60,7 +60,13 @@ class KeycloakUserManager(AbstractUserManager):
             "username": user_details.username,
             "email": user_details.email,
             "enabled": True,
-            "credentials": [{"value": "default_password", "temporary": False}]
+            "credentials": [
+                {
+                    "type": "password",
+                    "value": user_details.password,
+                    "temporary": False
+                }
+            ]
         }
 
         user_uuid = self.identity_manager.create_user(user_payload)

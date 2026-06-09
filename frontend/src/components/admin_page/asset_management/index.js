@@ -28,7 +28,7 @@ function ErrorNote({ children }) {
   );
 }
 
-export default function AssetManagement({ bootstrap }) {
+export default function AssetManagement({ bootstrap, title = "Storage Endpoints" }) {
   const { keycloak, initialized } = useKeycloak();
 
   const [boot, setBoot] = useState(bootstrap || null);
@@ -89,7 +89,7 @@ export default function AssetManagement({ bootstrap }) {
 
   return (
     <div style={{ padding: 16, fontFamily: "Inter, system-ui, Arial" }}>
-      <h2 style={{ margin: "0 0 12px" }}>Storage Endpoints</h2>
+      <h2 style={{ margin: "0 0 12px" }}>{title}</h2>
 
       {Object.entries(instances).length === 0 ? (
         <ErrorNote>No endpoints available.</ErrorNote>
