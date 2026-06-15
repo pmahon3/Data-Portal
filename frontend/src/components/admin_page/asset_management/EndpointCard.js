@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import Tree from "./tree/index.js";
-import { CircularProgress, Tab, Tabs } from "@mui/material";
+import { CircularProgress, LinearProgress, Tab, Tabs } from "@mui/material";
 import { formatError } from "../../../utils/errorUtils";
 import { downloadAssetBundle, deleteAssets } from "./actions.js";
 import { getAuthHeaders } from '../../../utils/authUtils';
@@ -21,6 +21,7 @@ export default function EndpointCard({
   const [treesByAccess, setTreesByAccess] = useState({});
   const [loadingAssets, setLoadingAssets] = useState(false);
   const [assetError, setAssetError] = useState(null);
+  const [progress, setProgress] = useState({ mode: null, done: 0, total: 0 });
 
   // Fetch assets for this endpoint
   const fetchAssets = async (accessKey = activeAccess, forceRefresh = false) => {
@@ -30,8 +31,8 @@ export default function EndpointCard({
       const authHeaders = await getAuthHeaders();
       //const { data } = await http.get(`/assets/dashboard/${encodeURIComponent(endpointUuid)}`, {
       const { data } = await http.get(`/tree/dashboard/${encodeURIComponent(endpointUuid)}`, {
- 
-      headers: authHeaders,
+
+        headers: authHeaders,
         params: { access: accessKey, _t: Date.now(), ...(forceRefresh ? { refresh: 1 } : {}) },
       });
       setTreesByAccess((prev) => ({
@@ -82,6 +83,9 @@ export default function EndpointCard({
     ? activeAccess
     : "read";
   const activeTabColor = availableAccessTabs.find(tab => tab.value === activeTab)?.color || "#2563eb";
+  const showUploadProgress = busy === "up" && busyID === endpointUuid && progress.mode === "up" && progress.total > 0;
+  const showDeleteProgress = busy === "del" && busyID === endpointUuid && progress.mode === "del" && progress.total > 0;
+  const progressValue = progress.total > 0 ? (progress.done / progress.total) * 100 : 0;
 
   // Compute selections we need
   const readLeaves = getSelectedLeaves(readArray, selectedByAccess.read || new Set());
@@ -94,44 +98,44 @@ export default function EndpointCard({
 
   // --------------------- Download (from READ selection) ---------------------
 
-const handleDownload = async () => {
-  if (!hasRead) return alert("No read permission.");
-  if (readLeaves.length === 0) return alert("Select files or folders in READ.");
+  const handleDownload = async () => {
+    if (!hasRead) return alert("No read permission.");
+    if (readLeaves.length === 0) return alert("Select files or folders in READ.");
 
-  setBusy("down");
-  setBusyID(endpointUuid);
-  try {
-    const fileIds = readLeaves
-      .filter((id) => String(id).startsWith("file-"))
-      .map((id) => parseInt(String(id).replace("file-", ""), 10));
+    setBusy("down");
+    setBusyID(endpointUuid);
+    try {
+      const fileIds = readLeaves
+        .filter((id) => String(id).startsWith("file-"))
+        .map((id) => parseInt(String(id).replace("file-", ""), 10));
 
-    if (fileIds.length === 0) {
-      alert("No valid files selected for download.");
+      if (fileIds.length === 0) {
+        alert("No valid files selected for download.");
+        setBusy(null);
+        setBusyID(null);
+        return;
+      }
+
+      await downloadAssetBundle(http, endpointName, fileIds);
+      console.log(`[Download] Triggered downloads for ${fileIds.length} file(s) from "${endpointName}"`);
+    } catch (e) {
+      console.error(`[Download] Download failed for endpoint "${endpointName}":`, e);
+      let errMsg = formatError(e);
+      if (e.response && e.response.data instanceof Blob) {
+        try {
+          const text = await e.response.data.text();
+          const json = JSON.parse(text);
+          errMsg = json.detail || json.message || text;
+        } catch (err) {
+          // use default errMsg
+        }
+      }
+      alert(`Download failed: ${errMsg}`);
+    } finally {
       setBusy(null);
       setBusyID(null);
-      return;
     }
-
-    await downloadAssetBundle(http, endpointName, fileIds);
-    console.log(`[Download] Triggered downloads for ${fileIds.length} file(s) from "${endpointName}"`);
-  } catch (e) {
-    console.error(`[Download] Download failed for endpoint "${endpointName}":`, e);
-    let errMsg = formatError(e);
-    if (e.response && e.response.data instanceof Blob) {
-      try {
-        const text = await e.response.data.text();
-        const json = JSON.parse(text);
-        errMsg = json.detail || json.message || text;
-      } catch (err) {
-        // use default errMsg
-      }
-    }
-    alert(`Download failed: ${errMsg}`);
-  } finally {
-    setBusy(null);
-    setBusyID(null);
-  }
-};
+  };
 
   // This validation/lookup used to live inline in the single-file upload flow.
   // It is now shared by both file upload and folder upload.
@@ -196,6 +200,8 @@ const handleDownload = async () => {
       setBusyID(endpointUuid)
       try {
         const files = Array.from(input.files);
+        let completed = 0;
+        setProgress({ mode: "up", done: completed, total: files.length });
 
         for (const file of files) {
           let authHeaders = await getAuthHeaders();
@@ -213,8 +219,8 @@ const handleDownload = async () => {
           // Optional chaining: `data?.url` means "use data.url if data exists;
           // otherwise return undefined instead of throwing an error".
           let presignSource = data?.url;
-          
-          
+
+
           if (presignSource === null || presignSource === undefined) {
             presignSource = data?.presigned_urls;
           }
@@ -232,6 +238,9 @@ const handleDownload = async () => {
             instance_name: endpointName,
             file_id: data.file_id,
           }, { headers: authHeaders });
+
+          completed += 1;
+          setProgress({ mode: "up", done: completed, total: files.length });
         }
 
         if (onMutate) onMutate(); // refresh dashboard with ?refresh=1 upstream  ------> TODO: need to further investigate refresh dashboard after upload or cerated new policy
@@ -247,7 +256,8 @@ const handleDownload = async () => {
       } finally {
         setBusy(null);
         setBusyID(null);
-        try { document.body.removeChild(input); } catch {}
+        setProgress({ mode: null, done: 0, total: 0 });
+        try { document.body.removeChild(input); } catch { }
       }
     };
 
@@ -279,6 +289,8 @@ const handleDownload = async () => {
       try {
         // flat list of File object returned by webkitdirectory
         const files = Array.from(input.files).filter(file => !isDirectoryPlaceholder(file));
+        let completed = 0;
+        setProgress({ mode: "up", done: completed, total: files.length });
 
         // Cache folder ids per relative path so repeated siblings do not keep
         // calling the backend for the same nested directory chain.
@@ -332,6 +344,9 @@ const handleDownload = async () => {
             instance_name: endpointName,
             file_id: data.file_id,
           }, { headers: authHeaders });
+
+          completed += 1;
+          setProgress({ mode: "up", done: completed, total: files.length });
         }
 
         if (onMutate) onMutate(); // refresh dashboard with ?refresh=1 upstream  ------> TODO: need to further investigate refresh dashboard after upload or cerated new policy
@@ -347,7 +362,8 @@ const handleDownload = async () => {
       } finally {
         setBusy(null);
         setBusyID(null);
-        try { document.body.removeChild(input); } catch {}
+        setProgress({ mode: null, done: 0, total: 0 });
+        try { document.body.removeChild(input); } catch { }
       }
     };
 
@@ -377,9 +393,12 @@ const handleDownload = async () => {
 
     setBusy("del");
     setBusyID(endpointUuid)
+    setProgress({ mode: "del", done: 0, total: deleteTopSelected.length });
     try {
-      await deleteAssets(http, endpointName, deleteTopSelected, deleteIndex);
-      
+      await deleteAssets(http, endpointName, deleteTopSelected, deleteIndex, (done, total) => {
+        setProgress({ mode: "del", done, total });
+      });
+
       console.log(`[Delete] Successfully deleted selected item(s) from endpoint "${endpointName}"`);
       if (onMutate) onMutate(); // refresh dashboard
       onSelectedChange("delete", new Set());
@@ -390,6 +409,7 @@ const handleDownload = async () => {
     } finally {
       setBusy(null);
       setBusyID(null);
+      setProgress({ mode: null, done: 0, total: 0 });
     }
   };
 
@@ -533,121 +553,201 @@ const handleDownload = async () => {
       {open && (
         <div style={{ padding: 12 }}>
           <div style={{ display: "grid", gap: 16 }}>
-              <Tabs
-                value={activeTab}
-                onChange={(_, nextAccess) => {
-                  setActiveAccess(nextAccess);
-                  fetchAssets(nextAccess, false);
-                }}
-                aria-label="Asset access tabs"
-                sx={{
-                  borderBottom: "1px solid #e5e7eb",
-                  minHeight: 40,
-                  "& .MuiTabs-indicator": {
-                    backgroundColor: activeTabColor,
-                    height: 3,
-                  },
-                }}
-              >
-                {availableAccessTabs.map(tab => (
-                  <Tab
-                    key={tab.value}
-                    value={tab.value}
-                    label={tab.label}
-                    sx={{
-                      color: "#6b7280",
-                      fontWeight: 600,
-                      minHeight: 40,
-                      textTransform: "none",
-                      "&.Mui-selected": {
-                        color: tab.color,
-                      },
-                    }}
-                  />
-                ))}
-              </Tabs>
-              {loadingAssets && (
-                <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#6b7280" }}>
-                  <CircularProgress size={16} />
-                  Loading assets...
+            <Tabs
+              value={activeTab}
+              onChange={(_, nextAccess) => {
+                setActiveAccess(nextAccess);
+                fetchAssets(nextAccess, false);
+              }}
+              aria-label="Asset access tabs"
+              sx={{
+                borderBottom: "1px solid #e5e7eb",
+                minHeight: 40,
+                "& .MuiTabs-indicator": {
+                  backgroundColor: activeTabColor,
+                  height: 3,
+                },
+              }}
+            >
+              {availableAccessTabs.map(tab => (
+                <Tab
+                  key={tab.value}
+                  value={tab.value}
+                  label={tab.label}
+                  sx={{
+                    color: "#6b7280",
+                    fontWeight: 600,
+                    minHeight: 40,
+                    textTransform: "none",
+                    "&.Mui-selected": {
+                      color: tab.color,
+                    },
+                  }}
+                />
+              ))}
+            </Tabs>
+            {loadingAssets && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#6b7280" }}>
+                <CircularProgress size={16} />
+                Loading assets...
+              </div>
+            )}
+            {!loadingAssets && assetError && (
+              <div style={{ color: "#ef4444" }}>Error: {assetError}</div>
+            )}
+            {!loadingAssets && !assetError && activeTab === "read" && !hasRead && (
+              <div style={{ color: "#6b7280" }}>No tree data.</div>
+            )}
+            {!loadingAssets && !assetError && hasRead && activeTab === "read" && (
+              <div>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    marginBottom: 6,
+                  }}
+                >
+                  <div style={{ fontWeight: 600 }}>Download</div>
                 </div>
-              )}
-              {!loadingAssets && assetError && (
-                <div style={{ color: "#ef4444" }}>Error: {assetError}</div>
-              )}
-              {!loadingAssets && !assetError && activeTab === "read" && !hasRead && (
-                <div style={{ color: "#6b7280" }}>No tree data.</div>
-              )}
-              {!loadingAssets && !assetError && hasRead && activeTab === "read" && (
-                <div>
+                <Tree
+                  nodes={readArray}
+                  selected={selectedByAccess.read || new Set()}
+                  onChange={onTreeChange("read")}
+                  enableSearch={true}
+                  actions={downloadAction}
+                />
+              </div>
+            )}
+            {!loadingAssets && !assetError && activeTab === "write" && !hasWrite && (
+              <div style={{ color: "#6b7280" }}>No tree data.</div>
+            )}
+            {!loadingAssets && !assetError && hasWrite && activeTab === "write" && (
+              <div>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    marginBottom: 6,
+                  }}
+                >
+                  <div style={{ fontWeight: 600 }}>Upload</div>
+                </div>
+                {showUploadProgress && (
                   <div
                     style={{
-                      display: "flex",
-                      alignItems: "center",
-                      marginBottom: 6,
+                      marginBottom: 12,
+                      padding: "10px 14px",
+                      background: "#f0fdf4",
+                      border: "1px solid #bbf7d0",
+                      borderRadius: 10,
                     }}
                   >
-                    <div style={{ fontWeight: 600 }}>Download</div>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "baseline",
+                        marginBottom: 6,
+                      }}
+                    >
+                      <span style={{ fontSize: 13, fontWeight: 600, color: "#065f46" }}>
+                        Uploading…
+                      </span>
+                      <span style={{ fontSize: 12, color: "#047857", fontVariantNumeric: "tabular-nums" }}>
+                        {progress.done} / {progress.total} ({Math.round(progressValue)}%)
+                      </span>
+                    </div>
+                    <LinearProgress
+                      variant="determinate"
+                      value={progressValue}
+                      sx={{
+                        height: 8,
+                        borderRadius: 4,
+                        backgroundColor: "#d1fae5",
+                        "& .MuiLinearProgress-bar": {
+                          borderRadius: 4,
+                          backgroundColor: "#10b981",
+                        },
+                      }}
+                    />
                   </div>
-                  <Tree
-                    nodes={readArray}
-                    selected={selectedByAccess.read || new Set()}
-                    onChange={onTreeChange("read")}
-                    enableSearch={true}
-                    actions={downloadAction}
-                  />
+                )}
+                <Tree
+                  nodes={writeArray}
+                  selected={selectedByAccess.write || new Set()}
+                  onChange={onTreeChange("write")}
+                  disableFileSelection={true}
+                  disableCascade={true}
+                  enableSearch={true}
+                  actions={uploadActions}
+                />
+              </div>
+            )}
+            {!loadingAssets && !assetError && activeTab === "delete" && !hasDelete && (
+              <div style={{ color: "#6b7280" }}>No tree data.</div>
+            )}
+            {!loadingAssets && !assetError && hasDelete && activeTab === "delete" && (
+              <div>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: 6,
+                  }}
+                >
+                  <div style={{ fontWeight: 600 }}>Delete</div>
                 </div>
-              )}
-              {!loadingAssets && !assetError && activeTab === "write" && !hasWrite && (
-                <div style={{ color: "#6b7280" }}>No tree data.</div>
-              )}
-              {!loadingAssets && !assetError && hasWrite && activeTab === "write" && (
-                <div>
+                {showDeleteProgress && (
                   <div
                     style={{
-                      display: "flex",
-                      alignItems: "center",
-                      marginBottom: 6,
+                      marginBottom: 12,
+                      padding: "10px 14px",
+                      background: "#fef2f2",
+                      border: "1px solid #fecaca",
+                      borderRadius: 10,
                     }}
                   >
-                    <div style={{ fontWeight: 600 }}>Upload</div>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "baseline",
+                        marginBottom: 6,
+                      }}
+                    >
+                      <span style={{ fontSize: 13, fontWeight: 600, color: "#991b1b" }}>
+                        Deleting…
+                      </span>
+                      <span style={{ fontSize: 12, color: "#b91c1c", fontVariantNumeric: "tabular-nums" }}>
+                        {progress.done} / {progress.total}  —  {Math.round(progressValue)}%
+                      </span>
+                    </div>
+                    <LinearProgress
+                      variant="determinate"
+                      value={progressValue}
+                      sx={{
+                        height: 8,
+                        borderRadius: 4,
+                        backgroundColor: "#fee2e2",
+                        "& .MuiLinearProgress-bar": {
+                          borderRadius: 4,
+                          backgroundColor: "#ef4444",
+                        },
+                      }}
+                    />
                   </div>
-                  <Tree
-                    nodes={writeArray}
-                    selected={selectedByAccess.write || new Set()}
-                    onChange={onTreeChange("write")}
-                    disableFileSelection={true}
-                    disableCascade={true}
-                    enableSearch={true}
-                    actions={uploadActions}
-                  />
-                </div>
-              )}
-              {!loadingAssets && !assetError && activeTab === "delete" && !hasDelete && (
-                <div style={{ color: "#6b7280" }}>No tree data.</div>
-              )}
-              {!loadingAssets && !assetError && hasDelete && activeTab === "delete" && (
-                <div>
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      marginBottom: 6,
-                    }}
-                  >
-                    <div style={{ fontWeight: 600 }}>Delete</div>
-                  </div>
-                  <Tree
-                    nodes={deleteArray}
-                    selected={selectedByAccess.delete || new Set()}
-                    onChange={onTreeChange("delete")}
-                    enableSearch={true}
-                    actions={deleteAction}
-                  />
-                </div>
-              )}
-            </div>
+                )}
+                <Tree
+                  nodes={deleteArray}
+                  selected={selectedByAccess.delete || new Set()}
+                  onChange={onTreeChange("delete")}
+                  enableSearch={true}
+                  actions={deleteAction}
+                />
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
