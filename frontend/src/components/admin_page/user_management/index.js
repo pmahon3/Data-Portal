@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { useKeycloak } from '@react-keycloak/web';
 import { CircularProgress } from '@mui/material';
+import { DataGrid } from "@mui/x-data-grid";
 import './User_Management.css';
 import { formatError } from '../../../utils/errorUtils';
 import { getAuthHeaders } from '../../../utils/authUtils';
@@ -108,6 +109,44 @@ export default function UserManagement() {
     }
   }
 
+  // Creates a saved list of users with a unique id for MUI data grid
+  const userRows = useMemo(
+    () => users.map((u) => ({
+      id: u.username,
+      ...u,
+    })),
+    [users]
+  );
+
+  // Configurations for the user table to be rendered with MUI data grid
+  const userColumns = useMemo(() => {
+    const cols = [
+      { field: "username", headerName: "Username", flex: 1, minWidth: 140 },
+      { field: "email", headerName: "Email", flex: 1.5, minWidth: 220, renderCell: (params) => String(params.value || "") },
+      { field: "roles", headerName: "Roles", flex: 1, minWidth: 180, renderCell: (params) => {
+          // Safely formats an array of roles into a comma-separated string and filter out invalid entries
+          const roles = Array.isArray(params.value)
+            ? params.value.filter(Boolean).map(r => String(r).trim()).filter(r => r.toLowerCase() !== 'default-roles-ams-portal')
+            : [];
+          return roles.join(", ");
+        }
+      },
+    ];
+    if (isAdmin) {
+      cols.push({
+        field: "delete",
+        headerName: "",
+        width: 120,
+        sortable: false,
+        filterable: false,
+        renderCell: (params) => (
+          <button className="um-btn um-btn-danger" onClick={() => handleDelete(params.row)}>Delete</button>
+        ),
+      });
+    }
+    return cols;
+  }, [isAdmin]);
+
   return (
     <div className="um-root">
       <h1>User Management</h1>
@@ -156,33 +195,19 @@ export default function UserManagement() {
         ) : users.length === 0 ? (
           <p className="um-muted">No users to show.</p>
         ) : (
-          <div className="um-user-grid">
-            {users.map(u => (
-              <div key={u.username} className="um-user-card">
-                <div className="um-user-card-head">
-                  <strong>{u.username}</strong>
-                  {isAdmin && (
-                    <button className="um-btn um-btn-danger" onClick={() => handleDelete(u)}>Delete</button>
-                  )}
-                </div>
-                {u.full_name && <div className="um-user-fullname">{u.full_name}</div>}
-                {u.email && <div className="um-user-email">{u.email}</div>}
-                {Array.isArray(u.roles) && u.roles.length > 0 && (() => {
-                    const visibleRoles = u.roles
-                      .filter(Boolean)
-                      .map(r => String(r).trim())
-                      .filter(r => r.toLowerCase() !== 'default-roles-ams-portal');
-
-                    return visibleRoles.length > 0 ? (
-                      <div className="um-badges">
-                        {visibleRoles.map(r => (
-                          <span key={r} className="um-badge">{r}</span>
-                        ))}
-                      </div>
-                    ) : null;
-                  })()}
-              </div>
-            ))}
+          <div className="um-grid">
+            <DataGrid
+              rows={userRows}
+              columns={userColumns}
+              sx={{ width: "100%", '& .MuiDataGrid-columnHeaderTitle': { fontWeight: 700 }, '& .MuiDataGrid-cell:focus, & .MuiDataGrid-cell:focus-within': { outline: 'none' } }}
+              showToolbar
+              disableRowSelectionOnClick
+              pageSizeOptions={[5, 10, 25]}
+              disableColumnMenu
+              disableColumnFilter
+              disableColumnSelector
+              hideFooter
+            />
           </div>
         )}
       </section>

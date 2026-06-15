@@ -2,19 +2,18 @@ import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import { useKeycloak } from "@react-keycloak/web";
 import { CircularProgress } from '@mui/material';
+import { DataGrid } from "@mui/x-data-grid";
 import "./PolicyManagement.css";
 import { formatError } from "../../../utils/errorUtils";
 import { getAuthHeaders } from '../../../utils/authUtils';
 // Constants and the component states
 // const http = axios.create({ baseURL: "http://localhost:8000" });
-const http = axios.create({ baseURL: "/api" });
-// const INSTANCES_BASE = "/api/instances";   
-// const POLICIES_BASE  = "/api/policies";    
+const http = axios.create({ baseURL: "/api" });    
 const INSTANCES_BASE = "/instances";   
 const POLICIES_BASE  = "/policies";    
 
 export default function PolicyManagement() {
-  const { keycloak, initialized } = useKeycloak();
+  const { initialized } = useKeycloak();
 
   const [policies, setPolicies] = useState([]);
   const [instances, setInstances] = useState([]);
@@ -112,6 +111,33 @@ export default function PolicyManagement() {
     await loadPolicies();
   }
 
+  // Creates a saved list of policies with a unique composite ID added for MUI data grid
+  const policyRows = useMemo(
+    () => policies.map((p, idx) => ({
+      id: `${p.user_uuid}-${p.instance_uuid}-${p.resource}-${p.action}`,
+      ...p,
+    })),
+    [policies]
+  );
+
+  // Configurations for the policy table to be rendered with MUI data grid
+  const policyColumns = [
+    { field: "username", headerName: "Username", flex: 1, minWidth: 160, renderCell: params => {String(params.value || "")}},
+    { field: "instance_name", headerName: "Instance Name", flex: 1, minWidth: 180, renderCell: params => {String(params.value || "")}},
+    { field: "resource", headerName: "Resource", flex: 1.5, minWidth: 220 },
+    { field: "action", headerName: "Action", width: 120 },
+    {
+      field: "delete",
+      headerName: "",
+      width: 120,
+      sortable: false,
+      filterable: false,
+      renderCell: params => (
+        <button className="pm-btn pm-btn-danger" onClick={() => handleDelete(params.row)}>Delete</button>
+      ),
+    },
+  ];
+
   // sorted list of instances for the drop down 
   const instanceOptions = instances
     .map(i => i?.name)
@@ -120,7 +146,7 @@ export default function PolicyManagement() {
 
     // HTML part
   return (
-    <div className="pm-root">
+    <div className="pm-root policy-management">
       <h1>Policy Management</h1>
     {/* Showing error on the top of the page */}
       {err && (
@@ -183,30 +209,20 @@ export default function PolicyManagement() {
         ) : (policies?.length ?? 0) === 0 ? (
           <p className="pm-muted">No policies found.</p>
         ) : (
-          <table className="pm-table">
-            <thead>
-              <tr>
-                <th>Username</th>
-                <th>Instance Name</th>
-                <th>Resource</th>
-                <th>Action</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {policies.map((p, idx) => (
-                <tr key={idx}>
-                  <td><code className="pm-mono">{String(p.username || "")}</code></td>
-                  <td><code className="pm-mono">{String(p.instance_name || "")}</code></td>
-                  <td>{p.resource || "—"}</td>
-                  <td>{p.action || "—"}</td>
-                  <td className="pm-actions-right">
-                    <button className="pm-btn pm-btn-danger" onClick={() => handleDelete(p)}>Delete</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="pm-grid">
+            <DataGrid
+              rows={policyRows}
+              columns={policyColumns}
+              sx={{ width: "100%", '& .MuiDataGrid-columnHeaderTitle': { fontWeight: 700 }, '& .MuiDataGrid-cell:focus, & .MuiDataGrid-cell:focus-within': { outline: 'none' } }}
+              showToolbar
+              disableRowSelectionOnClick
+              pageSizeOptions={[5, 10, 25]}
+              disableColumnMenu
+              disableColumnFilter
+              disableColumnSelector 
+              hideFooter
+            />
+          </div>
         )}
       </section>
     </div>
