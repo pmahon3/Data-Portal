@@ -79,7 +79,10 @@ export const downloadAssetBundle = async (http, endpointName, fileIds) => {
 
 // Iterates through a selection of asset IDs and performs sequential delete requests.
 // It distinguishes between files and folders based on ID prefixes and metadata.
-export async function deleteAssets(http, endpointName, deleteTopSelected, deleteIndex) {
+export async function deleteAssets(http, endpointName, deleteTopSelected, deleteIndex, onProgress) {
+  const total = deleteTopSelected.length;
+  let done = 0;
+
   for (const id of deleteTopSelected) {
     const headers = await getAuthHeaders();
     const node = deleteIndex.get(String(id));
@@ -93,5 +96,8 @@ export async function deleteAssets(http, endpointName, deleteTopSelected, delete
       if (!bucket) throw new Error("Missing bucket for folder delete.");
       await http.delete(`/tree/folders/${folderId}`, { params: { instance_name: endpointName, bucket }, headers });
     }
+
+    done += 1;
+    if (onProgress) onProgress(done, total);
   }
 }
