@@ -2,7 +2,8 @@
 Policy Management API Endpoints
 
 Handles policy CRUD operations and policy-related dashboard data.
-All endpoints require admin privileges as policies control system access.
+Policy management endpoints require elevated privileges; user-specific
+read-only endpoints require standard authentication.
 """
 
 import logging
@@ -11,7 +12,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 
-from api.v0_1.common.auth_dependencies import is_user_admin, require_admin, require_admin_or_manager
+from api.v0_1.common.auth_dependencies import get_current_user, is_user_admin, require_admin, require_admin_or_manager
 from api.v0_1.startup import init_db_roots
 from core.services.injectors import get_user_manager, get_policy_manager, get_instance_manager
 from core.services.instances import AbstractInstanceManager
@@ -25,6 +26,37 @@ from api.v0_1.common.models import (
 
 policies_router = APIRouter(prefix='/policies', tags=["Policy Management"])
 logger = logging.getLogger("api.endpoints")
+
+
+@policies_router.get(
+    "/me",
+    response_model=GetPolicyResponse,
+    response_model_exclude_none=True,
+    summary="Get my policies",
+    description="Retrieve access policies for the current authenticated user."
+)
+async def get_my_policies(
+    current_user: dict = Depends(get_current_user),
+    policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
+    instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
+) -> GetPolicyResponse:
+    """
+    Retrieve policies for the current authenticated user.
+
+    Returns an empty list when the user has no policies.
+    """
+    user_uuid = UUID(current_user["sub"])
+    policies = policy_manager.get_user_policies(user_uuid)
+
+    # Map instance uuid to name
+    unique_instance_uuids = list({policy.instance_uuid for policy in policies if policy.instance_uuid})
+    resolved_instances = instance_manager.get_instances_by_uuid(unique_instance_uuids)
+    uuid_to_instance_name = {instance.uuid: instance.name for instance in resolved_instances}
+
+    for policy in policies:
+        policy.instance_name = uuid_to_instance_name.get(policy.instance_uuid, "Unknown Instance")
+
+    return GetPolicyResponse(success=True, details=policies)
 
 
 @policies_router.get(
