@@ -33,6 +33,31 @@ Do not put AWS access keys, secret keys, passwords, or webhook secrets in this d
 
 For a local shell, you can use `config.example.env` as a reference and export the values manually.
 
+## Webhook Authentication
+
+The backend webhook route is:
+
+```text
+POST /api/object-storage/events
+```
+
+When `OBJECT_STORAGE_WEBHOOK_SECRET` is configured, the receiver accepts either:
+
+```http
+X-Webhook-Secret: <secret>
+```
+
+or a URL query parameter:
+
+```text
+https://<portal-host>/api/object-storage/events?webhook_secret=<URL_ENCODED_SECRET>
+```
+
+The query parameter form is intended for object storage notification services
+that cannot send custom HTTP headers. Prefer HTTPS and a high-entropy secret.
+URLs may be logged by proxies or application infrastructure, so avoid reusing
+this secret anywhere else.
+
 ## Read Current Notification Configuration
 
 ```bash
