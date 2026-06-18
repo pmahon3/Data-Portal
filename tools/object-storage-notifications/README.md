@@ -58,6 +58,52 @@ that cannot send custom HTTP headers. Prefer HTTPS and a high-entropy secret.
 URLs may be logged by proxies or application infrastructure, so avoid reusing
 this secret anywhere else.
 
+## Create Or Update Ceph Notification Topic
+
+Some Ceph/RGW deployments do not support topic creation through the standard
+`aws sns create-topic` command. If `aws sns list-topics` or `aws sns
+create-topic` returns a generic `Unknown` error, create the topic with a signed
+Ceph API request instead.
+
+First, prepare the webhook URL and load the AWS credentials from the configured
+profile:
+
+```bash
+export WEBHOOK_SECRET="<same value as OBJECT_STORAGE_WEBHOOK_SECRET>"
+export WEBHOOK_URL="https://<portal-host>/api/object-storage/events?webhook_secret=${WEBHOOK_SECRET}"
+
+export AWS_ACCESS_KEY_ID="$(aws configure get aws_access_key_id --profile "$AWS_PROFILE")"
+export AWS_SECRET_ACCESS_KEY="$(aws configure get aws_secret_access_key --profile "$AWS_PROFILE")"
+```
+
+If `WEBHOOK_SECRET` contains characters such as `+`, `/`, `=`, `&`, `?`, `%`,
+or spaces, URL-encode it before building `WEBHOOK_URL`. A hex secret generated
+with `openssl rand -hex 32` does not need additional encoding.
+
+Create or update the topic:
+
+```bash
+curl -i -X POST "$S3_ENDPOINT/" \
+  --aws-sigv4 "aws:amz:${AWS_REGION}:s3" \
+  --user "$AWS_ACCESS_KEY_ID:$AWS_SECRET_ACCESS_KEY" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data-urlencode "Action=CreateTopic" \
+  --data-urlencode "Name=${NOTIFICATION_ID}" \
+  --data-urlencode "Attributes.entry.1.key=push-endpoint" \
+  --data-urlencode "Attributes.entry.1.value=${WEBHOOK_URL}" \
+  --data-urlencode "Attributes.entry.2.key=verify-ssl" \
+  --data-urlencode "Attributes.entry.2.value=true" \
+  --data-urlencode "Attributes.entry.3.key=persistent" \
+  --data-urlencode "Attributes.entry.3.value=true"
+```
+
+Copy the `TopicArn` value from the XML response and export it before applying
+the bucket notification configuration:
+
+```bash
+export TOPIC_ARN="<TopicArn returned by CreateTopic>"
+```
+
 ## Read Current Notification Configuration
 
 ```bash
