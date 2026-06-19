@@ -37,7 +37,7 @@ export default function EndpointCard({
       });
       setTreesByAccess((prev) => ({
         ...prev,
-        [accessKey]: data.assets?.[endpointUuid]?.[accessKey] || [],
+        [accessKey]: data.assets || [],
       }));
     } catch (e) {
       console.error(`[EndpointCard] Failed to fetch assets for ${endpointName}:`, e);

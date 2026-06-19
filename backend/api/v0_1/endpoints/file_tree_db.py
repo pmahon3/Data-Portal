@@ -4,11 +4,11 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import ORJSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.v0_1.endpoints.auth import decode_token
-from api.v0_1.common.models import FileTreeNode
 from core.db.postgres.session import get_session
 from core.services.injectors import get_instance_manager, get_policy_manager, get_user_manager
 from core.services.instances import AbstractInstanceManager
@@ -31,10 +31,10 @@ def resource_for_key(bucket: str, key: str) -> str:
     return f"{bucket}/{key}"
 
 
-@router.get("/dashboard/{instance_uuid}")
+@router.get("/dashboard/{instance_uuid}", response_class=ORJSONResponse)
 async def dashboard_db(
     instance_uuid: str,
-    access: Literal["read", "write", "delete"] | None = Query(None, description="Only return one access tree"),
+    access: Literal["read", "write", "delete"] = Query(..., description="Access tree to return"),
     token_payload: dict = Depends(decode_token),
     session: AsyncSession = Depends(get_session),
     user_manager: AbstractUserManager = Depends(get_user_manager),
@@ -42,23 +42,19 @@ async def dashboard_db(
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ):
     """
-    DB-backed tree, same shape as /assets/dashboard/{instance_uuid}.
-    Returns { assets: {instance_uuid: {read|write|delete: [FileTreeNode...]}} }
+    DB-backed tree for one lazy-loaded access tab.
+    Returns { access: "read"|"write"|"delete", assets: [nodes] }
     """
     # Resolve Identity and Context
     user_uuid = user_manager.get_user_uuid(token_payload["preferred_username"])
     instance = instance_manager.get_instance_by_uuid(UUID(instance_uuid))
-    instance_name = instance.name
     agent = instance.agent
 
     # Identify buckets associated with the instance agent
     allowed_buckets = set(agent.fetch_all_buckets()) if hasattr(agent, "fetch_all_buckets") else set()
 
-    # Initialize response structure grouped by permission type
-    access_types = [access] if access else ["read", "write", "delete"]
-    assets: dict[str, dict[str, list[FileTreeNode]]] = {
-        instance_uuid: {access: [] for access in access_types}
-    }
+    access_types = [access]
+    assets: list[dict] = []
 
     # Query root folders for all applicable buckets
     roots = list((await session.execute(
@@ -84,35 +80,29 @@ async def dashboard_db(
         allowed_folder_ids = {access: {str(root.id)} for access in root_allowed_access}
 
         # Add root nodes to the result set
-        for access in root_allowed_access:
-            assets[instance_uuid][access].append(FileTreeNode(
-                id=str(root.id),
-                parent="#",
-                text=root.bucket,
-                li_attr={"type": "folder", "bucket": root.bucket},
-            ))
+        for access_key in root_allowed_access:
+            assets.append({
+                "id": str(root.id),
+                "parent": "#",
+                "text": root.bucket,
+                "li_attr": {"type": "folder", "bucket": root.bucket},
+            })
 
-        # Fetch all sub-folders in this bucket
-        # Ordered by folder path
+        # Fetch all folders in this root bucket
         folders = list((await session.execute(
             select(Folder).where(
                 Folder.bucket == root.bucket,
-                Folder.path.op("<@")(root.path),
             ).order_by(Folder.full_path)
         )).scalars().all())
 
-        # Fetch all files within these folders
-        # Ordered by file path
+        # Fetch all files in this root bucket
         files = list((await session.execute(
-            select(File, Folder.full_path)
-            .join(Folder, Folder.id == File.folder_id)
+            select(File)
             .where(
                 File.bucket == root.bucket,
-                Folder.bucket == root.bucket,
-                Folder.path.op("<@")(root.path),
             )
-            .order_by(Folder.full_path, File.name)
-        )).all())
+            .order_by(File.folder_id, File.name)
+        )).scalars().all())
 
         # Filter folders
         for f in folders:
@@ -122,11 +112,11 @@ async def dashboard_db(
             
             # Identify which permission types (read, write, delete) are candidates for this folder.
             valid_accesses = []
-            for access in root_allowed_access:
+            for access_key in root_allowed_access:
                 # RECURSIVE CHECK: A folder can only be "valid" for an action if its 
                 # parent folder is already in the 'allowed_folder_ids' for that specific action.
-                if parent_id in allowed_folder_ids[access]:
-                    valid_accesses.append(access)
+                if parent_id in allowed_folder_ids[access_key]:
+                    valid_accesses.append(access_key)
 
             # If the parent folder doesn't have any of the 
             # required permissions, we don't bother checking the Policy
@@ -136,29 +126,29 @@ async def dashboard_db(
             res = resource_for_folder(f.bucket, f.full_path)
             allowed_actions_for_folder = policy_manager.get_allowed_actions(user_uuid, UUID(instance_uuid), res, valid_accesses)
             
-            for access in allowed_actions_for_folder:
+            for access_key in allowed_actions_for_folder:
                 # Add this folder to list of allowed folders
-                allowed_folder_ids[access].add(str(f.id))
+                allowed_folder_ids[access_key].add(str(f.id))
 
                 # Add this folder to results
-                assets[instance_uuid][access].append(FileTreeNode(
-                    id=str(f.id),
-                    parent=parent_id,
-                    text=f.name,
-                    li_attr={"type": "folder", "bucket": f.bucket, "full_path": f.full_path},
-                ))
+                assets.append({
+                    "id": str(f.id),
+                    "parent": parent_id,
+                    "text": f.name,
+                    "li_attr": {"type": "folder", "bucket": f.bucket, "full_path": f.full_path},
+                })
 
         # Filter Files
-        for file, _folder_full_path in files:
+        for file in files:
             folder_id_str = str(file.folder_id)
             
             # Identify which permission types (read, write, delete) are candidates for this file.
             valid_accesses = []
-            for access in root_allowed_access:
+            for access_key in root_allowed_access:
                 # LEAF NODE CHECK: A file is only eligible for an action (e.g., 'read')
                 # if the folder containing it is already authorized for that action.
-                if folder_id_str in allowed_folder_ids[access]:
-                    valid_accesses.append(access)
+                if folder_id_str in allowed_folder_ids[access_key]:
+                    valid_accesses.append(access_key)
 
             # If the parent folder doesn't have any of the 
             # required permissions, we don't bother checking the policy
@@ -168,14 +158,13 @@ async def dashboard_db(
             res = resource_for_key(file.bucket, file.key)
             allowed_actions_for_file = policy_manager.get_allowed_actions(user_uuid, UUID(instance_uuid), res, valid_accesses)
             
-            for access in allowed_actions_for_file:
+            for access_key in allowed_actions_for_file:
                 # Add this file to results
-                assets[instance_uuid][access].append(FileTreeNode(
-                    id=f"file-{file.id}",
-                    parent=folder_id_str,
-                    text=file.name,
-                    li_attr={"type": "file", "bucket": file.bucket, "key": file.key},
-                ))
+                assets.append({
+                    "id": f"file-{file.id}",
+                    "parent": folder_id_str,
+                    "text": file.name,
+                    "li_attr": {"type": "file", "bucket": file.bucket, "key": file.key},
+                })
                     
-    # Return combined asset tree and instance mapping
-    return {"assets": assets, "instances": {instance_name: instance_uuid}}
+    return ORJSONResponse({"access": access, "assets": assets})
