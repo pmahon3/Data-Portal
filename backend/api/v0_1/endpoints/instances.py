@@ -11,11 +11,11 @@ from fastapi import APIRouter, Depends, HTTPException, status, Body
 from fastapi.responses import JSONResponse
 
 from api.v0_1.common.auth_dependencies import is_user_admin, require_admin, require_admin_or_manager
-from core.services.injectors import get_instance_manager, get_policy_manager, get_user_manager
+from core.services.injectors import get_instance_manager, get_policy_manager, get_project_manager
 from core.services.instances import AbstractInstanceManager
 from core.services.policies import CasbinPolicyManager
 from core.services.policies import Policy
-from core.services.users import AbstractUserManager, ProjectNotFoundError
+from core.services.projects import AbstractProjectManager, ProjectNotFoundError
 from api.v0_1.common.models import InstanceCreate, InstanceUpdate
 
 instances_router = APIRouter(prefix='/instances', tags=["Storage Instance Management"])
@@ -40,7 +40,7 @@ def _managed_project_names(current_user: dict) -> set[str]:
 async def list_instances(
     current_user: dict = Depends(require_admin_or_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
-    user_manager: AbstractUserManager = Depends(get_user_manager)
+    project_manager: AbstractProjectManager = Depends(get_project_manager)
 ) -> JSONResponse:
     """
     Get list of all storage instances.
@@ -60,7 +60,7 @@ async def list_instances(
         instance_names = set()
         for project_name in _managed_project_names(current_user):
             try:
-                instance_names.update(user_manager.get_project_storage_instances(project_name))
+                instance_names.update(project_manager.get_project_storage_instances(project_name))
             except ProjectNotFoundError:
                 continue
         instances = list(instance_manager.get_instances(instance_names).values())
@@ -142,7 +142,7 @@ async def create_instance(
     current_user: dict = Depends(require_admin_or_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
-    user_manager: AbstractUserManager = Depends(get_user_manager)
+    project_manager: AbstractProjectManager = Depends(get_project_manager)
 ) -> JSONResponse:
     """
     Create a new storage instance.
@@ -190,7 +190,7 @@ async def create_instance(
         try:
             # Validate project existence up front so failed selections do not create instances.
             for project_name in project_names:
-                user_manager.get_project_id(project_name)
+                project_manager.get_project_id(project_name)
         except ProjectNotFoundError:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
     
@@ -243,7 +243,7 @@ async def create_instance(
     try:
         # Keep project assignment creation-time only for managers; later edits use admin-only project APIs.
         for project_name in project_names:
-            user_manager.add_project_storage_instance(project_name, name_value)
+            project_manager.add_project_storage_instance(project_name, name_value)
     except ProjectNotFoundError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
     except Exception as e:
@@ -325,7 +325,7 @@ async def delete_instance(
     admin_user: dict = Depends(require_admin),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
-    user_manager: AbstractUserManager = Depends(get_user_manager)
+    project_manager: AbstractProjectManager = Depends(get_project_manager)
 ) -> JSONResponse:
     """
     Remove a storage instance and cleanup associated policies (admin only).
@@ -372,7 +372,7 @@ async def delete_instance(
 
     # Remove project-instance links so deleted instances disappear from project/group assignments.
     try:
-        user_manager.remove_instance_from_all_projects(instance_uuid)
+        project_manager.remove_instance_from_all_projects(instance_uuid)
     except Exception as e:
         logger.warning(f"Failed to remove project assignments for deleted instance '{instance.name}': {str(e)}")
 
