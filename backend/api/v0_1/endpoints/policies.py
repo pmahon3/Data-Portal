@@ -14,10 +14,11 @@ from fastapi.responses import JSONResponse
 
 from api.v0_1.common.auth_dependencies import get_current_user, is_user_admin, require_admin, require_admin_or_manager
 from api.v0_1.startup import init_db_roots
-from core.services.injectors import get_user_manager, get_policy_manager, get_instance_manager
+from core.services.injectors import get_user_manager, get_policy_manager, get_instance_manager, get_project_manager
 from core.services.instances import AbstractInstanceManager
 from core.services.policies import CasbinPolicyManager
 from core.services.policies import Policy
+from core.services.projects import AbstractProjectManager
 from core.services.users import AbstractUserManager
 from api.v0_1.common.models import (
     GetPolicyResponse, AddPolicyResponse, AddPolicyRequest,
@@ -137,6 +138,7 @@ async def create_policy(
     new_policy: AddPolicyRequest,
     current_user: dict = Depends(require_admin_or_manager),
     user_manager: AbstractUserManager = Depends(get_user_manager),
+    project_manager: AbstractProjectManager = Depends(get_project_manager),
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ) -> AddPolicyResponse:
@@ -171,14 +173,14 @@ async def create_policy(
         raise HTTPException(status_code=404, detail="Instance not found")
 
     # Managers can grant access only inside a project they manage.
-    if not is_user_admin(current_user) and not user_manager.can_manage_instance_for_user(
+    if not is_user_admin(current_user) and not project_manager.can_manage_instance_for_user(
         current_user,
         new_policy.username,
         instance_uuid
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied: not a manager for this user and instance"
+            detail="Access denied: user and instance must belong to the same project"
         )
 
     # Create policy object
@@ -226,6 +228,7 @@ async def delete_policy(
     old_policy: RemovePolicyRequest,
     current_user: dict = Depends(require_admin_or_manager),
     user_manager: AbstractUserManager = Depends(get_user_manager),
+    project_manager: AbstractProjectManager = Depends(get_project_manager),
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager)
 ) -> RemovePolicyResponse:
@@ -267,10 +270,10 @@ async def delete_policy(
             logger.error(f"User UUID {user_uuid} not found for policy deletion: {e}")
             raise HTTPException(status_code=404, detail="User not found")
 
-        if not user_manager.can_manage_instance_for_user(current_user, username, instance_uuid):
+        if not project_manager.can_manage_instance_for_user(current_user, username, instance_uuid):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied: not a manager for this user and instance"
+                detail="Access denied: user and instance must belong to the same project managed by the requester"
             )
 
     # Create policy object to remove

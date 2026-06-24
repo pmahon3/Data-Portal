@@ -98,17 +98,25 @@ export default function PolicyManagement() {
     if (!window.confirm(`Delete policy:\nresource="${p.resource}" action="${p.action}" ?`)) return;
     setErr("");
 
-    const headers = await getAuthHeaders();
-    await http.delete(`${POLICIES_BASE}/`, {
-      headers,
-      data: {
-        user_uuid: p.user_uuid,
-        instance_uuid: p.instance_uuid,
-        resource: p.resource,
-        action: p.action,
-      },
-    });
-    await loadPolicies();
+    try {
+      const headers = await getAuthHeaders();
+      await http.delete(`${POLICIES_BASE}/`, {
+        headers,
+        data: {
+          user_uuid: p.user_uuid,
+          instance_uuid: p.instance_uuid,
+          resource: p.resource,
+          action: p.action,
+        },
+      });
+      await loadPolicies();
+    } catch (e) {
+      const message = formatError(e);
+      if (e?.response?.status === 403) {
+        alert(message);
+      }
+      setErr(message);
+    }
   }
 
   // Creates a saved list of policies with a unique composite ID added for MUI data grid

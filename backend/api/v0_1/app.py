@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 from api.v0_1.endpoints import application_router
 from .startup import run_startup_tasks
 
-from core.services.injectors import get_instance_manager, get_policy_manager, get_user_manager
+from core.services.injectors import get_instance_manager, get_policy_manager, get_project_manager, get_user_manager
 
 
 @asynccontextmanager
@@ -22,6 +22,7 @@ async def lifespan(app: FastAPI):
         instance_manager = get_instance_manager()
         policy_manager = get_policy_manager()
         user_manager = get_user_manager()
+        project_manager = get_project_manager()
     except Exception as e:
         logger = logging.getLogger("uvicorn.error")
         logger.error(f"Critical startup failure: {e}")

@@ -2,11 +2,11 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from api.v0_1.common.auth_dependencies import get_current_user, is_user_admin, require_admin, require_admin_or_manager, require_admin_or_project_manager
+from api.v0_1.common.auth_dependencies import is_user_admin, require_admin, require_admin_or_manager, require_admin_or_project_manager
 from api.v0_1.common.models import ProjectCreateRequest, ProjectResponse, ProjectStorageInstanceRequest, ProjectUserRequest
-from core.services.injectors import get_instance_manager, get_user_manager
+from core.services.injectors import get_instance_manager, get_project_manager
 from core.services.instances import AbstractInstanceManager
-from core.services.users import AbstractUserManager, ProjectAlreadyExistsError, ProjectNotFoundError
+from core.services.projects import AbstractProjectManager, ProjectAlreadyExistsError, ProjectNotFoundError
 
 projects_router = APIRouter(prefix="/projects", tags=["Project Management"])
 logger = logging.getLogger("api.endpoints")
@@ -15,12 +15,12 @@ logger = logging.getLogger("api.endpoints")
 @projects_router.get("", response_model=list[ProjectResponse])
 async def list_projects(
     current_user: dict = Depends(require_admin_or_manager),
-    user_manager: AbstractUserManager = Depends(get_user_manager)
+    project_manager: AbstractProjectManager = Depends(get_project_manager)
 ) -> list[ProjectResponse]:
     try:
         if is_user_admin(current_user):
             # Admins see all projects
-            project_names = user_manager.get_all_projects()
+            project_names = project_manager.get_all_projects()
         else:
             # Managers see what they're assigned to
             managed_projects = set()
@@ -37,9 +37,9 @@ async def list_projects(
         for name in project_names:
             project_responses.append(ProjectResponse(
                 name=name,
-                users=user_manager.get_project_users(name),
-                managers=user_manager.get_project_managers(name),
-                storageInstances=user_manager.get_project_storage_instances(name)
+                users=project_manager.get_project_users(name),
+                managers=project_manager.get_project_managers(name),
+                storageInstances=project_manager.get_project_storage_instances(name)
             ))
     except Exception as e:
         logger.error(f"Failed to retrieve projects: {e}")
@@ -55,10 +55,10 @@ async def list_projects(
 async def create_project(
     project_data: ProjectCreateRequest,
     admin_user: dict = Depends(require_admin),
-    user_manager: AbstractUserManager = Depends(get_user_manager)
+    project_manager: AbstractProjectManager = Depends(get_project_manager)
 ) -> ProjectResponse:
     try:
-        project_name = user_manager.create_project(project_data.name)
+        project_name = project_manager.create_project(project_data.name)
     except ProjectAlreadyExistsError:
         logger.error(f"Project '{project_data.name}' already exists")
         raise HTTPException(
@@ -82,9 +82,9 @@ async def create_project(
     logger.info(f"Created project '{project_name}'")
     return ProjectResponse(
         name=project_name,
-        users=user_manager.get_project_users(project_name),
-        managers=user_manager.get_project_managers(project_name),
-        storageInstances=user_manager.get_project_storage_instances(project_name)
+        users=project_manager.get_project_users(project_name),
+        managers=project_manager.get_project_managers(project_name),
+        storageInstances=project_manager.get_project_storage_instances(project_name)
     )
 
 
@@ -92,10 +92,10 @@ async def create_project(
 async def delete_project(
     project_name: str,
     admin_user: dict = Depends(require_admin),
-    user_manager: AbstractUserManager = Depends(get_user_manager)
+    project_manager: AbstractProjectManager = Depends(get_project_manager)
 ) -> None:
     try:
-        user_manager.delete_project(project_name)
+        project_manager.delete_project(project_name)
     except ProjectNotFoundError:
         logger.error(f"Project '{project_name}' not found")
         raise HTTPException(
@@ -117,15 +117,15 @@ async def add_project_user(
     project_name: str,
     user_data: ProjectUserRequest,
     current_user: dict = Depends(require_admin_or_project_manager()),
-    user_manager: AbstractUserManager = Depends(get_user_manager)
+    project_manager: AbstractProjectManager = Depends(get_project_manager)
 ) -> ProjectResponse:
     try:
-        user_manager.add_project_user(project_name, user_data.username)
+        project_manager.add_project_user(project_name, user_data.username)
         return ProjectResponse(
             name=project_name,
-            users=user_manager.get_project_users(project_name),
-            managers=user_manager.get_project_managers(project_name),
-            storageInstances=user_manager.get_project_storage_instances(project_name)
+            users=project_manager.get_project_users(project_name),
+            managers=project_manager.get_project_managers(project_name),
+            storageInstances=project_manager.get_project_storage_instances(project_name)
         )
     except ProjectNotFoundError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
@@ -141,15 +141,15 @@ async def remove_project_user(
     project_name: str,
     username: str,
     current_user: dict = Depends(require_admin_or_project_manager()),
-    user_manager: AbstractUserManager = Depends(get_user_manager)
+    project_manager: AbstractProjectManager = Depends(get_project_manager)
 ) -> ProjectResponse:
     try:
-        user_manager.remove_project_user(project_name, username)
+        project_manager.remove_project_user(project_name, username)
         return ProjectResponse(
             name=project_name,
-            users=user_manager.get_project_users(project_name),
-            managers=user_manager.get_project_managers(project_name),
-            storageInstances=user_manager.get_project_storage_instances(project_name)
+            users=project_manager.get_project_users(project_name),
+            managers=project_manager.get_project_managers(project_name),
+            storageInstances=project_manager.get_project_storage_instances(project_name)
         )
     except ProjectNotFoundError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
@@ -165,15 +165,15 @@ async def add_project_manager(
     project_name: str,
     user_data: ProjectUserRequest,
     admin_user: dict = Depends(require_admin),
-    user_manager: AbstractUserManager = Depends(get_user_manager)
+    project_manager: AbstractProjectManager = Depends(get_project_manager)
 ) -> ProjectResponse:
     try:
-        user_manager.add_project_manager(project_name, user_data.username)
+        project_manager.add_project_manager(project_name, user_data.username)
         return ProjectResponse(
             name=project_name,
-            users=user_manager.get_project_users(project_name),
-            managers=user_manager.get_project_managers(project_name),
-            storageInstances=user_manager.get_project_storage_instances(project_name)
+            users=project_manager.get_project_users(project_name),
+            managers=project_manager.get_project_managers(project_name),
+            storageInstances=project_manager.get_project_storage_instances(project_name)
         )
     except ProjectNotFoundError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
@@ -189,15 +189,15 @@ async def remove_project_manager(
     project_name: str,
     username: str,
     admin_user: dict = Depends(require_admin),
-    user_manager: AbstractUserManager = Depends(get_user_manager)
+    project_manager: AbstractProjectManager = Depends(get_project_manager)
 ) -> ProjectResponse:
     try:
-        user_manager.remove_project_manager(project_name, username)
+        project_manager.remove_project_manager(project_name, username)
         return ProjectResponse(
             name=project_name,
-            users=user_manager.get_project_users(project_name),
-            managers=user_manager.get_project_managers(project_name),
-            storageInstances=user_manager.get_project_storage_instances(project_name)
+            users=project_manager.get_project_users(project_name),
+            managers=project_manager.get_project_managers(project_name),
+            storageInstances=project_manager.get_project_storage_instances(project_name)
         )
     except ProjectNotFoundError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
@@ -213,17 +213,17 @@ async def add_project_storage_instance(
     project_name: str,
     instance_data: ProjectStorageInstanceRequest,
     admin_user: dict = Depends(require_admin),
-    user_manager: AbstractUserManager = Depends(get_user_manager),
+    project_manager: AbstractProjectManager = Depends(get_project_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager)
 ) -> ProjectResponse:
     try:
         instance_manager.get_instance_uuid(instance_data.instance_name)
-        user_manager.add_project_storage_instance(project_name, instance_data.instance_name)
+        project_manager.add_project_storage_instance(project_name, instance_data.instance_name)
         return ProjectResponse(
             name=project_name,
-            users=user_manager.get_project_users(project_name),
-            managers=user_manager.get_project_managers(project_name),
-            storageInstances=user_manager.get_project_storage_instances(project_name)
+            users=project_manager.get_project_users(project_name),
+            managers=project_manager.get_project_managers(project_name),
+            storageInstances=project_manager.get_project_storage_instances(project_name)
         )
     except ProjectNotFoundError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
@@ -239,15 +239,15 @@ async def remove_project_storage_instance(
     project_name: str,
     instance_name: str,
     admin_user: dict = Depends(require_admin),
-    user_manager: AbstractUserManager = Depends(get_user_manager)
+    project_manager: AbstractProjectManager = Depends(get_project_manager)
 ) -> ProjectResponse:
     try:
-        user_manager.remove_project_storage_instance(project_name, instance_name)
+        project_manager.remove_project_storage_instance(project_name, instance_name)
         return ProjectResponse(
             name=project_name,
-            users=user_manager.get_project_users(project_name),
-            managers=user_manager.get_project_managers(project_name),
-            storageInstances=user_manager.get_project_storage_instances(project_name)
+            users=project_manager.get_project_users(project_name),
+            managers=project_manager.get_project_managers(project_name),
+            storageInstances=project_manager.get_project_storage_instances(project_name)
         )
     except ProjectNotFoundError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
