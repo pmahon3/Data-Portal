@@ -133,6 +133,43 @@ Important: `put-bucket-notification-configuration` replaces the whole bucket not
 
 The script uploads a timestamped object under `notification-tests/`, confirms it exists, deletes it, then lists the prefix again. Check the webhook receiver to confirm both create and remove events arrived.
 
+## Apply Pending Events To Postgres File Tree
+
+The webhook stores object-storage events in the `storage_events` table. To apply
+pending rows to the `folders` and `files` tables, run this inside the backend
+container:
+
+```bash
+python storage_events_worker/process_storage_events.py
+```
+
+For continuous polling:
+
+```bash
+python storage_events_worker/process_storage_events.py --watch --batch-size 1000 --interval 5
+```
+
+The script reads `pending` rows, creates or updates file/folder rows for
+`created` events, deletes file/folder rows for `removed` events, and marks each
+event as `processed` or `failed`.
+
+Build the worker image from the repository root:
+
+```bash
+docker build -f backend/storage_events_worker/Dockerfile.worker -t inn-storage-events-worker backend
+```
+
+The image runs one pass by default and exits. To override the batch size, pass
+an argument such as `--batch-size 500`.
+
+Run retention cleanup separately with:
+
+```bash
+python storage_events_worker/cleanup_storage_events.py
+```
+
+By default, cleanup deletes `processed` events older than 30 days.
+
 ## Parse A Saved Ceph Event Payload
 
 ```bash

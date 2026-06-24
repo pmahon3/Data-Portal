@@ -1,0 +1,18 @@
+# Object storage events cleanup image.
+FROM python:3.12-slim
+
+ARG APP_DIR=/app
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=${APP_DIR} \
+    APP_DIR=${APP_DIR}
+
+WORKDIR ${APP_DIR}
+
+COPY storage_events_worker/requirements.txt storage_events_worker/requirements.txt
+RUN pip install --no-cache-dir -r storage_events_worker/requirements.txt
+
+COPY . .
+
+ENTRYPOINT ["python", "storage_events_worker/cleanup_storage_events.py"]
