@@ -1,6 +1,6 @@
 # Bundler State Machine
 
-This diagram describes the lifecycle of a bundle request in `bundler/bundler_app`.
+This diagram describes the lifecycle of a bundle request in `bundler/bundler_core`.
 It applies to the core runtime flow where a request is accepted, queued, processed
 by background worker(s), and later downloaded as an archive.
 
@@ -25,11 +25,11 @@ stateDiagram-v2
 ## Where This Is Implemented
 
 - State enum and transition rules:
-  - `bundler/bundler_app/app/models.py` (`BundleState`, `can_transition`)
+  - `bundler/bundler_core/src/models.py` (`BundleState`, `can_transition`)
 - Transition operations:
-  - `bundler/bundler_app/app/state_ops.py` (`_transition_state`, `_finalize_complete`, `_mark_failed`)
+  - `bundler/bundler_core/src/state_ops.py` (`_transition_state`, `_finalize_complete`, `_mark_failed`)
 - Runtime orchestration and worker loop:
-  - `bundler/bundler_app/app/bundles.py` (`BundleService.create_bundle_job`, `_worker_consumer`, `_process_bundle_job`)
+  - `bundler/bundler_core/src/bundles.py` (`BundleService.create_bundle_job`, `_worker_consumer`, `_process_bundle_job`)
 
 ## Transition Notes
 
@@ -50,6 +50,6 @@ stateDiagram-v2
 
 ## Tests That Cover This Behavior
 
-- `bundler/bundler_app/tests/test_bundles.py`
-- `bundler/bundler_app/tests/test_bundle_zip_paths.py`
+- `bundler/bundler_core/tests/test_bundles.py`
+- `bundler/bundler_core/tests/test_bundle_zip_paths.py`
 

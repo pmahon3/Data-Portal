@@ -1,0 +1,52 @@
+[project]
+name = "bundler_core"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    # Library only: `src/bundles.py` uses Pydantic models; HTTP servers live elsewhere (e.g. bundler_app_server_gen).
+    "anyio>=4.11.0",
+    "httpx>=0.28.1",
+    "loguru>=0.7.3",
+    "loguru-config>=0.1.0",
+    "pydantic>=2.10.0",
+    "pyyaml>=6.0.0",
+    "typing-extensions>=4.12.0",
+]
+
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+# --- How installed imports relate to the ``src/`` folder ---
+
+[tool.setuptools.package-dir]
+"bundler_core" = "src"
+# Top-level import ``bundler_core`` maps to on-disk ``src/`` (see ``[tool.setuptools.package-dir]``).
+# Install a *top-level* package named ``bundler_core`` whose *root* is the ``src/`` directory.
+#  The repo layout stays ``bundler_core/src/``; you import ``bundler_core.api`` after install. 
+# Same distribution name as project.name as above.
+
+[tool.setuptools]
+packages = ["bundler_core"]
+# "Ship one *top-level* Python package whose *name* is ``src``, 
+# backed by the on-disk directory ``src/`` 
+# (the folder that contains ``__init__.py``, ``api.py``, …).
+
+[dependency-groups]
+dev = [
+    "anyio>=4.11.0",
+    "commitizen>=4.13.9",
+    "httpx>=0.28.1",
+    "pytest>=9.0.1",
+    "pytest-cov>=6.0.0",
+    "openapi-spec-validator>=0.7.1",
+    "pyyaml>=6.0.0",
+]
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+version = "0.1.0"
+tag_format = "bundler-v$version"
+update_changelog_on_bump = true

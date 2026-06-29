@@ -1,0 +1,25 @@
+{
+  "$schema": "./node_modules/@openapitools/openapi-generator-cli/config.schema.json",
+  "spaces": 2,
+  "generator-cli": {
+    "version": "7.23.0",
+    "generators": {
+      "bundler-server-fastapi": {
+        "generatorName": "python-fastapi",
+        "inputSpec": "openapi.source.yaml",
+        "output": "#{cwd}/",
+        "additionalProperties": {
+          "sourceFolder": "",
+          "packageName": "bundler_server",
+          "fastapiImplementationPackage": "core",
+          "packageVersion": "1.0.0",
+          "serverPort": "8080"
+        },
+        "typeMappings": {
+          "file": "bytes",
+          "binary": "bytes"
+        }
+      }
+    }
+  }
+}
