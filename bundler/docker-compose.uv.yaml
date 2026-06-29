@@ -1,0 +1,24 @@
+# Patch docker-compose.yaml to add additional contexts and args
+# Use the following command to patch the docker-compose.yaml file:
+#    docker compose -f docker-compose.patch.yaml build
+# Run the service with:
+#    docker compose -f docker-compose.uv.yaml up bundler-service
+
+services:
+  bundler-service:
+    build:
+      context: .
+      target: service
+      dockerfile: Dockerfile.uv
+      additional_contexts: 
+        bundler: .
+        bundler_core: bundler_core
+      args:
+        PYTHON_VERSION: ${PYTHON_VERSION:-3.10}
+      platforms:
+        - "linux/amd64"
+    image: ${REGISTRY_IMAGE}/bundler-service:${COMMIT_SHORT_DATE} # Timestamp in format 'YYYYMMDD-HHMM'
+    platform: linux/amd64
+    ports:
+      - "8100:8080"
+    command: ["uvicorn", "bundler_server.main:app", "--host", "0.0.0.0", "--port", "8080"]
