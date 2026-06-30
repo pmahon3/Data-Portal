@@ -1,6 +1,19 @@
 # Bundler Development Quick Start
 
-> **Note:** [`README.md`](README.md) in this directory is **generated** by OpenAPI Generator (stock template). It is not contributor-maintained onboarding. For the command-only simple path, read **[`../quickstart.md`](../quickstart.md)**; for orientation, read **[`../getting-started.md`](../getting-started.md)** or **this file**.
+> **Note:** [`README.md`](README.md) in this directory is **generated** by OpenAPI Generator (stock template). It is not contributor-maintained onboarding.
+
+## Start here (what to read)
+
+| Your goal | Read this | Stop when… |
+|-----------|-----------|------------|
+| **Just run it** | [`../quickstart.md`](../quickstart.md) or **[Run the full workflow](#1-run-the-full-workflow)** below | Commands work locally |
+| **Daily dev** (where to edit, tests) | **This file** — [High-level layout](#high-level-layout), [Contribution guide](#contribution-guide-quick), [Testing boundaries](#testing-boundaries-and-separation-of-concerns) | You know where API vs domain vs adapter code lives |
+| **First-week orientation** (generator, tree, config) | [`../getting-started.md`](../getting-started.md) through [openapitools.json](../getting-started.md#this-repository-openapitoolsjson), then return here for tools/tests | Placeholders map to `bundler_server/` and `bundler_core/` |
+| **Bundle behavior** (states, retries, HTTP flow) | [`state-machine.md`](state-machine.md), [`bundle-request-flow.md`](bundle-request-flow.md) | No layout detour needed |
+| **Regen / Make debugging** | [getting-started → openapitools.json](../getting-started.md#this-repository-openapitoolsjson), then [`README_reference.md`](README_reference.md) | Edge case resolved |
+| **Docker / uv patch** | [`README_patch.md`](README_patch.md) | — |
+
+> **New to the repo?** Start with [getting-started.md → First-week orientation](../getting-started.md#start-here-what-to-read). **Returning dev?** You are in the right place — use **Daily dev** above.
 
 This document explains how the Bundler service is structured, how the FastAPI server stub is generated from the OpenAPI spec, and where to put business logic so regeneration does **not** wipe your work.
 
@@ -14,9 +27,10 @@ The build uses [`uv`](https://github.com/astral-sh/uv) for Python packaging and 
 | [`../getting-started.md`](../getting-started.md) | Mental model, generated vs owned, command cheat sheet |
 | **This file** | Quick start, tools, test layout |
 | [`README_patch.md`](README_patch.md) | Why patching exists (`uv` vs stock generator) |
-| [`README_reference.md`](README_reference.md) | Regeneration details, Make variables |
+| [`README_reference.md`](README_reference.md) | **`jq`** fallbacks, Make variables, `.openapi-generator-ignore` (after [`getting-started.md` → `openapitools.json`](../getting-started.md#this-repository-openapitoolsjson)) |
 | [`README_API_VERSIONING.md`](README_API_VERSIONING.md) | `/v1`, `/v2`, unversioned routes |
-| [`README_regeneration_file.md`](README_regeneration_file.md) | Regeneration churn, `.openapi-generator-ignore`, un-ignore workflow |
+| [`state-machine.md`](state-machine.md) | Bundle job states, transitions, dedupe, retry policy |
+| [`bundle-request-flow.md`](bundle-request-flow.md) | End-to-end HTTP and worker sequence diagrams |
 
 For architecture and deep regeneration details, see [`README_reference.md`](README_reference.md).
 
@@ -35,7 +49,9 @@ APP_CORE_DIR=bundler_core make all
 
 ## High-level layout
 
-The Bundler code is intentionally split into **three** parts (see [`openapitools.json`](openapitools.json) for the exact generator settings):
+For placeholder diagrams and the annotated generated tree, see [`getting-started.md` → Mental model](../getting-started.md#mental-model-one-diagram). For an abbreviated **`openapitools.json`** excerpt, see [`getting-started.md` → This repository](../getting-started.md#this-repository-openapitoolsjson).
+
+The Bundler code is intentionally split into **three** parts:
 
 - `bundler/bundler_core/`
   - **Non-generated** (human-owned) “domain/business logic” package.
@@ -61,17 +77,11 @@ The Bundler code is intentionally split into **three** parts (see [`openapitools
 - Business logic in **`bundler_core`** stays stable, testable, and not at risk during regeneration. The separation keeps complex domain rules out of generated routers.
 - The generated server stub stays a thin HTTP adapter: **`bundler_server/core`** maps requests and responses; **`bundler_core`** owns behavior.
 
-For **`openapitools.json`** field semantics, **`vars.mk`** fallbacks, and deeper regeneration mechanics, see [`README_reference.md`](README_reference.md#openapitoolsjson-and-defaults).
+For an intro to **`openapitools.json`**, see [`getting-started.md` → This repository](../getting-started.md#this-repository-openapitoolsjson). For **`vars.mk`** fallbacks, **`OPENAPI_*`** variables, and deeper regeneration mechanics, see [`README_reference.md`](README_reference.md#openapitoolsjson-and-defaults).
 
 ## How server generation is invoked
 
-Server stub generation uses the **OpenAPI Generator CLI** via **npm**, not a Python- or `uv`-only wrapper:
-
-```bash
-npx -y @openapitools/openapi-generator-cli
-```
-
-That matches what `make generate-openapi` runs (see `bundler/Makefile`). The `@openapitools/openapi-generator-cli` package tracks the upstream tool and exposes the **full CLI** (global properties, `--type-mappings`, additional generator flags, etc.). Lighter options (e.g. invoking the JAR by hand, or Python-only shims) tend to support **fewer** knobs, so this repo standardizes on `npx`.
+Server stub generation uses **`npx -y @openapitools/openapi-generator-cli`** (same as `make generate-openapi` in [`Makefile`](../Makefile)). The npm CLI exposes the full upstream generator surface; this repo standardizes on it over lighter wrappers.
 
 `make all APP_CORE_DIR=<path-to-core-package>` runs (from `bundler/`, e.g. `APP_CORE_DIR=bundler_core`):
 
@@ -81,7 +91,7 @@ That matches what `make generate-openapi` runs (see `bundler/Makefile`). The `@o
 4. `sync`
 5. `test`
 
-For the optional **patch** to enable `uv` support flow (Mustache/uv normalization scripts), use `make -f Makefile -f make/bootstrap.mk patch APP_CORE_DIR=...` (see `make/bootstrap.mk`).
+Shell-level expansion of the same steps is in [`getting-started.md` → What make all runs](../getting-started.md#what-make-all-runs-expanded-no-patching). For the optional **`uv`** patch (Mustache/uv normalization scripts), use `make -f Makefile -f make/bootstrap.mk patch APP_CORE_DIR=...` (see [`make/bootstrap.mk`](../make/bootstrap.mk)).
 
 ## Skip regeneration
 
@@ -129,8 +139,9 @@ Use the two test suites for different questions:
   - Uses stubs/monkeypatches at the domain layer to keep tests deterministic and independent from external HTTP.
   - `tests/test_bundles.py` boundary: verifies public bundle domain API behavior
     (create/get/download responses, dedupe, and not-found handling), while explicit
-    lifecycle transition semantics live in `tests/test_state_transitions.py` and
-    archive-path/content rules live in `tests/test_bundle_zip_paths.py`.
+    lifecycle transition semantics (including `failed → pending` re-queue) live in
+    `tests/test_state_transitions.py` and archive-path/content rules live in
+    `tests/test_bundle_zip_paths.py`.
 
 - `bundler/tests/` (HTTP contract tests)
   - Validates API contract behavior of the generated FastAPI adapter: endpoint status codes, payload validation, and HTTP error mapping.
