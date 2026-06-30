@@ -75,6 +75,36 @@ def duplicate_create_json(*, api_prefix: str | None = None) -> dict:
     }
 
 
+def complete_duplicate_create_json(*, api_prefix: str | None = None) -> dict:
+    """Payload for idempotent re-submit tests once the first job reaches ``complete``."""
+    v = _folder_tag_from_api_prefix(api_prefix)
+    return {
+        "urls": ["__bundler_stub__"],
+        "folderName": f"out-complete-duplicate-{v}",
+        "compression": "zip",
+    }
+
+
+def transient_retry_create_json(*, api_prefix: str | None = None) -> dict:
+    """Payload for retry-after-transient-failure HTTP contract tests."""
+    v = _folder_tag_from_api_prefix(api_prefix)
+    return {
+        "urls": ["__bundler_stub__"],
+        "folderName": f"out-retry-transient-{v}",
+        "compression": "zip",
+    }
+
+
+def permanent_retry_create_json(*, api_prefix: str | None = None) -> dict:
+    """Payload for permanent-failure retry rejection HTTP contract tests."""
+    v = _folder_tag_from_api_prefix(api_prefix)
+    return {
+        "urls": ["https://example.com/bucket/missing-object.txt"],
+        "folderName": f"out-retry-permanent-{v}",
+        "compression": "zip",
+    }
+
+
 def seed_contract_test_bundles() -> None:
     """Populate in-memory bundle state for HTTP contract tests (idempotent)."""
     from tests.seed_demo_bundles import seed_demo_bundles

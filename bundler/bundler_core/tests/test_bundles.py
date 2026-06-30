@@ -13,6 +13,10 @@ Each test follows Arrange / Act / Assert / Cleanup (`pytest anatomy
 - ``test_duplicate_request_rejected_while_first_request_is_processing``: duplicate submission is rejected even when the first equivalent request is already ``processing``.
 - ``test_get_bundle_status_and_not_found``: known bundle id returns status payload while unknown id raises ``KeyError``.
 - ``test_download_bundle_returns_zip``: completed stub-backed bundle download returns valid ZIP bytes (including empty-archive case) and keeps status ``complete``.
+- ``test_create_bundle_returns_existing_when_duplicate_and_complete``: equivalent re-submit after ``complete`` returns the same bundle id and status (no ``KeyError``).
+- ``test_download_works_after_duplicate_create_when_complete``: archive download still succeeds after idempotent re-submit when ``complete``.
+
+Retry semantics for ``failed`` jobs are covered in ``tests/test_bundle_retry.py``.
 
 """
 
@@ -170,3 +174,63 @@ def test_download_bundle_returns_zip() -> None:
     # Cleanup
     bundles_impl._TEST_STUB_MODE_ENABLED = False
     reset_bundle_test_state()
+
+
+def test_create_bundle_returns_existing_when_duplicate_and_complete() -> None:
+    """Re-submitting an equivalent request after completion returns the existing bundle."""
+    # Arrange
+    reset_bundle_test_state()
+    bundles_impl._TEST_STUB_MODE_ENABLED = True
+    payload_one = api.CreateBundleRequest(
+        folder_name="complete-duplicate",
+        compression="zip",
+        urls=["__bundler_stub__"],
+    )
+    payload_two = api.CreateBundleRequest(
+        folder_name="complete-duplicate",
+        compression="zip",
+        urls=["__bundler_stub__"],
+    )
+
+    try:
+        # Act
+        first = api.create_bundle_job(payload_one)
+        terminal = wait_for_bundle_terminal_status(first["id"], timeout_seconds=3.0)
+        second = api.create_bundle_job(payload_two)
+
+        # Assert
+        assert terminal == "complete"
+        assert second["id"] == first["id"]
+        assert second["status"] == "complete"
+    finally:
+        # Cleanup
+        bundles_impl._TEST_STUB_MODE_ENABLED = False
+        reset_bundle_test_state()
+
+
+def test_download_works_after_duplicate_create_when_complete() -> None:
+    """Idempotent re-submit after completion must not break subsequent download."""
+    # Arrange
+    reset_bundle_test_state()
+    bundles_impl._TEST_STUB_MODE_ENABLED = True
+    payload = api.CreateBundleRequest(
+        folder_name="complete-duplicate-download",
+        compression="zip",
+        urls=["__bundler_stub__"],
+    )
+
+    try:
+        # Act
+        first = api.create_bundle_job(payload)
+        assert wait_for_bundle_terminal_status(first["id"], timeout_seconds=3.0) == "complete"
+        second = api.create_bundle_job(payload)
+        zip_bytes = api.download_bundle_archive(second["id"])
+
+        # Assert
+        assert second["id"] == first["id"]
+        assert second["status"] == "complete"
+        assert zip_bytes.startswith(b"PK\x03\x04") or zip_bytes.startswith(b"PK\x05\x06")
+    finally:
+        # Cleanup
+        bundles_impl._TEST_STUB_MODE_ENABLED = False
+        reset_bundle_test_state()

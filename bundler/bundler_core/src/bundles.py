@@ -13,10 +13,11 @@ import zipfile
 import anyio
 import httpx
 from anyio.from_thread import BlockingPortal, start_blocking_portal
+from bundler_core.failures import MAX_BUNDLE_RETRIES, FailureKind
 from bundler_core.fingerprint import _bundle_key
 from bundler_core.logger import logger
 from bundler_core.models import BundleRecord, BundleState, CreateBundleRequest
-from bundler_core.state_ops import _finalize_complete, _mark_failed, _transition_state
+from bundler_core.state_ops import _finalize_complete, _mark_failed, _requeue_for_retry, _transition_state
 
 
 _TEST_STUB_MODE_ENABLED = False
@@ -129,6 +130,30 @@ class BundleService:
             "resultUrl": record.result_url,
         }
 
+    def _can_retry_failed(self, record: BundleRecord) -> bool:
+        if record.failure_kind == FailureKind.PERMANENT:
+            return False
+        if record.failure_kind not in {FailureKind.TRANSIENT, FailureKind.UNKNOWN, None}:
+            return False
+        return record.retry_count < MAX_BUNDLE_RETRIES
+
+    def _retry_failed_bundle(
+        self,
+        record: BundleRecord,
+        request: CreateBundleRequest,
+        key: str,
+    ) -> dict[str, Any]:
+        """Re-queue a failed bundle when retry policy allows it."""
+        if not self._can_retry_failed(record):
+            raise KeyError(f"Duplicate bundle request: {key}")
+
+        record.urls = list(request.urls)
+        record.folder_name = request.folder_name or ""
+        record.compression = request.compression
+        record.retry_count += 1
+        _requeue_for_retry(record)
+        return self._to_response(record)
+
     # ------------------------------------------------------------------
     # Runtime Lifecycle (portal + queue wiring)
     # ------------------------------------------------------------------
@@ -189,22 +214,31 @@ class BundleService:
         with self.state_lock:
             existing_id = self.bundle_id_by_key.get(key)
             if existing_id is not None:
-                # Duplicate submission: signal idempotency conflict to the HTTP layer.
-                raise KeyError(f"Duplicate bundle request: {key}")
-
-            record = BundleRecord(
-                id=key,
-                key=key,
-                status=BundleState.PENDING,
-                created_at=now,
-                updated_at=now,
-                folder_name=request.folder_name or "",
-                compression=request.compression,
-                urls=request.urls,
-            )
-            self.bundle_by_id[record.id] = record
-            self.bundle_id_by_key[key] = record.id
-            response = self._to_response(record)
+                existing_record = self.bundle_by_id.get(existing_id)
+                if existing_record is None:
+                    raise KeyError(f"Duplicate bundle request: {key}")
+                if existing_record.status == BundleState.COMPLETE:
+                    return self._to_response(existing_record)
+                if existing_record.status == BundleState.FAILED:
+                    response = self._retry_failed_bundle(existing_record, request, key)
+                    bundle_id = existing_record.id
+                else:
+                    raise KeyError(f"Duplicate bundle request: {key}")
+            else:
+                record = BundleRecord(
+                    id=key,
+                    key=key,
+                    status=BundleState.PENDING,
+                    created_at=now,
+                    updated_at=now,
+                    folder_name=request.folder_name or "",
+                    compression=request.compression,
+                    urls=request.urls,
+                )
+                self.bundle_by_id[record.id] = record
+                self.bundle_id_by_key[key] = record.id
+                response = self._to_response(record)
+                bundle_id = record.id
 
         self.start_runtime()
         portal = self._runtime.portal
@@ -212,10 +246,10 @@ class BundleService:
         # If startup fails unexpectedly, raise a clear runtime error here.
         if portal is None:
             raise RuntimeError("Bundle worker runtime unavailable")
-        portal.call(self._enqueue_bundle_id, record.id)
+        portal.call(self._enqueue_bundle_id, bundle_id)
         logger.info(
             "Bundle job enqueued: bundle_id={} url_count={}",
-            record.id,
+            bundle_id,
             len(request.urls),
         )
         return response

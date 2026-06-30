@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 
+from bundler_core.failures import FailureKind
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from typing_extensions import Annotated
 
@@ -22,7 +23,7 @@ _ALLOWED_TRANSITIONS: dict[BundleState, frozenset[BundleState]] = {
     BundleState.PENDING: frozenset({BundleState.PROCESSING, BundleState.FAILED}),
     BundleState.PROCESSING: frozenset({BundleState.COMPLETE, BundleState.FAILED}),
     BundleState.COMPLETE: frozenset(),
-    BundleState.FAILED: frozenset(),
+    BundleState.FAILED: frozenset({BundleState.PENDING}),
 }
 
 
@@ -55,3 +56,5 @@ class BundleRecord:
     archive_path: str | None = None
     archive_size_bytes: int | None = None
     content_type: str | None = None
+    retry_count: int = 0
+    failure_kind: FailureKind | None = None
