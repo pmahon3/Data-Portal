@@ -117,9 +117,14 @@ Tests use `import bundler_core as api` (and `bundler_core.bundles` where needed)
 The test suite currently includes:
 
 - `tests/test_health.py`: `health()` return value.
-- `tests/test_bundles.py`: bundle deduplication, status, download (with mocks).
-- `tests/test_openapi_contract.py`: deterministic bundle key behavior.
-- `tests/test_state_transitions.py` and `tests/test_bundle_zip_paths.py`: lifecycle and archive rules (see `bundler/README_dev.md` testing section).
+- `tests/test_bundles.py`: create/get/download, dedupe, complete-state idempotency.
+- `tests/test_openapi_contract.py`: deterministic bundle fingerprint key behavior.
+- `tests/test_state_transitions.py`: worker lifecycle transitions, illegal paths, and `failed → pending` re-queue.
+- `tests/test_bundle_zip_paths.py`: archive path layout and ZIP content rules.
+- `tests/test_failure_classification.py`: exception → retry policy kind mapping (`transient` / `permanent` / `unknown`).
+- `tests/test_bundle_retry.py`: failed-job retry orchestration (re-enqueue, fresh URLs, retry limits).
+
+For the split between domain tests here and HTTP contract tests under `bundler/tests/`, see [`../docs/README_dev.md`](../docs/README_dev.md#testing-boundaries-and-separation-of-concerns).
 
 ## Validating the OpenAPI contract
 

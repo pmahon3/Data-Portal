@@ -1,14 +1,22 @@
 """State transition tests for bundle worker lifecycle.
 
-Boundary: this module owns lifecycle/state-machine assertions (for example pending->processing visibility and state-gated download behavior), 
-while API-level response semantics remain in ``tests/test_bundles.py`` and archive structure/content assertions remain in ``tests/test_bundle_zip_paths.py``.
+Boundary: this module owns lifecycle/state-machine assertions (for example
+pending->processing visibility and state-gated download behavior), while
+API-level response semantics remain in ``tests/test_bundles.py``, archive
+structure/content assertions remain in ``tests/test_bundle_zip_paths.py``,
+and create-time retry orchestration lives in ``tests/test_bundle_retry.py``.
 
-- ``test_pending_to_processing_is_observable_during_slow_build``: patches archive build with a short async pause so status can be asserted as ``processing`` before terminal completion.
-- ``test_processing_to_failed_when_archive_build_raises``: forces archive-build failure and asserts terminal status becomes ``failed``.
+Each test follows Arrange / Act / Assert / Cleanup (`pytest anatomy
+<https://docs.pytest.org/en/stable/explanation/anatomy.html>`__).
+
+- ``test_pending_to_processing_is_observable_during_slow_build``: patches archive build with a short async pause so status can be asserted as ``processing`` before completion.
+- ``test_processing_to_failed_when_archive_build_raises``: forces archive-build failure and asserts status becomes ``failed``.
 - ``test_transition_sequence_pending_processing_complete_is_recorded``: records transition calls and asserts ``pending->processing->complete`` ordering.
-- ``test_download_bundle_not_ready_raises_runtime_error``: forced pending state blocks archive download with a not-ready runtime error.
-- ``test_transition_from_complete_is_rejected``: illegal transition out of terminal ``complete`` state raises ``RuntimeError``.
-- ``test_transition_from_failed_is_rejected``: illegal transition out of terminal ``failed`` state raises ``RuntimeError``.
+- ``test_download_bundle_not_ready_raises_runtime_error``: forced ``pending`` state blocks archive download with a not-ready runtime error.
+- ``test_transition_from_complete_is_rejected``: illegal transition out of ``complete`` raises ``RuntimeError``.
+- ``test_transition_from_failed_to_processing_is_rejected``: ``failed -> processing`` is illegal (workers always re-enter via ``pending``).
+- ``test_transition_from_failed_to_pending_is_allowed``: ``failed -> pending`` via ``_requeue_for_retry`` is legal and clears ``error_message``.
+
 """
 
 from __future__ import annotations
@@ -68,7 +76,7 @@ def test_pending_to_processing_is_observable_during_slow_build(
 
 
 def test_processing_to_failed_when_archive_build_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Force archive-build failure and assert terminal status becomes ``failed``."""
+    """Force archive-build failure and assert status becomes ``failed``."""
     # Arrange
     reset_bundle_test_state()
     raised = RuntimeError("forced build failure")
@@ -193,8 +201,8 @@ def test_transition_from_complete_is_rejected() -> None:
         _transition_state(record, api.BundleState.PROCESSING)
 
 
-def test_transition_from_failed_is_rejected() -> None:
-    """Verify illegal transition out of ``failed`` raises ``RuntimeError``."""
+def test_transition_from_failed_to_processing_is_rejected() -> None:
+    """Verify ``failed -> processing`` is illegal (worker must go through ``pending``)."""
     # Arrange
     now = datetime.now(tz=timezone.utc)
     record = BundleRecord(
@@ -212,3 +220,26 @@ def test_transition_from_failed_is_rejected() -> None:
     with pytest.raises(RuntimeError):
         _transition_state(record, api.BundleState.PROCESSING)
 
+
+def test_transition_from_failed_to_pending_is_allowed() -> None:
+    """Verify ``failed -> pending`` via ``_requeue_for_retry`` clears error and updates status."""
+    # Arrange
+    now = datetime.now(tz=timezone.utc)
+    record = BundleRecord(
+        id="failed-retry",
+        key="failed-retry",
+        status=api.BundleState.FAILED,
+        created_at=now,
+        updated_at=now,
+        folder_name="",
+        compression="zip",
+        urls=[],
+        error_message="simulated build failure",
+    )
+
+    # Act
+    state_ops_impl._requeue_for_retry(record)
+
+    # Assert
+    assert record.status == api.BundleState.PENDING
+    assert record.error_message is None

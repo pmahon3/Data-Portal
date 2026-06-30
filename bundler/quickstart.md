@@ -1,5 +1,7 @@
 # Bundler quick start (commands only, no Make)
 
+> **Start here:** This doc is the **Just run it** path. For other goals, see [getting-started.md → Start here](getting-started.md#start-here-what-to-read).
+
 This is the **simple path** for working on the Bundler service: run each step yourself instead of `make all APP_CORE_DIR=bundler_core`. It matches what the Makefile does, plus the **uv** patch steps the stock OpenAPI Generator output needs.
 
 **Assumptions (this repo):**

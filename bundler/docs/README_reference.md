@@ -1,5 +1,7 @@
 # Bundler Reference: generation, layout, and regeneration details
 
+> **Not your first read.** Pick a path from [getting-started.md → Start here](../getting-started.md#start-here-what-to-read). This file is for **Regen / Make debugging** after the [openapitools.json intro](../getting-started.md#this-repository-openapitoolsjson).
+
 This document is the detailed companion to [`README_dev.md`](README_dev.md).
 Use [`README_dev.md`](README_dev.md) for the quick start and day-to-day commands.
 For a short orientation (mental model, command cheat sheet), see [`../getting-started.md`](../getting-started.md). For commands without Make, see [`../quickstart.md`](../quickstart.md).
@@ -9,6 +11,8 @@ For a short orientation (mental model, command cheat sheet), see [`../getting-st
 The recommended description of the three-part layout (**`bundler_core/`**, **`openapi.source.yaml`**, **`bundler_server/`** + protected **`core/`**, Makefile and `uv` workflow) and **why** the repo splits them is in **[`README_dev.md` → High-level layout](README_dev.md#high-level-layout)**. This reference focuses on generator defaults, Make variables, and regeneration details below.
 
 ## `openapitools.json` and defaults
+
+**First read:** abbreviated JSON excerpt and a value/effect table for this repo — [`getting-started.md` → This repository (`openapitools.json`)](../getting-started.md#this-repository-openapitoolsjson). **This section** covers **`jq`** fallbacks, **`OPENAPI_*`** Make wiring, and regeneration edge cases.
 
 Regeneration is configured in **`bundler/openapitools.json`** under **`generator-cli.generators.<key>`** (the Makefile uses **`OPENAPI_GENERATOR_KEY`**, default **`bundler-server-fastapi`**). Typical fields for this repo:
 
