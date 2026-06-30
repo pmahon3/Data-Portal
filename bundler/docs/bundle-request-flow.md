@@ -47,10 +47,10 @@ sequenceDiagram
     end
 
     W->>Q: receive(bundle_id)
-    W->>Svc: PENDING → PROCESSING
+    W->>Svc: PENDING to PROCESSING
     W->>W: parallel httpx downloads (task group + semaphore)
     W->>W: zip staged files (worker thread)
-    W->>Svc: PROCESSING → COMPLETE
+    W->>Svc: PROCESSING to COMPLETE
 
     Client->>HTTP: GET /bundles/{id}/download
     HTTP->>Svc: download_bundle_archive()
@@ -74,28 +74,28 @@ sequenceDiagram
     participant W as Worker
     participant Svc as BundleService
     participant TG as AnyIO TaskGroup
-    participant HTTP as httpx.AsyncClient
+    participant HTTP as httpx AsyncClient
     participant Thread as worker thread
 
-    W->>Svc: load record; skip if not PENDING
-    W->>Svc: PENDING → PROCESSING
+    W->>Svc: load record, skip if not PENDING
+    W->>Svc: PENDING to PROCESSING
 
-    W->>Svc: _build_bundle_archive()
-    Svc->>TG: start_soon per URL (_download_url_to_file)
-    TG->>HTTP: GET each presigned URL (bounded by semaphore)
+    W->>Svc: _build_bundle_archive
+    Svc->>TG: start_soon per URL
+    TG->>HTTP: GET each presigned URL
     HTTP-->>TG: stream bytes to staging files
     Note over TG: failures raise ExceptionGroup
 
-    Svc->>Thread: _zip_from_files(staged paths)
-    Thread-->>Svc: archive_path (.zip on disk)
+    Svc->>Thread: _zip_from_files
+    Thread-->>Svc: archive_path on disk
 
     alt success
-        W->>Svc: _finalize_complete(archive_path)
-        Svc->>Svc: PROCESSING → COMPLETE
+        W->>Svc: _finalize_complete
+        Svc->>Svc: PROCESSING to COMPLETE
     else build or finalize error
-        W->>Svc: _mark_failed(exc)
-        Svc->>Svc: classify_failure(exc) → failure_kind
-        Svc->>Svc: PROCESSING → FAILED
+        W->>Svc: _mark_failed
+        Svc->>Svc: classify_failure sets failure_kind
+        Svc->>Svc: PROCESSING to FAILED
     end
 ```
 
@@ -121,7 +121,7 @@ sequenceDiagram
         Svc-->>HTTP: return existing record
         HTTP-->>Client: 202 complete (no enqueue)
     else existing FAILED + retry allowed
-        Svc->>Svc: refresh URLs, retry_count++, FAILED → PENDING
+        Svc->>Svc: refresh URLs, retry_count++, FAILED to PENDING
         Svc->>Q: enqueue
         HTTP-->>Client: 202 pending
     else existing FAILED + permanent or max retries
@@ -154,7 +154,7 @@ sequenceDiagram
 
     Client->>HTTP: POST /bundles (fresh presigned URLs)
     HTTP->>Svc: create_bundle_job()
-    Svc->>Svc: retry: FAILED → PENDING, retry_count=1
+    Svc->>Svc: retry FAILED to PENDING, retry_count=1
     Svc->>W: enqueue same bundle_id
     W->>Svc: build succeeds
     Svc->>Svc: COMPLETE
