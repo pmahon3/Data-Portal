@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS folders (
 
   -- S3 folder-marker key (e.g., "demo/sub/")
   marker_key TEXT NULL,
+  status     TEXT NOT NULL DEFAULT 'complete',
 
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT uq_folders_bucket_path UNIQUE (bucket, path),
@@ -47,6 +48,7 @@ CREATE TABLE IF NOT EXISTS files (
   etag          TEXT NULL,
   last_modified TIMESTAMPTZ NULL,
   content_type  TEXT NULL,
+  status        TEXT NOT NULL DEFAULT 'pending',
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT uq_files_bucket_key UNIQUE (bucket, key)
 );

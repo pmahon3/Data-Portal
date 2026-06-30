@@ -61,6 +61,7 @@ async def dashboard_db(
         select(Folder).where(
             Folder.full_path == "/",
             Folder.bucket.in_(allowed_buckets),
+            Folder.status == "complete",
         )
     )).scalars().all())
 
@@ -92,6 +93,7 @@ async def dashboard_db(
         folders = list((await session.execute(
             select(Folder).where(
                 Folder.bucket == root.bucket,
+                Folder.status == "complete",
             ).order_by(Folder.full_path)
         )).scalars().all())
 
@@ -100,6 +102,7 @@ async def dashboard_db(
             select(File)
             .where(
                 File.bucket == root.bucket,
+                File.status == "complete",
             )
             .order_by(File.folder_id, File.name)
         )).scalars().all())

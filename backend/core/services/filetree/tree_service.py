@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy_utils import Ltree
 
@@ -20,16 +20,30 @@ from core.utils.paths import (
 
 @dataclass(frozen=True)
 class TreeService:
-    # one session per instance
+    """Service for managing folder trees and file-to-folder relationships.
+
+    Handles folder CRUD, tree traversal (children, ancestors, subtrees),
+    path construction for S3 object keys, and bulk operations like
+    marking ancestor chains complete.
+
+    One session per instance; the frozen dataclass keeps the session
+    reference immutable while the session itself remains usable for DB work.
+    """
+
     session: AsyncSession
 
     async def get_root(self, bucket: str) -> Folder:
+        """Return (creating if necessary) the root folder for a bucket.
+        """
         return await ensure_root_for_bucket(self.session, bucket)
 
     async def list_children(self, bucket: str, folder_id: int) -> tuple[list[Folder], list[File]]:
-        '''
-            Return only the immediate child folders/files (not recursive).
-        '''
+        """Return the immediate child folders and files of a folder (non-recursive).
+
+        Returns:
+            A tuple of ``(folders, files)`` — each a list of completed children
+            ordered by name.
+        """
 
 
         #check if the folder exists otherwise scalar_one returns error
@@ -40,13 +54,13 @@ class TreeService:
         # all subfolders folder with id folder_id
         folders_q = (
             select(Folder)
-            .where(Folder.bucket == bucket, Folder.parent_id == folder_id)
+            .where(Folder.bucket == bucket, Folder.parent_id == folder_id, Folder.status == "complete")
             .order_by(Folder.name)
         )
         # all files whose their folder has  id folder_id
         files_q = (
             select(File)
-            .where(File.bucket == bucket, File.folder_id == folder_id)
+            .where(File.bucket == bucket, File.folder_id == folder_id, File.status == "complete")
             .order_by(File.name)
         )
         folders = list((await self.session.execute(folders_q)).scalars().all())
@@ -54,9 +68,14 @@ class TreeService:
         return folders, files
 
 
-    async def create_folder(self, bucket: str, parent_id: int, name: str) -> Folder:
+    async def create_folder(self, bucket: str, parent_id: int, name: str, status: str = "complete") -> Folder:
+        """Create a single folder row under a given parent.
 
-        #Loads the parent folder for this parent_id. If not found, scalar_one() raises an error
+        Computes the full path and ltree path from the parent's full path..
+
+        Returns:
+            The newly created ``Folder`` instance.
+        """
         parent = (await self.session.execute(
             select(Folder).where(Folder.id == parent_id, Folder.bucket == bucket)
         )).scalar_one()
@@ -76,6 +95,7 @@ class TreeService:
             name=name,
             path=Ltree(ltree_path_str),
             full_path=child_full,
+            status=status,
         )
         self.session.add(folder)
         await self.session.commit()
@@ -135,11 +155,41 @@ class TreeService:
 
             # Missing segment: create exactly one folder level, then continue
             # walking deeper until the whole relative path exists.
-            folder = await self.create_folder(bucket, folder.id, segment)
+            folder = await self.create_folder(bucket, folder.id, segment, status="pending")
 
         return folder
 
+    async def mark_folder_ancestors_complete(self, bucket: str, folder_id: int) -> None:
+        """Mark a folder and all its ancestors as complete in one batch.
+
+        Uses an ltree ancestor query (``@>``) to find every folder on the
+        path from root down to *folder_id*.  Already-complete ancestors
+        are skipped to avoid redundant writes.
+        """
+        folder = (await self.session.execute(
+            select(Folder).where(Folder.id == folder_id, Folder.bucket == bucket)
+        )).scalar_one()
+
+        # If this folder is already complete, all of its ancestors are also
+        # guaranteed to be complete (they were promoted by an earlier call).
+        # Skip the UPDATE entirely to avoid redundant writes
+        if folder.status == "complete":
+            return
+
+        await self.session.execute(
+            update(Folder)
+            .where(
+                Folder.bucket == bucket,
+                Folder.path.op("@>")(folder.path),
+                Folder.status != "complete",
+            )
+            .values(status="complete")
+        )
+        await self.session.commit()
+
     async def delete_folder_subtree(self, bucket: str, folder_id: int) -> None:
+        """Delete a folder and everything underneath it (files + subfolders).
+        """
         folder = (await self.session.execute(
             select(Folder).where(Folder.id == folder_id, Folder.bucket == bucket)
         )).scalar_one()
@@ -162,10 +212,14 @@ class TreeService:
         await self.session.commit()
 
     async def build_key(self, bucket: str, folder_id: int, filename: str) -> tuple[Folder, str]:
-        '''
-        finds the folder by folder_id and bucket, normalizes its full_path, then builds the S3 object key using the folder path + filename. It returns both: the Folder object
-        the computed key string (e.g., file.txt)
-        '''
+        """Build an S3 object key for a file inside a given folder.
+
+        Normalizes the folder's full path and joins it with the *filename*
+        to produce the object-storage key.
+
+        Returns:
+            A tuple of ``(Folder, key_string)``.
+        """
         folder = (await self.session.execute(
             select(Folder).where(Folder.id == folder_id, Folder.bucket == bucket)
         )).scalar_one()

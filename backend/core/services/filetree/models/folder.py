@@ -24,6 +24,7 @@ class Folder(Base):
 
     #s3 marker for the folder like /projects/inn
     marker_key = Column(String, nullable=True)
+    status = Column(Text, nullable=False, default="complete")
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     #Self‑relationship.
