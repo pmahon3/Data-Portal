@@ -3,7 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
-from bundler_core.models import BundleRecord, BundleState, can_transition
+from bundler_core.failures import classify_failure
+from bundler_core.models import BundleRecord, BundleState, CreateBundleRequest, can_transition
 
 
 def _transition_state(
@@ -38,4 +39,11 @@ def _mark_failed(record: BundleRecord, exc: Exception) -> None:
     """Transition a non-terminal bundle into ``FAILED`` with the exception message."""
     if record.status in {BundleState.COMPLETE, BundleState.FAILED}:
         return
+    record.failure_kind = classify_failure(exc)
     _transition_state(record, BundleState.FAILED, error_message=str(exc))
+
+
+def _requeue_for_retry(record: BundleRecord) -> None:
+    """Transition a failed bundle back to ``PENDING`` for a bounded retry attempt."""
+    record.error_message = None
+    _transition_state(record, BundleState.PENDING)

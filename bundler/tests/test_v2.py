@@ -18,15 +18,21 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from bundler_core import bundles as bundles_impl
+from bundler_core.tests.common import reset_bundle_test_state, wait_for_bundle_terminal_status
+
 from tests.common import (
     DOWNLOAD_HEADERS,
     GET_HEADERS,
     JSON_HEADERS,
     STUB_FORCE_500_URL,
     assert_status,
+    complete_duplicate_create_json,
     duplicate_create_json,
     oversized_urls_payload,
+    permanent_retry_create_json,
     schema_malformed_create_json_missing_urls,
+    transient_retry_create_json,
     valid_create_json,
 )
 
@@ -201,6 +207,118 @@ def test_get_bundle_download_returns_202_when_not_ready(
     # Assert
     assert_status(response, 202)
     # Cleanup — none
+
+
+@_V2_AND_CURRENT
+def test_post_bundles_returns_202_when_duplicate_and_first_is_complete(
+    client: TestClient,
+    _API_PREFIX: str,
+):
+    """Equivalent POST after the first job is ``complete`` must return 202 with the same bundle id."""
+    # Arrange
+    reset_bundle_test_state()
+    bundles_impl._TEST_STUB_MODE_ENABLED = True
+    url = _path_post_bundles(_API_PREFIX)
+    payload = complete_duplicate_create_json(api_prefix=_API_PREFIX)
+
+    try:
+        # Act — first submit
+        response_one = client.post(url, json=payload, headers=JSON_HEADERS)
+        assert_status(response_one, 202)
+        bundle_id = response_one.json()["id"]
+        terminal = wait_for_bundle_terminal_status(bundle_id, timeout_seconds=3.0)
+        # Act — equivalent re-submit after completion
+        response_two = client.post(url, json=payload, headers=JSON_HEADERS)
+
+        # Assert
+        assert terminal == "complete"
+        assert_status(response_two, 202)
+        body_two = response_two.json()
+        assert body_two["id"] == bundle_id
+        assert body_two["status"] == "complete"
+    finally:
+        # Cleanup
+        bundles_impl._TEST_STUB_MODE_ENABLED = False
+        reset_bundle_test_state()
+
+
+@_V2_AND_CURRENT
+def test_post_bundles_returns_202_when_retry_after_transient_failed(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    _API_PREFIX: str,
+):
+    """POST after transient ``failed`` should be accepted and eventually complete."""
+    from bundler_core.bundles import BundleService
+
+    reset_bundle_test_state()
+    bundles_impl._TEST_STUB_MODE_ENABLED = True
+    build_calls = 0
+    original_build = BundleService._build_bundle_archive
+
+    async def _fail_once_with_timeout(self: BundleService, record):
+        nonlocal build_calls
+        build_calls += 1
+        if build_calls == 1:
+            import httpx
+
+            raise httpx.TimeoutException("simulated transient network timeout")
+        return await original_build(self, record)
+
+    monkeypatch.setattr(BundleService, "_build_bundle_archive", _fail_once_with_timeout)
+    url = _path_post_bundles(_API_PREFIX)
+    payload = transient_retry_create_json(api_prefix=_API_PREFIX)
+
+    try:
+        response_one = client.post(url, json=payload, headers=JSON_HEADERS)
+        assert_status(response_one, 202)
+        bundle_id = response_one.json()["id"]
+        assert wait_for_bundle_terminal_status(bundle_id, timeout_seconds=3.0) == "failed"
+
+        response_two = client.post(url, json=payload, headers=JSON_HEADERS)
+        assert_status(response_two, 202)
+        assert response_two.json()["id"] == bundle_id
+        assert wait_for_bundle_terminal_status(bundle_id, timeout_seconds=4.0) == "complete"
+    finally:
+        bundles_impl._TEST_STUB_MODE_ENABLED = False
+        reset_bundle_test_state()
+
+
+@_V2_AND_CURRENT
+def test_post_bundles_returns_409_when_retry_after_permanent_failed(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    _API_PREFIX: str,
+):
+    """POST after permanent ``failed`` should remain a duplicate conflict."""
+    from bundler_core.bundles import BundleService
+
+    reset_bundle_test_state()
+
+    async def _always_not_found(self: BundleService, record):
+        import httpx
+
+        request = httpx.Request("GET", "https://example.com/bucket/missing-object.txt")
+        raise httpx.HTTPStatusError(
+            "not found",
+            request=request,
+            response=httpx.Response(404, request=request),
+        )
+
+    monkeypatch.setattr(BundleService, "_build_bundle_archive", _always_not_found)
+    url = _path_post_bundles(_API_PREFIX)
+    payload = permanent_retry_create_json(api_prefix=_API_PREFIX)
+
+    try:
+        response_one = client.post(url, json=payload, headers=JSON_HEADERS)
+        assert_status(response_one, 202)
+        bundle_id = response_one.json()["id"]
+        assert wait_for_bundle_terminal_status(bundle_id, timeout_seconds=3.0) == "failed"
+
+        response_two = client.post(url, json=payload, headers=JSON_HEADERS)
+        assert_status(response_two, 409)
+    finally:
+        reset_bundle_test_state()
 
 
 @_V2_AND_CURRENT
