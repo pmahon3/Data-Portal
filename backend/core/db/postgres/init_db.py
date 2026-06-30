@@ -23,6 +23,7 @@ async def ensure_root_for_bucket(session: AsyncSession, bucket: str) -> Folder:
         name="/",
         path=Ltree("root"),
         full_path="/",
+        status="complete",
     )
     session.add(root)
     await session.commit()

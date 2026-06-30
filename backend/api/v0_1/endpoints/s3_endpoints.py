@@ -1,3 +1,8 @@
+"""S3 / file-tree endpoints.
+
+Handles folder navigation, file upload (presigned URL init + complete),
+file download (presigned URL), file/folder deletion, and asset bundling.
+"""
 
 import os
 import httpx
@@ -19,7 +24,6 @@ from core.services.instances import AbstractInstanceManager
 from core.services.policies import CasbinPolicyManager
 from core.services.policies import Policy
 from core.services.users import AbstractUserManager
-from core.services.filetree.models.file import File
 from core.services.filetree.models.folder import Folder
 from core.services.filetree.file_service import FileService
 from core.services.filetree.tree_service import TreeService
@@ -74,30 +78,32 @@ class UploadCompleteIn(BaseModel):
 
 #################################################################################### helper functions
 def policy_or_403(policy_manager: CasbinPolicyManager, policy: Policy) -> None:
+    """Validate a policy and raise 403 if denied."""
     if not policy_manager.validate_policy(policy):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied by policy")
 
 
 def get_instance_agent(instance_manager: AbstractInstanceManager, instance_name: str):
+    """Resolve an instance UUID and its storage agent by name."""
     instance_uuid = instance_manager.get_instance_uuid(instance_name)
     instance = instance_manager.get_instance_by_uuid(instance_uuid)
     return instance_uuid, instance.agent
 
 
 def resource_for_folder(bucket: str, full_path: str) -> str:
+    """Build a Casbin resource string for a folder (e.g. ``bucket/folder/``)."""
     full_path = normalize_folder_full_path(full_path)
     return f"{bucket}{full_path}"
 
 
 def resource_for_key(bucket: str, key: str) -> str:
+    """Build a Casbin resource string for a file key (e.g. ``bucket/path/file.txt``)."""
     return f"{bucket}/{key}"
 
 ####################################################################################
 ########################################  ENDPOINTS ################################
 ####################################################################################
 
-# Resolve user + instance and enforce policy
-# Fetch root folder from DB
 @router.get("/root")
 async def get_root(
     q: TreeRootQuery = Depends(),
@@ -107,6 +113,7 @@ async def get_root(
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ):
+    """Return the root folder for a bucket (creating it if needed)."""
     user_uuid = user_manager.get_user_uuid(user["preferred_username"])
     instance_uuid, _agent = get_instance_agent(instance_manager, q.instance_name)
     policy = Policy(user_uuid=user_uuid, instance_uuid=instance_uuid, resource=resource_for_folder(q.bucket, "/"), action="read")
@@ -127,6 +134,7 @@ async def list_children(
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ):
+    """List immediate child folders and files of a folder (non-recursive)."""
     user_uuid = user_manager.get_user_uuid(user["preferred_username"])
     instance_uuid, _agent = get_instance_agent(instance_manager, q.instance_name)
 
@@ -166,6 +174,7 @@ async def create_folder(
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ):
+    """Create a new subfolder under an existing parent folder."""
     user_uuid = user_manager.get_user_uuid(user["preferred_username"])
     instance_uuid, _agent = get_instance_agent(instance_manager, payload.instance_name)
 
@@ -190,6 +199,7 @@ async def ensure_folder_path(
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ):
+    """Ensure a nested folder path exists under a parent (idempotent)."""
     user_uuid = user_manager.get_user_uuid(user["preferred_username"])
     instance_uuid, _agent = get_instance_agent(instance_manager, payload.instance_name)
 
@@ -229,6 +239,7 @@ async def upload_init(
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ) -> UploadInitOut:
+    """Initiate a file upload — create a pending DB row and return a presigned upload URL."""
     user_uuid = user_manager.get_user_uuid(user["preferred_username"])
     instance_uuid, agent = get_instance_agent(instance_manager, payload.instance_name)
 
@@ -261,11 +272,12 @@ async def upload_complete(
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ):
+    """Complete an upload — verify the S3 object exists, sync metadata, and mark ancestors complete."""
     user_uuid = user_manager.get_user_uuid(user["preferred_username"])
     instance_uuid, agent = get_instance_agent(instance_manager, payload.instance_name)
 
     file_svc = FileService(session)
-    file = await file_svc.get_file(payload.file_id)
+    file = await file_svc.get_file(payload.file_id, include_pending=True)
     if not file:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
 
@@ -278,6 +290,9 @@ async def upload_complete(
 
     head = agent.s3_client.head_object(Bucket=file.bucket, Key=file.key)
     await file_svc.update_from_head(file, head)
+    # Mark ancestor folders status from pending to complete because upload finished
+    tree_svc = TreeService(session)
+    await tree_svc.mark_folder_ancestors_complete(file.bucket, file.folder_id)
     return {"status": "ok"}
 
 #################################################################################### Generate a presigned download URL for a file
@@ -292,6 +307,7 @@ async def download_url(
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ):
+    """Generate a presigned download URL for a file."""
     user_uuid = user_manager.get_user_uuid(user["preferred_username"])
     instance_uuid, agent = get_instance_agent(instance_manager, instance_name)
 
@@ -325,12 +341,11 @@ async def delete_file(
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ):
+    """Delete a file from S3 and its DB row."""
     user_uuid = user_manager.get_user_uuid(user["preferred_username"])
     instance_uuid, agent = get_instance_agent(instance_manager, instance_name)
     file_svc = FileService(session)
-    file = (await session.execute(
-        select(File).where(File.id == file_id)
-    )).scalar_one_or_none()
+    file = await file_svc.get_file(file_id)
     if not file:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
 
@@ -378,6 +393,7 @@ async def delete_folder(
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ):
+    """Delete a folder subtree — remove all S3 objects under the prefix, then delete DB rows."""
     user_uuid = user_manager.get_user_uuid(user["preferred_username"])
     instance_uuid, agent = get_instance_agent(instance_manager, instance_name)
 

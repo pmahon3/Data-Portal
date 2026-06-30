@@ -21,6 +21,7 @@ class File(Base):
     etag = Column(Text, nullable=True)
     last_modified = Column(DateTime(timezone=True), nullable=True)
     content_type = Column(Text, nullable=True)
+    status = Column(Text, nullable=False, default="pending")
 
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     # defines many‑to‑one relationship and allows file.folder without manual join

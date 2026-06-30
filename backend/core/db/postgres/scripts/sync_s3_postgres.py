@@ -56,6 +56,7 @@ class FolderCache:
         self.session = session
         self.id_cache: Dict[str, Any] = {}
         self.ltree_cache: Dict[str, Any] = {}
+        self.status_cache: Dict[str, str] = {}
 
     async def initialize(self):
         """Pre-populate cache and ensure root exists."""
@@ -71,21 +72,27 @@ class FolderCache:
                 name="/",
                 path=Ltree("root"),
                 full_path="/",
+                status="complete",
             )
             self.session.add(root)
             await self.session.flush() # Get the ID without full commit
         
         # 2. Load all existing folders into memory
-        q = select(Folder.id, Folder.full_path, Folder.path).where(Folder.bucket == self.bucket_name)
+        q = select(Folder.id, Folder.full_path, Folder.path, Folder.status).where(Folder.bucket == self.bucket_name)
         res = await self.session.execute(q)
-        for f_id, f_full_path, f_path in res:
+        for f_id, f_full_path, f_path, f_status in res:
             self.id_cache[f_full_path] = f_id
             self.ltree_cache[f_full_path] = f_path
+            self.status_cache[f_full_path] = f_status
 
     async def ensure_exists(self, full_path: str) -> Any:
         """Returns folder ID, creating hierarchy if missing."""
         full_path = normalize_folder_full_path(full_path)
         if full_path in self.id_cache:
+            if self.status_cache.get(full_path) != "complete":
+                folder = await self.session.get(Folder, self.id_cache[full_path])
+                folder.status = "complete"
+                self.status_cache[full_path] = "complete"
             return self.id_cache[full_path]
 
         segments = split_segments(full_path)
@@ -105,13 +112,15 @@ class FolderCache:
                     name=seg,
                     path=Ltree(f"{parent_ltree.path}.{to_ltree_label(seg)}"),
                     full_path=current_path,
-                    marker_key=current_path.lstrip("/")
+                    marker_key=current_path.lstrip("/"),
+                    status="complete",
                 )
                 self.session.add(new_folder)
                 await self.session.flush() # Flush once per new segment level
                 
                 self.id_cache[current_path] = new_folder.id
                 self.ltree_cache[current_path] = new_folder.path
+                self.status_cache[current_path] = new_folder.status
         
         return self.id_cache[full_path]
 
@@ -124,7 +133,7 @@ async def bulk_upsert_files(session: AsyncSession, files_batch: List[Dict[str, A
     stmt = insert(File).values(files_batch)
     stmt = stmt.on_conflict_do_update(
         index_elements=['bucket', 'key'],
-        set_={col: getattr(stmt.excluded, col) for col in ['size', 'etag', 'last_modified', 'folder_id', 'name']}
+        set_={col: getattr(stmt.excluded, col) for col in ['size', 'etag', 'last_modified', 'folder_id', 'name', 'status']}
     )
     await session.execute(stmt)
 
@@ -165,6 +174,7 @@ async def process_bucket(agent: S3StorageAgent, bucket_name: str, session: Async
                 "size": size,
                 "etag": obj.get('ETag', '').strip('"'),
                 "last_modified": obj.get('LastModified'),
+                "status": "complete",
             })
             
             total_objects += 1
