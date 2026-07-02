@@ -156,6 +156,7 @@ class KeycloakProjectManager(AbstractProjectManager):
         )
 
     def _managed_project_names(self, current_user: dict) -> set[str]:
+        """Return project names where current_user belongs to the managers subgroup."""
         managed_projects = set()
         for path in current_user.get("projects", []):
             clean_path = str(path).strip("/")
@@ -164,6 +165,9 @@ class KeycloakProjectManager(AbstractProjectManager):
         return managed_projects
 
     def can_manage_instance_for_user(self, current_user: dict, target_username: str, instance_uuid: UUID) -> bool:
+        """
+        Return whether current_user can manage target_username's access to the storage instance. Intended for policies
+        """
         target_user_id = self.identity_manager.get_user_id(username=target_username)
         if not target_user_id:
             return False
@@ -180,8 +184,12 @@ class KeycloakProjectManager(AbstractProjectManager):
             project_path = f"/{project_name}"
             managers_path = f"{project_path}/managers"
             # Check if target user belongs to one of the managed projects
-            if project_path not in target_group_paths and managers_path not in target_group_paths:
-                continue
+            if not (
+                    project_path in target_group_paths or 
+                    managers_path in target_group_paths or 
+                    target_username in self.get_project_managers(project_name)
+                ):
+              continue
 
             try:
                 group = self._get_group(project_name)
@@ -199,6 +207,9 @@ class KeycloakProjectManager(AbstractProjectManager):
         return False
 
     def is_project_manager(self, username: str, project_name: str) -> bool:
+        """
+        Returns whether a user is a project manager
+        """
         user_id = self.identity_manager.get_user_id(username=username)
         if not user_id:
             return False
