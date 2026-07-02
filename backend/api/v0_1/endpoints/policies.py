@@ -70,6 +70,7 @@ async def get_policies(
     policy_filter: Policy = Depends(),
     current_user: dict = Depends(require_admin_or_manager),
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
+    project_manager: AbstractProjectManager = Depends(get_project_manager),
     user_manager: AbstractUserManager = Depends(get_user_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ) -> GetPolicyResponse:
@@ -101,6 +102,22 @@ async def get_policies(
         logger.error("No policies found matching the filter criteria")
         raise HTTPException(status_code=404, detail="No policies found")
 
+    uuid_to_username = {}
+    # Filter the policies if the current user is a manager
+    # TODO: Change to use mongo queries instead of looping through each policy
+    if not is_user_admin(current_user):
+        visible_policies = []
+        for policy in policies:
+            if policy.user_uuid not in uuid_to_username:
+                uuid_to_username[policy.user_uuid] = user_manager.get_user_slug(policy.user_uuid)
+            username = uuid_to_username[policy.user_uuid]
+
+
+            if project_manager.can_manage_instance_for_user(current_user, username, policy.instance_uuid):
+                visible_policies.append(policy)
+
+        policies = visible_policies
+
     # Collect unique user and instance UUIDs
     unique_user_uuids = {policy.user_uuid for policy in policies if policy.user_uuid}
     unique_instance_uuids = list({policy.instance_uuid for policy in policies if policy.instance_uuid})
@@ -111,8 +128,9 @@ async def get_policies(
     uuid_to_instance_name = {instance.uuid: instance.name for instance in resolved_instances}
 
     # Create dict of UUID to username sequentially
-    uuid_to_username = {}
     for u_uuid in unique_user_uuids:
+        if u_uuid in uuid_to_username:
+            continue
         try:
             uuid_to_username[u_uuid] = user_manager.get_user_slug(u_uuid)
         except Exception as e:
