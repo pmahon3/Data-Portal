@@ -238,6 +238,21 @@ Current behavior for the S3 agent:
 
 This is a core product invariant. Avoid changes that move bulk data transfer into the backend unless explicitly intended.
 
+## Bundler Service
+
+The Bundler service handles server-side ZIP creation for multi-file or folder-style downloads.
+
+Current flow:
+
+- The frontend requests a bundle through the backend tree endpoint using selected file IDs.
+- The backend remains responsible for identity, Casbin read authorization, file metadata lookup, and storage-specific access preparation.
+- For the current S3-backed path, the backend generates short-lived presigned GET URLs for each authorized file and sends those URLs to Bundler.
+- Bundler accepts bundle requests at `/bundles`, processes them asynchronously, downloads the provided URLs into local staging space, and creates a ZIP archive.
+- Bundle status is polled through `/bundles/{bundleId}`.
+- Completed archives are fetched through `/bundles/{bundleId}/download`; the backend streams that ZIP response back to the frontend.
+- Bundler should not be treated as the authorization authority. It assumes the backend has already checked access before submitting URLs.
+- Current implementation is URL-based and S3-oriented from the backend side; POSIX support should be added explicitly rather than assumed.
+
 ## Known Transitional Areas
 
 Some parts of the repository are clearly in transition and should be handled carefully.

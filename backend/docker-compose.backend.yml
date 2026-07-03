@@ -35,6 +35,7 @@ services:
       AMS_PORT: "8000"
       AMS_RELOAD: "false"
       SYSTEM_RESET: "false"
+      SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-JzATRY8v4ztexRVDLlqpaOBm8AfGvwwtC2NU47diyE0=}
       LOG_LEVEL: INFO
       LOG_DIR: /app/data/logs
       API_VERSION: "0_1"
@@ -47,6 +48,11 @@ services:
 
       # Backend base URL
       BACKEND_BASE_URL: http://localhost:8000
+
+      # Bundler provider switch: set BUNDLER_PROVIDER to "python" or "java"
+      BUNDLER_PROVIDER: ${BUNDLER_PROVIDER:-java}
+      PYTHON_BUNDLER_URL: ${PYTHON_BUNDLER_URL:-http://bundler:8082}
+      JAVA_BUNDLER_URL: ${JAVA_BUNDLER_URL:-http://host.docker.internal:8888}
 
       # Control smoke test execution on startup (default: true)
       RUN_SMOKE_TESTS: "true"

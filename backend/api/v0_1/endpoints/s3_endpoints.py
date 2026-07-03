@@ -31,7 +31,10 @@ from core.utils.paths import normalize_folder_full_path
 
 router = APIRouter(prefix="/tree", tags=["Tree"])
 logger = logging.getLogger("api.endpoints")
+BUNDLER_PROVIDER = os.getenv("BUNDLER_PROVIDER", "java").strip().lower()
 BUNDLER_URL = os.getenv("BUNDLER_URL", "http://bundler:8082")
+PYTHON_BUNDLER_URL = os.getenv("PYTHON_BUNDLER_URL", BUNDLER_URL)
+JAVA_BUNDLER_URL = os.getenv("JAVA_BUNDLER_URL", "http://localhost:8888")
 
 # Global async HTTP client for interacting with the bundler service
 bundler_client = httpx.AsyncClient(timeout=httpx.Timeout(60.0))
@@ -426,6 +429,27 @@ async def delete_folder(
 
 # --------------- Bundler Endpoints ---------------
 
+def get_bundler_provider() -> str:
+    provider = BUNDLER_PROVIDER
+    if provider not in {"python", "java"}:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Unsupported BUNDLER_PROVIDER '{provider}'. Use 'python' or 'java'."
+        )
+    return provider
+
+
+def get_bundler_url(provider: str) -> str:
+    if provider == "python":
+        return PYTHON_BUNDLER_URL
+    if provider == "java":
+        return JAVA_BUNDLER_URL
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail=f"Unsupported bundler provider '{provider}'."
+    )
+
+
 @router.post(
     "/bundle/zip",
     response_model=BundleCreateResponse,
@@ -470,6 +494,7 @@ async def create_asset_bundle(
 
     file_svc = FileService(session)
     all_presigned_urls = []
+    java_bundle_files = []
 
     # Retrieve the file objects from DB based on file ids
     files = await file_svc.get_files(request.file_ids)
@@ -497,6 +522,10 @@ async def create_asset_bundle(
                 ExpiresIn=600,
             )
             all_presigned_urls.append(url)
+            java_bundle_files.append({
+                "url": url,
+                "relativePath": file.key,
+            })
         except Exception as e:
             logger.error(f"Unable to generate presigned URL for file_id {file_id}: {str(e)}")
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
@@ -517,14 +546,23 @@ async def create_asset_bundle(
 
     # POST to Bundler service's create archive endpoint
     folder_name = request.folder_name or "archive"
+    provider = get_bundler_provider()
+    bundler_url = get_bundler_url(provider)
     
-    init_payload = {
-        "urls": all_presigned_urls,
-        "folderName": folder_name
-    }
+    if provider == "java":
+        init_payload = {
+            "folderName": folder_name,
+            "files": java_bundle_files,
+            "compression": "zip"
+        }
+    else:
+        init_payload = {
+            "urls": all_presigned_urls,
+            "folderName": folder_name
+        }
     
     try:
-        init_res = await bundler_client.post(f"{BUNDLER_URL}/bundles", json=init_payload, timeout=10.0)
+        init_res = await bundler_client.post(f"{bundler_url}/bundles", json=init_payload, timeout=10.0)
     except httpx.RequestError as e:
         logger.error(f"Request error while communicating with Bundler: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Bundler service is unreachable.")
@@ -561,7 +599,8 @@ async def get_bundle_status(
         dict: The current status of the bundle.
     """
     try:
-        poll_res = await bundler_client.get(f"{BUNDLER_URL}/bundles/{bundle_id}", timeout=5.0)
+        bundler_url = get_bundler_url(get_bundler_provider())
+        poll_res = await bundler_client.get(f"{bundler_url}/bundles/{bundle_id}", timeout=5.0)
     except httpx.RequestError as e:
         logger.error(f"Bundler status check failed for bundle {bundle_id}: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Bundle status check failed.")
@@ -598,7 +637,8 @@ async def download_bundle(
     """
     try:
         # Ensure we connect but leave the stream open.
-        req = bundler_client.build_request('GET', f"{BUNDLER_URL}/bundles/{bundle_id}/download")
+        bundler_url = get_bundler_url(get_bundler_provider())
+        req = bundler_client.build_request('GET', f"{bundler_url}/bundles/{bundle_id}/download")
         response = await bundler_client.send(req, stream=True)
     except httpx.RequestError as e:
         logger.error(f"Stream connection failed: {e}")
