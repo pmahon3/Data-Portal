@@ -13,6 +13,7 @@ import {
   createPathMatcher,
   createRegexMatcher,
   filterNodes,
+  flattenVisibleTree,
   isValidSearchPattern,
   selectSubtree,
   uncheckAncestors,
@@ -209,4 +210,63 @@ describe("tree helpers", () => {
 
     expect(selection).toEqual(new Set(["file-2"]));
   });
+
+  // flattenVisibleTree
+
+  test("flattenVisibleTree returns only roots when nothing is expanded", () => {
+    const nodes = [
+      { id: "root/", parent: "#", text: "root/" },
+      { id: "root/folder/", parent: "root/", text: "folder/" },
+      { id: "file-1", parent: "root/folder/", text: "a.csv" },
+      { id: "file-2", parent: "root/folder/", text: "b.csv" },
+    ];
+    const tree = buildTreeFromFlat(nodes);
+    const flat = flattenVisibleTree(tree, new Set());
+
+    expect(flat.map((f) => f.node.id)).toEqual(["root/"]);
+    expect(flat[0].depth).toBe(0);
+  });
+
+  test("flattenVisibleTree includes children of expanded folders at correct depths", () => {
+    const nodes = [
+      { id: "root/", parent: "#", text: "root/" },
+      { id: "root/folder/", parent: "root/", text: "folder/" },
+      { id: "file-1", parent: "root/folder/", text: "a.csv" },
+    ];
+    const tree = buildTreeFromFlat(nodes);
+    const flat = flattenVisibleTree(tree, new Set(["root/"]));
+
+    expect(flat.map((f) => f.node.id)).toEqual([
+      "root/",
+      "root/folder/",
+      "file-1",
+    ]);
+    expect(flat[0].depth).toBe(0);
+    expect(flat[1].depth).toBe(1);
+    expect(flat[2].depth).toBe(2);
+  });
+
+  test("flattenVisibleTree with deeply nested expansion", () => {
+    const nodes = [
+      { id: "a/", parent: "#", text: "a/" },
+      { id: "a/b/", parent: "a/", text: "b/" },
+      { id: "a/b/c/", parent: "a/b/", text: "c/" },
+      { id: "file-x", parent: "a/b/c/", text: "x.csv" },
+    ];
+    const tree = buildTreeFromFlat(nodes);
+    // expand only a/
+    const flat1 = flattenVisibleTree(tree, new Set(["a/"]));
+    expect(flat1.map((f) => f.node.id)).toEqual(["a/", "a/b/"]);
+
+    // expand a/ and a/b/
+    const flat2 = flattenVisibleTree(tree, new Set(["a/", "a/b/"]));
+    expect(flat2.map((f) => f.node.id)).toEqual([
+      "a/",
+      "a/b/",
+      "a/b/c/",
+      "file-x",
+    ]);
+    expect(flat2[3].depth).toBe(3);
+  });
+
 });

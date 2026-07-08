@@ -4,65 +4,36 @@
   gap: 8px;
 }
 
-.tree-view {
-  padding: 4px 0;
+/* --- virtualized tree viewport --- */
+.tree-virtual-container {
+  max-height: 60vh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border-radius: 8px;
 }
 
-.tree-view .MuiTreeItem-content {
-  min-height: 38px;
-  border-radius: 6px;
-  padding: 3px 6px;
-  transition:
-    background-color 120ms ease,
-    color 120ms ease;
+/* --- expand / collapse chevron --- */
+.tree-row-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 40px;
+  flex-shrink: 0;
+  font-size: 11px;
+  color: #64748b;
+  cursor: pointer;
+  user-select: none;
+  transition: color 120ms ease;
 }
 
-.tree-view .MuiTreeItem-content:hover {
-  background: #dbeafe;
-}
-
-.tree-view .MuiTreeItem-content.Mui-focused,
-.tree-view .MuiTreeItem-content.Mui-selected {
-  background: transparent !important;
-}
-
-.tree-view .MuiTreeItem-content.Mui-focused:hover,
-.tree-view .MuiTreeItem-content.Mui-selected:hover {
-  background: #dbeafe !important;
-}
-
-.tree-view .MuiTreeItem-iconContainer {
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  color: #475569;
-  transition:
-    background-color 120ms ease,
-    color 120ms ease;
-}
-
-.tree-view .MuiTreeItem-content:hover > .MuiTreeItem-iconContainer {
+.tree-row-chevron:hover {
   color: #1d4ed8;
 }
 
-.tree-view .MuiTreeItem-iconContainer:hover {
-  background: #2563eb;
-  color: #fff !important;
-}
-
-.tree-view .MuiTreeItem-iconContainer svg {
-  font-size: 22px;
-  transition: transform 120ms ease;
-}
-
-.tree-view .MuiTreeItem-iconContainer:hover svg {
-  transform: scale(1.2);
-}
-
-.tree-view .MuiTreeItem-groupTransition {
-  margin-left: 17px;
-  padding-left: 10px;
-  border-left: 1px solid #e5e7eb;
+.tree-row-chevron-hidden {
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .tree-node-label {
@@ -76,6 +47,13 @@
   line-height: 1.35;
   cursor: pointer;
   user-select: none;
+  border-radius: 6px;
+  transition: background-color 120ms ease;
+  padding-right: 8px;
+}
+
+.tree-node-label:hover {
+  background: #dbeafe;
 }
 
 .tree-node-control {
@@ -113,7 +91,7 @@
   box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.08);
 }
 
-.tree-view .MuiTreeItem-content:hover .tree-checkbox,
+.tree-node-label:hover .tree-checkbox,
 .tree-node-label-checked .tree-checkbox {
   opacity: 1;
 }

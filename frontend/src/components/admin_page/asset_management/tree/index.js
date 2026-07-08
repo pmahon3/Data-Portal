@@ -1,6 +1,6 @@
-import React, { useMemo, useState, useTransition } from "react";
+import React, { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { CircularProgress } from "@mui/material";
-import { SimpleTreeView } from "@mui/x-tree-view/SimpleTreeView";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import TreeFilter from "./TreeFilter.js";
 import TreeNode from "./TreeNode.js";
 import {
@@ -8,22 +8,23 @@ import {
   buildTreeFromFlat,
   createPathMatcher,
   filterNodes,
+  flattenVisibleTree,
   isValidSearchPattern,
   trimFilterText,
 } from "./TreeUtils.js";
 import "./Tree.css";
 
 /**
- * A hierarchical tree component using Material-UI's SimpleTreeView.
+ * A virtualized hierarchical tree component.
  * 
  * Props:
- *   - nodes: A flat array of node objects mimicking jsTree format [{ id, parent, text, li_attr }].
+ *   - nodes: A flat array of node objects [{ id, parent, text, li_attr }].
  *   - selected: A React Set<string> storing selected node IDs.
- *   - onChange: Callback function triggered on selection change; receives the new Set<string>.
- *   - disableFileSelection: If true, disables the checkbox for file nodes (id starts with "file-").
- *   - disableFolderSelection: If true, disables the checkbox for folder nodes.
- *   - disableCascade: If true, prevents cascading checking/unchecking between parents and children.
- *       or selection using glob or regex mode.
+ *   - onChange: Callback on selection change; receives the new Set<string>.
+ *   - disableFileSelection: If true, disables checkboxes for file nodes.
+ *   - disableFolderSelection: If true, disables checkboxes for folder nodes.
+ *   - disableCascade: If true, no cascading between parents and children.
+ *   - enableSearch: If true, shows the search/filter UI.
  *   - actions: Optional controls rendered inline with the search input.
  */
 export default function Tree({
@@ -43,6 +44,9 @@ export default function Tree({
   const [appliedFilterMode, setAppliedFilterMode] = useState(SEARCH_MODES.GLOB);
   const [filterSelectedOnly, setFilterSelectedOnly] = useState(false);
   const [isSearching, startSearchTransition] = useTransition();
+
+  // Tracks which nodes are expanded
+  const [expandedIds, setExpandedIds] = useState(new Set());
 
   const isPatternValid = useMemo(
     () => isValidSearchPattern(filterText, filterMode),
@@ -116,8 +120,42 @@ export default function Tree({
     });
   }, [nodes, pathMatcher, filterSelectedOnly, selected]);
 
-  // MUI renders a recursive structure, so we build that only after filtering.
   const tree = useMemo(() => buildTreeFromFlat(filteredNodes), [filteredNodes]);
+
+  // Collapse when filter is cleared.
+  useEffect(() => {
+    if (!filterState.hasActiveFilter && !filterState.hasSearchText) {
+      setExpandedIds(new Set());
+    }
+  }, [filterState.hasActiveFilter, filterState.hasSearchText]);
+
+  // flatten visible nodes for virtualization
+  const flatNodes = useMemo(
+    () => flattenVisibleTree(tree, expandedIds),
+    [tree, expandedIds],
+  );
+
+  // toggle expand / collapse
+  const toggleExpand = (id) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  // virtualizer
+  const scrollRef = useRef(null);
+  const virtualizer = useVirtualizer({
+    count: flatNodes.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 40,
+    getItemKey: (index) => flatNodes[index].node.id,
+  });
 
   return (
     <div className="tree-container">
@@ -144,23 +182,49 @@ export default function Tree({
           {filterState.hasActiveFilter ? "No matches." : "Empty."}
         </div>
       ) : (
-        <SimpleTreeView
-          className="tree-view"
-          expansionTrigger="iconContainer"
-          disableSelection
+        /* Virtual scroll container — height is capped so the tree
+           doesn't push everything else off screen. */           
+        <div
+          ref={scrollRef}
+          className="tree-virtual-container"
         >
-          {tree.map((node) => (
-            <TreeNode
-              key={node.id}
-              node={node}
-              selected={selected}
-              onChange={onChange}
-              disableFileSelection={disableFileSelection}
-              disableFolderSelection={disableFolderSelection}
-              disableCascade={disableCascade}
-            />
-          ))}
-        </SimpleTreeView>
+          <div
+            style={{
+              height: `${virtualizer.getTotalSize()}px`,
+              width: "100%",
+              position: "relative",
+            }}
+          >
+            {virtualizer.getVirtualItems().map((virtualItem) => {
+              const { node, depth } = flatNodes[virtualItem.index];
+              return (
+                <div
+                  key={virtualItem.key}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    height: `${virtualItem.size}px`,
+                    transform: `translateY(${virtualItem.start}px)`,
+                  }}
+                >
+                  <TreeNode
+                    node={node}
+                    depth={depth}
+                    isExpanded={expandedIds.has(String(node.id))}
+                    selected={selected}
+                    onChange={onChange}
+                    disableFileSelection={disableFileSelection}
+                    disableFolderSelection={disableFolderSelection}
+                    disableCascade={disableCascade}
+                    onToggleExpand={toggleExpand}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </div>
       )}
     </div>
   );
