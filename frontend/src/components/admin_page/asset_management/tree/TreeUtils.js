@@ -305,3 +305,34 @@ export function uncheckAncestors(selection, node) {
     uncheckAncestors(selection, parent);
   }
 }
+
+/**
+ * Flattens a nested tree into a visible-node list for virtualization.
+ * Only children of expanded folders appear in the output.
+ *
+ * This is the core helper that bridges the hierarchical data model
+ * (buildTreeFromFlat) and the flat row list the virtualizer needs.
+ * Each entry carries its depth so TreeNode can apply the correct indent.
+ *
+ * @param {Array<Object>} roots - Top-level nodes from buildTreeFromFlat.
+ * @param {Set<string>} expandedIds - Set of expanded node IDs.
+ * @returns {Array<{ node: Object, depth: number }>} Flat ordered list.
+ */
+export function flattenVisibleTree(roots, expandedIds) {
+  const result = [];
+
+  function walk(nodes, depth) {
+    for (const node of nodes) {
+      result.push({ node, depth });
+      const id = String(node.id);
+      const hasChildren =
+        Array.isArray(node.children) && node.children.length > 0;
+      if (hasChildren && expandedIds.has(id)) {
+        walk(node.children, depth + 1);
+      }
+    }
+  }
+
+  walk(roots, 0);
+  return result;
+}

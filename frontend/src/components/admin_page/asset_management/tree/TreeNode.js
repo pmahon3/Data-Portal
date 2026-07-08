@@ -4,7 +4,6 @@ import FolderOpenRoundedIcon from "@mui/icons-material/FolderOpenRounded";
 import FolderRoundedIcon from "@mui/icons-material/FolderRounded";
 import InsertDriveFileRoundedIcon from "@mui/icons-material/InsertDriveFileRounded";
 import Inventory2RoundedIcon from "@mui/icons-material/Inventory2Rounded";
-import { TreeItem } from "@mui/x-tree-view/TreeItem";
 import {
   checkAncestors,
   selectSubtree,
@@ -32,25 +31,28 @@ const NODE_ICON_BY_TYPE = {
 };
 
 /**
- * TreeNode renders one node plus all descendants.
- * The same component calls itself for child folders, which keeps the render
- * path and the selection behavior aligned at every level of the tree.
- * 
+ * TreeNode renders a single row in the virtualized tree.
+ * Replaces the old recursive TreeNode + MUI TreeItem.
+ *
  * Props:
- *   - node: The tree node object (contains id, text, parent, and optionally children).
+ *   - node: The tree node object (id, text, parent, children, _parentRef).
+ *   - depth: Nesting depth (0 = root).
+ *   - isExpanded: Whether this folder is currently expanded.
  *   - selected: A React Set<string> storing selected node IDs.
- *   - onChange: Callback function triggered when node selection changes.
- *   - disableFileSelection: If true, disables the checkbox for file nodes.
- *   - disableFolderSelection: If true, disables the checkbox for folder nodes.
- *   - disableCascade: If true, prevents cascading checking/unchecking between parents and children.
+ *   - onChange: Callback triggered when node selection changes.
+ *   - disableFileSelection, disableFolderSelection, disableCascade
+ *   - onToggleExpand: Called with node id when chevron is clicked.
  */
 export default function TreeNode({
   node,
+  depth,
+  isExpanded,
   selected,
   onChange,
   disableFileSelection,
   disableFolderSelection,
   disableCascade,
+  onToggleExpand,
 }) {
   const id = String(node.id);
   const hasChildren = Array.isArray(node.children) && node.children.length > 0;
@@ -88,50 +90,45 @@ export default function TreeNode({
     onChange(next);
   };
 
-  const handleLabelClick = () => {
-    toggle();
+  const handleChevronClick = (e) => {
+    e.stopPropagation();
+    if (hasChildren) {
+      onToggleExpand(id);
+    }
   };
 
   return (
-    <TreeItem
-      itemId={id}
-      label={
-        <div
-          className={getNodeLabelClassName(checked, disabled)}
-          onClick={handleLabelClick}
-        >
-          <span className="tree-node-control">
-            <TreeNodeIcon type={nodeType} />
-            <Checkbox
-              size="small"
-              checked={checked}
-              disabled={disabled}
-              onChange={toggle}
-              // MUI tree items also listen for click events to expand/collapse.
-              // Stop propagation so checking a box does not also toggle the row.
-              onClick={(event) => event.stopPropagation()}
-              className="tree-checkbox"
-            />
-          </span>
-          <span className="tree-node-text">{node.text}</span>
-        </div>
-      }
+    <div
+      className={getNodeLabelClassName(checked, disabled)}
+      onClick={toggle}
+      style={{ height: 40, display: "flex", alignItems: "center" }}
     >
-      {/* Child nodes are rendered recursively so folder behavior stays the same
-          no matter how deep the nesting goes. */}
-      {hasChildren &&
-        node.children.map((child) => (
-          <TreeNode
-            key={child.id}
-            node={child}
-            selected={selected}
-            onChange={onChange}
-            disableFileSelection={disableFileSelection}
-            disableFolderSelection={disableFolderSelection}
-            disableCascade={disableCascade}
-          />
-        ))}
-    </TreeItem>
+      {/* Indent spacer */}
+      <div style={{ width: depth * 20, flexShrink: 0 }} />
+
+      {/* Expand/collapse chevron */}
+      <div
+        className={`tree-row-chevron${hasChildren ? "" : " tree-row-chevron-hidden"}`}
+        onClick={handleChevronClick}
+      >
+        {isExpanded ? "\u25BC" : "\u25B6"}
+      </div>
+
+      <span className="tree-node-control">
+        <TreeNodeIcon type={nodeType} />
+        <Checkbox
+          size="small"
+          checked={checked}
+          disabled={disabled}
+          onChange={toggle}
+          onClick={(event) => event.stopPropagation()}
+          className="tree-checkbox"
+        />
+      </span>
+      <span className="tree-node-text" title={node.text}>
+        {node.text}
+      </span>
+    </div>
   );
 }
 
