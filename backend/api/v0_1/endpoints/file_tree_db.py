@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import ORJSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,6 +29,47 @@ def resource_for_folder(bucket: str, full_path: str) -> str:
 
 def resource_for_key(bucket: str, key: str) -> str:
     return f"{bucket}/{key}"
+
+
+def folder_node(folder: Folder, parent: str, text: str | None = None, has_children: bool = False) -> dict:
+    """Build a jstree-compatible folder node dict from a ``Folder`` model"""
+    return {
+        "id": str(folder.id),
+        "parent": parent,
+        "text": text or folder.name,
+        "li_attr": {
+            "type": "folder",
+            "bucket": folder.bucket,
+            "full_path": folder.full_path,
+            "has_children": has_children,
+        },
+    }
+
+
+async def has_folder_children(session: AsyncSession, bucket: str, folder_id: int) -> bool:
+    """Return ``True`` if the folder has at least one child folder or file."""
+    child_folder = (await session.execute(
+        select(Folder.id)
+        .where(
+            Folder.bucket == bucket,
+            Folder.parent_id == folder_id,
+            Folder.status == "complete",
+        )
+        .limit(1)
+    )).scalar_one_or_none()
+    if child_folder is not None:
+        return True
+
+    child_file = (await session.execute(
+        select(File.id)
+        .where(
+            File.bucket == bucket,
+            File.folder_id == folder_id,
+            File.status == "complete",
+        )
+        .limit(1)
+    )).scalar_one_or_none()
+    return child_file is not None
 
 
 @router.get("/dashboard/{instance_uuid}", response_class=ORJSONResponse)
@@ -171,3 +212,131 @@ async def dashboard_db(
                 })
                     
     return ORJSONResponse({"access": access, "assets": assets})
+
+
+@router.get("/dashboard/{instance_uuid}/children", response_class=ORJSONResponse)
+async def dashboard_children_db(
+    instance_uuid: str,
+    access: Literal["read", "write", "delete"] = Query(..., description="Access tree to return"),
+    parent_id: int | None = Query(None, description="Folder id to lazy-load. Omit to load roots."),
+    token_payload: dict = Depends(decode_token),
+    session: AsyncSession = Depends(get_session),
+    user_manager: AbstractUserManager = Depends(get_user_manager),
+    policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
+    instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
+):
+    """
+    DB-backed lazy tree endpoint.
+    Returns authorized roots when parent_id is omitted, otherwise only immediate children.
+    """
+    user_uuid = user_manager.get_user_uuid(token_payload["preferred_username"])
+    instance_uuid_obj = UUID(instance_uuid)
+    instance = instance_manager.get_instance_by_uuid(instance_uuid_obj)
+    agent = instance.agent
+    allowed_buckets = set(agent.fetch_all_buckets()) if hasattr(agent, "fetch_all_buckets") else set()
+    access_types = [access]
+    assets: list[dict] = []
+
+    # If parent_id is none return roots
+    if parent_id is None:
+        roots = list((await session.execute(
+            select(Folder)
+            .where(
+                Folder.full_path == "/",
+                Folder.bucket.in_(allowed_buckets),
+                Folder.status == "complete",
+            )
+            .order_by(Folder.bucket)
+        )).scalars().all())
+
+        for root in roots:
+            root_res = resource_for_folder(root.bucket, root.full_path)
+            root_allowed_access = policy_manager.get_allowed_actions(
+                user_uuid,
+                instance_uuid_obj,
+                root_res,
+                access_types,
+            )
+            if not root_allowed_access:
+                continue
+
+            assets.append(folder_node(
+                root,
+                "#",
+                text=root.bucket,
+                has_children=await has_folder_children(session, root.bucket, root.id),
+            ))
+
+        return ORJSONResponse({"access": access, "parent_id": None, "assets": assets})
+
+    # parent_id is present so get parent folder
+    parent = (await session.execute(
+        select(Folder).where(
+            Folder.id == parent_id,
+            Folder.bucket.in_(allowed_buckets),
+            Folder.status == "complete",
+        )
+    )).scalar_one_or_none()
+    if parent is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Folder not found")
+
+    parent_allowed_access = policy_manager.get_allowed_actions(
+        user_uuid,
+        instance_uuid_obj,
+        resource_for_folder(parent.bucket, parent.full_path),
+        access_types,
+    )
+    if not parent_allowed_access:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied by policy")
+
+    # Get immediate childen
+    folders = list((await session.execute(
+        select(Folder)
+        .where(
+            Folder.bucket == parent.bucket,
+            Folder.parent_id == parent.id,
+            Folder.status == "complete",
+        )
+        .order_by(Folder.name)
+    )).scalars().all())
+    files = list((await session.execute(
+        select(File)
+        .where(
+            File.bucket == parent.bucket,
+            File.folder_id == parent.id,
+            File.status == "complete",
+        )
+        .order_by(File.name)
+    )).scalars().all())
+
+    # Check permissions through casbin
+    for folder in folders:
+        folder_allowed_access = policy_manager.get_allowed_actions(
+            user_uuid,
+            instance_uuid_obj,
+            resource_for_folder(folder.bucket, folder.full_path),
+            access_types,
+        )
+        if folder_allowed_access:
+            assets.append(folder_node(
+                folder,
+                str(parent.id),
+                has_children=await has_folder_children(session, folder.bucket, folder.id),
+            ))
+
+    for file in files:
+        file_allowed_access = policy_manager.get_allowed_actions(
+            user_uuid,
+            instance_uuid_obj,
+            resource_for_key(file.bucket, file.key),
+            access_types,
+        )
+        if file_allowed_access:
+            assets.append({
+                "id": f"file-{file.id}",
+                "parent": str(file.folder_id),
+                "text": file.name,
+                "li_attr": {"type": "file", "bucket": file.bucket, "key": file.key},
+            })
+
+    return ORJSONResponse({"access": access, "parent_id": parent_id, "assets": assets})

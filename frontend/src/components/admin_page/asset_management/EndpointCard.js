@@ -1,9 +1,17 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Tree from "./tree/index.js";
 import { CircularProgress, LinearProgress, Tab, Tabs } from "@mui/material";
 import { formatError } from "../../../utils/errorUtils";
 import { downloadAssetBundle, deleteAssets } from "./actions.js";
 import { getAuthHeaders } from '../../../utils/authUtils';
+
+// Each access tab operates in one of two modes:
+// - BROWSE: lazy-loaded tree, fetching children on expand (default)
+// - SEARCH: full tree fetched once, then filtered locally by the Tree component
+const TREE_MODES = Object.freeze({
+  BROWSE: "browse",
+  SEARCH: "search",
+});
 
 export default function EndpointCard({
   endpointName,
@@ -19,25 +27,73 @@ export default function EndpointCard({
   const [open, setOpen] = useState(false);
   const [activeAccess, setActiveAccess] = useState("read");
   const [treesByAccess, setTreesByAccess] = useState({});
+  // Tracks whether each access tab is currently in browse or search mode
+  const [treeModesByAccess, setTreeModesByAccess] = useState({});
+  // Tracks access tabs whose tree data already came from the full dashboard endpoint.
+  // Once true, search and browse can reuse the local tree instead of refetching.
+  const [fullTreeLoadedByAccess, setFullTreeLoadedByAccess] = useState({});
+  const [loadedFolderIdsByAccess, setLoadedFolderIdsByAccess] = useState({});
+  const [loadingNodeIdsByAccess, setLoadingNodeIdsByAccess] = useState({});
   const [loadingAssets, setLoadingAssets] = useState(false);
   const [assetError, setAssetError] = useState(null);
   const [progress, setProgress] = useState({ mode: null, done: 0, total: 0 });
+  const selectedByAccessRef = useRef(selectedByAccess);
+
+  useEffect(() => {
+    selectedByAccessRef.current = selectedByAccess;
+  }, [selectedByAccess]);
+
+  // Returns the current mode for an access tab, defaulting to BROWSE
+  const getTreeMode = (accessKey) => treeModesByAccess[accessKey] || TREE_MODES.BROWSE;
 
   // Fetch assets for this endpoint
-  const fetchAssets = async (accessKey = activeAccess, forceRefresh = false) => {
+  const fetchAssets = async (accessKey = activeAccess, forceRefresh = false, mode = getTreeMode(accessKey)) => {
+    if (mode === TREE_MODES.SEARCH) {
+      return fetchSearchAssets(accessKey, forceRefresh);
+    }
+
+    return fetchBrowseRoots(accessKey, forceRefresh);
+  };
+
+  /**
+   * Fetch only the root-level children for the given access tab (browse mode).
+   * If the full tree is already cached locally, simply switches mode to BROWSE
+   * without a network call. Otherwise hits the /children endpoint.
+   */
+  const fetchBrowseRoots = async (accessKey = activeAccess, forceRefresh = false) => {
+    // Clearing search should only switch modes when the full tree is already local.
+    if (fullTreeLoadedByAccess[accessKey] && !forceRefresh) {
+      setAssetError(null);
+      setTreeModesByAccess((prev) => ({
+        ...prev,
+        [accessKey]: TREE_MODES.BROWSE,
+      }));
+      return;
+    }
+
     try {
       setLoadingAssets(true);
       setAssetError(null);
       const authHeaders = await getAuthHeaders();
-      //const { data } = await http.get(`/assets/dashboard/${encodeURIComponent(endpointUuid)}`, {
-      const { data } = await http.get(`/tree/dashboard/${encodeURIComponent(endpointUuid)}`, {
-
+      const { data } = await http.get(`/tree/dashboard/${encodeURIComponent(endpointUuid)}/children`, {
         headers: authHeaders,
         params: { access: accessKey, _t: Date.now(), ...(forceRefresh ? { refresh: 1 } : {}) },
       });
       setTreesByAccess((prev) => ({
         ...prev,
         [accessKey]: data.assets || [],
+      }));
+      setLoadedFolderIdsByAccess((prev) => ({
+        ...prev,
+        [accessKey]: new Set(),
+      }));
+      setFullTreeLoadedByAccess((prev) => ({
+        ...prev,
+        [accessKey]: false,
+      }));
+      setTreeModesByAccess((prev) => ({
+        ...prev,
+        [accessKey]: TREE_MODES.BROWSE,
       }));
     } catch (e) {
       console.error(`[EndpointCard] Failed to fetch assets for ${endpointName}:`, e);
@@ -47,13 +103,116 @@ export default function EndpointCard({
     }
   };
 
+  /**
+   * Fetch the entire tree for the given access tab (search mode).
+   * Once fetched, the Tree component filters the full dataset locally.
+   * If already cached, simply switches mode to SEARCH without a network call.
+   */
+  const fetchSearchAssets = async (accessKey = activeAccess, forceRefresh = false, showLoading = true) => {
+    // The Tree component applies the actual filter locally; this fetch is only
+    // needed until the access tab has a complete tree to search against.
+    if (fullTreeLoadedByAccess[accessKey] && !forceRefresh) {
+      setAssetError(null);
+      setTreeModesByAccess((prev) => ({
+        ...prev,
+        [accessKey]: TREE_MODES.SEARCH,
+      }));
+      return;
+    }
+
+    try {
+      if (showLoading) {
+        setLoadingAssets(true);
+      }
+      setAssetError(null);
+      const authHeaders = await getAuthHeaders();
+      const { data } = await http.get(`/tree/dashboard/${encodeURIComponent(endpointUuid)}`, {
+        headers: authHeaders,
+        params: { access: accessKey, _t: Date.now(), ...(forceRefresh ? { refresh: 1 } : {}) },
+      });
+      setTreesByAccess((prev) => ({
+        ...prev,
+        [accessKey]: data.assets || [],
+      }));
+      setFullTreeLoadedByAccess((prev) => ({
+        ...prev,
+        [accessKey]: true,
+      }));
+      setTreeModesByAccess((prev) => ({
+        ...prev,
+        [accessKey]: TREE_MODES.SEARCH,
+      }));
+    } catch (e) {
+      console.error(`[EndpointCard] Failed to fetch search assets for ${endpointName}:`, e);
+      setAssetError(e?.response?.data?.detail || e?.message || "Failed to load assets");
+    } finally {
+      if (showLoading) {
+        setLoadingAssets(false);
+      }
+    }
+  };
+
+  /**
+   * Lazy-load children of a folder node (browse mode only).
+   * Skipped if: node is a file, not in browse mode, full tree already cached,
+   * or children were already loaded for this folder.
+   */
+  const fetchChildAssets = async (accessKey, node) => {
+    const nodeId = String(node?.id || "");
+    if (!nodeId || String(nodeId).startsWith("file-")) return;
+    if (getTreeMode(accessKey) !== TREE_MODES.BROWSE) return;
+    // Full tree data already includes descendants, so lazy /children calls are redundant.
+    if (fullTreeLoadedByAccess[accessKey]) return;
+    if (loadedFolderIdsByAccess[accessKey]?.has(nodeId)) return;
+
+    try {
+      setAssetError(null);
+      setLoadingNodeIdsByAccess((prev) => ({
+        ...prev,
+        [accessKey]: new Set([...(prev[accessKey] || []), nodeId]),
+      }));
+      const authHeaders = await getAuthHeaders();
+      const { data } = await http.get(`/tree/dashboard/${encodeURIComponent(endpointUuid)}/children`, {
+        headers: authHeaders,
+        params: { access: accessKey, parent_id: Number(nodeId), _t: Date.now() },
+      });
+
+      const incomingAssets = data.assets || [];
+      setTreesByAccess((prev) => ({
+        ...prev,
+        [accessKey]: mergeAssetNodes(prev[accessKey] || [], incomingAssets, nodeId),
+      }));
+      if (accessKey !== "write") {
+        cascadeLoadedChildrenSelection(
+          selectedByAccessRef.current[accessKey] || new Set(),
+          incomingAssets,
+          nodeId,
+          (nextSet) => onSelectedChange(accessKey, nextSet),
+        );
+      }
+      setLoadedFolderIdsByAccess((prev) => ({
+        ...prev,
+        [accessKey]: new Set([...(prev[accessKey] || []), nodeId]),
+      }));
+    } catch (e) {
+      console.error(`[EndpointCard] Failed to fetch child assets for ${endpointName}:`, e);
+      setAssetError(e?.response?.data?.detail || e?.message || "Failed to load assets");
+    } finally {
+      setLoadingNodeIdsByAccess((prev) => {
+        const nextForAccess = new Set(prev[accessKey] || []);
+        nextForAccess.delete(nodeId);
+        return { ...prev, [accessKey]: nextForAccess };
+      });
+    }
+  };
+
   // Toggle card open/closed - fetch assets on first open
   const handleToggle = () => {
     const willOpen = !open;
     setOpen(willOpen);
     // Fetch assets when opening if not already loaded
     if (willOpen && Object.keys(treesByAccess).length === 0 && !loadingAssets) {
-      fetchAssets("read", false);
+      fetchAssets("read", false, TREE_MODES.BROWSE);
     }
   };
 
@@ -67,7 +226,6 @@ export default function EndpointCard({
   const deleteArray = access.delete;
 
   // turning array to a hashmap with file id as  key for faster look up
-  const readIndex = new Map(readArray.map(n => [String(n.id), n]));
   const writeIndex = new Map(writeArray.map(n => [String(n.id), n]));
   const deleteIndex = new Map(deleteArray.map(n => [String(n.id), n]));
 
@@ -88,7 +246,6 @@ export default function EndpointCard({
   const progressValue = progress.total > 0 ? (progress.done / progress.total) * 100 : 0;
 
   // Compute selections we need
-  const readLeaves = getSelectedLeaves(readArray, selectedByAccess.read || new Set());
   const writeTopFolders = getSelectTopLevel(writeArray, selectedByAccess.write || new Set(), false);
   const deleteTopSelected = getSelectTopLevel(deleteArray, selectedByAccess.delete || new Set(), true);
 
@@ -96,28 +253,50 @@ export default function EndpointCard({
   const onTreeChange = (accessKey) => (nextSet) =>
     onSelectedChange(accessKey, new Set(nextSet));
 
+  const clearAccessSelection = (accessKey) => {
+    onSelectedChange(accessKey, new Set());
+  };
+
+  const clearAllSelections = () => {
+    availableAccessTabs.forEach((tab) => clearAccessSelection(tab.value));
+  };
+
+  // Switch to search mode: fetch the full tree so the Tree component can filter locally.
+  // Clears the current selection first to avoid stale selections across mode switches.
+  const searchAssets = (accessKey) => {
+    clearAccessSelection(accessKey);
+    return fetchSearchAssets(accessKey, false, false);
+  };
+
+  // Switch back to browse mode: reload lazy children and clear any active search filter.
+  const clearSearch = (accessKey) => {
+    clearAccessSelection(accessKey);
+    return fetchBrowseRoots(accessKey, false);
+  };
+
   // --------------------- Download (from READ selection) ---------------------
 
   const handleDownload = async () => {
-    if (!hasRead) return alert("No read permission.");
-    if (readLeaves.length === 0) return alert("Select files or folders in READ.");
+    if (!hasRead) return alert("No download permission.");
+    const readSelection = selectedByAccess.read || new Set();
+    if (readSelection.size === 0) return alert("Select files or folders to download.");
 
     setBusy("down");
     setBusyID(endpointUuid);
     try {
-      const fileIds = readLeaves
-        .filter((id) => String(id).startsWith("file-"))
-        .map((id) => parseInt(String(id).replace("file-", ""), 10));
+      const { fileIds, folderIds } = getSelectedDownloadIds(readSelection);
 
-      if (fileIds.length === 0) {
+      if (fileIds.length === 0 && folderIds.length === 0) {
         alert("No valid files selected for download.");
         setBusy(null);
         setBusyID(null);
         return;
       }
 
-      await downloadAssetBundle(http, endpointName, fileIds);
-      console.log(`[Download] Triggered downloads for ${fileIds.length} file(s) from "${endpointName}"`);
+      await downloadAssetBundle(http, endpointName, fileIds, folderIds);
+      console.log(
+        `[Download] Triggered downloads for ${fileIds.length} file(s) and ${folderIds.length} folder(s) from "${endpointName}"`
+      );
     } catch (e) {
       console.error(`[Download] Download failed for endpoint "${endpointName}":`, e);
       let errMsg = formatError(e);
@@ -145,7 +324,7 @@ export default function EndpointCard({
   async function getWriteUploadTarget() {
     // Check if user has write permission at all for this endpoint
     if (!hasWrite) {
-      alert("No write permission for this endpoint.");
+      alert("No upload permission for this endpoint.");
       return null;
     }
 
@@ -556,8 +735,13 @@ export default function EndpointCard({
             <Tabs
               value={activeTab}
               onChange={(_, nextAccess) => {
+                if (nextAccess !== activeAccess) {
+                  clearAllSelections();
+                }
                 setActiveAccess(nextAccess);
-                fetchAssets(nextAccess, false);
+                // Switching tabs resets to browse mode so the user always sees
+                // the lazy-loaded tree first (reuses full tree if already cached).
+                fetchAssets(nextAccess, false, TREE_MODES.BROWSE);
               }}
               aria-label="Asset access tabs"
               sx={{
@@ -614,6 +798,10 @@ export default function EndpointCard({
                   selected={selectedByAccess.read || new Set()}
                   onChange={onTreeChange("read")}
                   enableSearch={true}
+                  onSearch={() => searchAssets("read")}
+                  onClearSearch={() => clearSearch("read")}
+                  onLoadChildren={(node) => fetchChildAssets("read", node)}
+                  loadingNodeIds={loadingNodeIdsByAccess.read || new Set()}
                   actions={downloadAction}
                 />
               </div>
@@ -679,6 +867,10 @@ export default function EndpointCard({
                   disableFileSelection={true}
                   disableCascade={true}
                   enableSearch={true}
+                  onSearch={() => searchAssets("write")}
+                  onClearSearch={() => clearSearch("write")}
+                  onLoadChildren={(node) => fetchChildAssets("write", node)}
+                  loadingNodeIds={loadingNodeIdsByAccess.write || new Set()}
                   actions={uploadActions}
                 />
               </div>
@@ -743,6 +935,10 @@ export default function EndpointCard({
                   selected={selectedByAccess.delete || new Set()}
                   onChange={onTreeChange("delete")}
                   enableSearch={true}
+                  onSearch={() => searchAssets("delete")}
+                  onClearSearch={() => clearSearch("delete")}
+                  onLoadChildren={(node) => fetchChildAssets("delete", node)}
+                  loadingNodeIds={loadingNodeIdsByAccess.delete || new Set()}
                   actions={deleteAction}
                 />
               </div>
@@ -756,6 +952,13 @@ export default function EndpointCard({
 
 /* ---------------- helpers ---------------- */
 
+/**
+ * Normalize tree data into { read, write, delete } arrays.
+ * Accepts an array (treated as read-only) or an object with optional keys.
+ *
+ * @param {Array|Object} input - Raw tree data from state
+ * @returns {{ read: Array, write: Array, delete: Array }}
+ */
 function normalizeAccess(input) {
   if (!input) return { read: [], write: [], delete: [] };
   if (Array.isArray(input)) return { read: input, write: [], delete: [] };
@@ -769,16 +972,76 @@ function normalizeAccess(input) {
   return { read: [], write: [], delete: [] };
 }
 
-// selected leaf files for READ (ids that are not any node's parent)
-function getSelectedLeaves(list, sel) {
-  const parents = new Set(list.filter(n => n.parent !== "#").map(n => String(n.parent)));
-  const ids = new Set(list.map(n => String(n.id)));
-  const out = [];
+/**
+ * Merge newly fetched child nodes into the existing tree, deduplicating by id.
+ * When a parentId is given, updates that parent's has_children flag.
+ */
+function mergeAssetNodes(existing, incoming, parentId = null) {
+  const byId = new Map();
+  for (const node of existing) {
+    if (parentId !== null && String(node.id) === String(parentId)) {
+      byId.set(String(node.id), {
+        ...node,
+        li_attr: {
+          ...(node.li_attr || {}),
+          has_children: incoming.length > 0,
+        },
+      });
+    } else {
+      byId.set(String(node.id), node);
+    }
+  }
+  for (const node of incoming) {
+    byId.set(String(node.id), node);
+  }
+  return Array.from(byId.values());
+}
+
+/**
+ * When a parent folder is selected and its children are lazy-loaded, auto-select
+ * those newly loaded children so the selection stays consistent.
+ */
+function cascadeLoadedChildrenSelection(currentSelection, loadedNodes, parentId, onChange) {
+  if (!currentSelection.has(String(parentId)) || loadedNodes.length === 0) return;
+
+  const next = new Set(currentSelection);
+  let changed = false;
+
+  for (const node of loadedNodes) {
+    const id = String(node.id);
+    if (!next.has(id)) {
+      next.add(id);
+      changed = true;
+    }
+  }
+
+  if (changed) onChange(next);
+}
+
+/**
+ * Split tree selection IDs into DB file IDs and folder IDs.
+ * File nodes use "file-{id}" while folder nodes are plain numeric IDs.
+ */
+function getSelectedDownloadIds(sel) {
+  const fileIds = new Set();
+  const folderIds = new Set();
+
   sel.forEach((id) => {
-    const s = String(id);
-    if (ids.has(s) && !parents.has(s)) out.push(s);
+    const selectedId = String(id);
+    const numericId = Number.parseInt(selectedId.replace("file-", ""), 10);
+    if (Number.isNaN(numericId)) return;
+
+    if (selectedId.startsWith("file-")) {
+      fileIds.add(numericId);
+    } else {
+      folderIds.add(numericId);
+    }
   });
-  return out;
+
+  return {
+    fileIds: Array.from(fileIds),
+    folderIds: Array.from(folderIds),
+  };
 }
 
 // Get selected top level nodes (files and folders) for WRITE and DELETE

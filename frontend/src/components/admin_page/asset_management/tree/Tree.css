@@ -31,6 +31,11 @@
   color: #1d4ed8;
 }
 
+.tree-row-chevron-loading {
+  color: #2563eb;
+  cursor: wait;
+}
+
 .tree-row-chevron-hidden {
   visibility: hidden;
   pointer-events: none;
@@ -160,6 +165,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.tree-node-loading-text {
+  flex-shrink: 0;
+  margin-left: 4px;
+  color: #64748b;
+  font-size: 12px;
 }
 
 .tree-filter-group {
