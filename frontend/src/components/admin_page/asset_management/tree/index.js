@@ -25,6 +25,10 @@ import "./Tree.css";
  *   - disableFolderSelection: If true, disables checkboxes for folder nodes.
  *   - disableCascade: If true, no cascading between parents and children.
  *   - enableSearch: If true, shows the search/filter UI.
+ *   - onSearch: Optional async callback before applying a search.
+ *   - onClearSearch: Optional async callback before clearing a search.
+ *   - onLoadChildren: Optional async callback before expanding unloaded folders.
+ *   - loadingNodeIds: Set of node IDs currently loading children.
  *   - actions: Optional controls rendered inline with the search input.
  */
 export default function Tree({
@@ -35,6 +39,10 @@ export default function Tree({
   disableFolderSelection = false,
   disableCascade = false,
   enableSearch = false,
+  onSearch = null,
+  onClearSearch = null,
+  onLoadChildren = null,
+  loadingNodeIds = new Set(),
   actions = null,
 }) {
   // States for draft input, applied input and whether to only filter selected nodes
@@ -44,6 +52,7 @@ export default function Tree({
   const [appliedFilterMode, setAppliedFilterMode] = useState(SEARCH_MODES.GLOB);
   const [filterSelectedOnly, setFilterSelectedOnly] = useState(false);
   const [isSearching, startSearchTransition] = useTransition();
+  const [isSearchLoading, setIsSearchLoading] = useState(false);
 
   // Tracks which nodes are expanded
   const [expandedIds, setExpandedIds] = useState(new Set());
@@ -94,17 +103,37 @@ export default function Tree({
     isPatternValid,
   ]);
 
-  const applyFilter = () => {
+  const applyFilter = async () => {
     if (!isPatternValid) return;
 
-    startSearchTransition(() => {
-      setAppliedFilterText(filterText);
-      setAppliedFilterMode(filterMode);
-    });
+    const nextFilterText = trimFilterText(filterText);
+    setIsSearchLoading(true);
+    try {
+      if (!nextFilterText) {
+        if (onClearSearch) {
+          await onClearSearch();
+        }
+      } else if (onSearch) {
+        await onSearch(filterText, filterMode);
+      }
+
+      startSearchTransition(() => {
+        setAppliedFilterText(nextFilterText ? filterText : "");
+        setAppliedFilterMode(filterMode);
+        setIsSearchLoading(false);
+      });
+    } catch (error) {
+      setIsSearchLoading(false);
+      throw error;
+    }
   };
 
   // Clear draft and applied input and show unfiltered tree
-  const clearFilter = () => {
+  const clearFilter = async () => {
+    if (onClearSearch) {
+      await onClearSearch();
+    }
+
     startSearchTransition(() => {
       setFilterText("");
       setAppliedFilterText("");
@@ -136,7 +165,12 @@ export default function Tree({
   );
 
   // toggle expand / collapse
-  const toggleExpand = (id) => {
+  const toggleExpand = async (id, node) => {
+    const willExpand = !expandedIds.has(id);
+    if (willExpand && onLoadChildren) {
+      await onLoadChildren(node);
+    }
+
     setExpandedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) {
@@ -169,10 +203,11 @@ export default function Tree({
         onSelectedOnlyChange={setFilterSelectedOnly}
         onApply={applyFilter}
         onClear={clearFilter}
+        isSearching={isSearching || isSearchLoading}
         actions={actions}
       />
 
-      {isSearching ? (
+      {isSearching || isSearchLoading ? (
         <div className="tree-loading-state" role="status" aria-live="polite">
           <CircularProgress size={28} />
           <span>Searching...</span>
@@ -219,6 +254,7 @@ export default function Tree({
                     disableFolderSelection={disableFolderSelection}
                     disableCascade={disableCascade}
                     onToggleExpand={toggleExpand}
+                    isLoading={loadingNodeIds.has(String(node.id))}
                   />
                 </div>
               );

@@ -20,9 +20,10 @@ export function buildTreeFromFlat(list) {
     const id = String(item.id);
 
     if (!map[id]) {
-      map[id] = { id, text: item.text || nameFromId(id), children: [] };
+      map[id] = { ...item, id, text: item.text || nameFromId(id), children: [] };
     } else if (!map[id].text) {
       map[id].text = item.text || nameFromId(id);
+      Object.assign(map[id], item);
     }
 
     map[id]._parentId =

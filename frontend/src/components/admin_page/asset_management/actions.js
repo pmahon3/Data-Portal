@@ -4,13 +4,14 @@ import { getAuthHeaders } from '../../../utils/authUtils';
 
 // Initiates an asynchronous server-side bundling process for specific assets,
 // polls for completion, and triggers a browser download once the ZIP is ready.
-export const downloadAssetBundle = async (http, endpointName, fileIds) => {
+export const downloadAssetBundle = async (http, endpointName, fileIds, folderIds = []) => {
   let headers = await getAuthHeaders();
   
   // Call the backend endpoint to initiate the zip bundle creation
   const response = await http.post("/tree/bundle/zip", {
     instance_name: endpointName,
-    file_ids: fileIds
+    file_ids: fileIds,
+    folder_ids: folderIds
   }, {
     headers
   });

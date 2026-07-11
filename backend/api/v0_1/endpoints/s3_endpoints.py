@@ -24,6 +24,7 @@ from core.services.instances import AbstractInstanceManager
 from core.services.policies import CasbinPolicyManager
 from core.services.policies import Policy
 from core.services.users import AbstractUserManager
+from core.services.filetree.models.file import File
 from core.services.filetree.models.folder import Folder
 from core.services.filetree.file_service import FileService
 from core.services.filetree.tree_service import TreeService
@@ -481,9 +482,13 @@ async def create_asset_bundle(
     Returns:
         BundleCreateResponse: Response containing bundle_id, status and folder_name
     """
-    logger.info(f"Asset bundle request from user '{user['preferred_username']}' on instance '{request.instance_name}' with {len(request.file_ids)} file_ids.")
+    logger.info(
+        f"Asset bundle request from user '{user['preferred_username']}' on instance "
+        f"'{request.instance_name}' with {len(request.file_ids)} file_ids and "
+        f"{len(request.folder_ids)} folder_ids."
+    )
     
-    if not request.file_ids:
+    if not request.file_ids and not request.folder_ids:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No files provided for bundling.")
 
     user_uuid = user_manager.get_user_uuid(user['preferred_username'])
@@ -495,25 +500,67 @@ async def create_asset_bundle(
     file_svc = FileService(session)
     all_presigned_urls = []
     java_bundle_files = []
+    files_to_bundle = {}
+
+    # Set of file IDs that were explicitly requested and successfully found as completed file rows
+    explicit_file_ids = set()
 
     # Retrieve the file objects from DB based on file ids
-    files = await file_svc.get_files(request.file_ids)
+    requested_file_ids = list(dict.fromkeys(request.file_ids))
+    files = await file_svc.get_files(requested_file_ids) if requested_file_ids else []
     file_map = {f.id: f for f in files}
 
-    # Get presigned urls for each file
-    for file_id in request.file_ids:
+    for file_id in requested_file_ids:
         file = file_map.get(file_id)
         if not file:
             logger.warning(f"File ID {file_id} not found in DB.")
             continue
-            
+        files_to_bundle.setdefault(file.id, file)
+        explicit_file_ids.add(file.id)
+
+    folder_ids = list(dict.fromkeys(request.folder_ids))
+    if folder_ids:
+        allowed_buckets = set(agent.fetch_all_buckets()) if hasattr(agent, "fetch_all_buckets") else set()
+        
+        # Get requested folders from db
+        folders = list((await session.execute(
+            select(Folder)
+            .where(
+                Folder.id.in_(folder_ids),
+                Folder.bucket.in_(allowed_buckets),
+                Folder.status == "complete",
+            )
+        )).scalars().all())
+
+        # Get the files of each folder
+        for folder in folders:
+            folder_files = list((await session.execute(
+                select(File)
+                .join(Folder, File.folder_id == Folder.id)
+                .where(
+                    Folder.bucket == folder.bucket,
+                    Folder.path.op("<@")(folder.path),
+                    Folder.status == "complete",
+                    File.status == "complete",
+                )
+                .order_by(File.folder_id, File.name)
+            )).scalars().all())
+
+            for file in folder_files:
+                files_to_bundle.setdefault(file.id, file)
+
+    # Get presigned urls for each file
+    for file in files_to_bundle.values():
         policy = Policy(
             user_uuid=user_uuid,
             instance_uuid=instance_uuid,
             resource=resource_for_key(file.bucket, file.key),
             action="read"
         )
-        policy_or_403(policy_manager, policy)
+        if not policy_manager.validate_policy(policy):
+            if file.id in explicit_file_ids:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied by policy")
+            continue
 
         try:
             url = agent.s3_client.generate_presigned_url(
@@ -527,9 +574,9 @@ async def create_asset_bundle(
                 "relativePath": file.key,
             })
         except Exception as e:
-            logger.error(f"Unable to generate presigned URL for file_id {file_id}: {str(e)}")
+            logger.error(f"Unable to generate presigned URL for file_id {file.id}: {str(e)}")
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-                                detail=f"Unable to generate presigned URL for file_id {file_id}: {str(e)}")
+                                detail=f"Unable to generate presigned URL for file_id {file.id}: {str(e)}")
 
     if not all_presigned_urls:
          logger.warning("No files found to bundle from the requested resources")

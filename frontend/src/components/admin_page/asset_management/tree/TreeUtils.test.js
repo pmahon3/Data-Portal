@@ -234,7 +234,7 @@ describe("tree helpers", () => {
       { id: "file-1", parent: "root/folder/", text: "a.csv" },
     ];
     const tree = buildTreeFromFlat(nodes);
-    const flat = flattenVisibleTree(tree, new Set(["root/"]));
+    const flat = flattenVisibleTree(tree, new Set(["root/", "root/folder/"]));
 
     expect(flat.map((f) => f.node.id)).toEqual([
       "root/",
@@ -258,8 +258,8 @@ describe("tree helpers", () => {
     const flat1 = flattenVisibleTree(tree, new Set(["a/"]));
     expect(flat1.map((f) => f.node.id)).toEqual(["a/", "a/b/"]);
 
-    // expand a/ and a/b/
-    const flat2 = flattenVisibleTree(tree, new Set(["a/", "a/b/"]));
+    // expand the full path to the file
+    const flat2 = flattenVisibleTree(tree, new Set(["a/", "a/b/", "a/b/c/"]));
     expect(flat2.map((f) => f.node.id)).toEqual([
       "a/",
       "a/b/",

@@ -1,5 +1,5 @@
 import React from "react";
-import { Checkbox } from "@mui/material";
+import { Checkbox, CircularProgress } from "@mui/material";
 import FolderOpenRoundedIcon from "@mui/icons-material/FolderOpenRounded";
 import FolderRoundedIcon from "@mui/icons-material/FolderRounded";
 import InsertDriveFileRoundedIcon from "@mui/icons-material/InsertDriveFileRounded";
@@ -53,10 +53,12 @@ export default function TreeNode({
   disableFolderSelection,
   disableCascade,
   onToggleExpand,
+  isLoading = false,
 }) {
   const id = String(node.id);
   const hasChildren = Array.isArray(node.children) && node.children.length > 0;
-  const nodeType = getNodeType(node, id, hasChildren);
+  const hasExpandableChildren = hasChildren || Boolean(node.li_attr?.has_children);
+  const nodeType = getNodeType(node, id, hasExpandableChildren);
   const isFile = nodeType === "file";
   const isFolder = nodeType !== "file";
   const checked = selected.has(id);
@@ -92,8 +94,8 @@ export default function TreeNode({
 
   const handleChevronClick = (e) => {
     e.stopPropagation();
-    if (hasChildren) {
-      onToggleExpand(id);
+    if (hasExpandableChildren && !isLoading) {
+      onToggleExpand(id, node);
     }
   };
 
@@ -108,10 +110,21 @@ export default function TreeNode({
 
       {/* Expand/collapse chevron */}
       <div
-        className={`tree-row-chevron${hasChildren ? "" : " tree-row-chevron-hidden"}`}
+        className={[
+          "tree-row-chevron",
+          !hasExpandableChildren && "tree-row-chevron-hidden",
+          isLoading && "tree-row-chevron-loading",
+        ].filter(Boolean).join(" ")}
         onClick={handleChevronClick}
+        aria-label={isLoading ? "Loading folder contents" : undefined}
       >
-        {isExpanded ? "\u25BC" : "\u25B6"}
+        {isLoading ? (
+          <CircularProgress size={14} thickness={5} />
+        ) : isExpanded ? (
+          "\u25BC"
+        ) : (
+          "\u25B6"
+        )}
       </div>
 
       <span className="tree-node-control">
