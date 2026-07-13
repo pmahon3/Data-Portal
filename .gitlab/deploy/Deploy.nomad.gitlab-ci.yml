@@ -478,6 +478,7 @@ deploy:development:
     NOMAD_ENVIRONMENT: "development"
     NOMAD_ENVIRONMENT_NAME: "development"
     __ENVIRONMENT__: "development"
+    NOMAD_EXTERNAL_ACCESS: "true" # true: enable Traefik + inject __RUNTIME_ENV_*__ / false: internal-only without traefik
   script:
     - source "$CI_PROJECT_DIR/.gitlab/deploy/scripts/nomad_setup.sh"
     - echo "Deploying to environment = $NOMAD_ENVIRONMENT_NAME"
