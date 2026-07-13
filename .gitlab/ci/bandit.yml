@@ -1,0 +1,40 @@
+.base_bandit:
+  stage: test
+  interruptible: true
+  image: python:3.12
+  before_script:
+    - cd $CI_PROJECT_DIR
+    - pip install --upgrade pip
+    - pip install bandit[toml]
+
+.bandit-security-template:
+  extends: .base_bandit
+  variables:
+    BANDIT_TARGET: "backend"
+    BANDIT_REPORT: "bandit-security-report.json"
+    BANDIT_SEVERITY_LEVEL: "medium"  # low, medium, high
+    BANDIT_CONFIDENCE_LEVEL: "medium"  # low, medium, high
+  script:
+    # Run Bandit security scan
+    - |
+      if [ -d "${BANDIT_TARGET}" ]; then
+        bandit -r ${BANDIT_TARGET} \
+          -f json \
+          -o ${BANDIT_REPORT} \
+          --severity-level ${BANDIT_SEVERITY_LEVEL} \
+          --confidence-level ${BANDIT_CONFIDENCE_LEVEL} \
+          || true
+      else
+        echo "Target directory ${BANDIT_TARGET} not found, skipping Bandit"
+        echo '{"results": []}' > ${BANDIT_REPORT}
+      fi
+    - echo "---- Bandit security report (${BANDIT_REPORT}) ----"
+    - cat ${BANDIT_REPORT} | head -100 || true
+  artifacts:
+    reports:
+      sast: $CI_PROJECT_DIR/${BANDIT_REPORT}
+    paths:
+      - ${BANDIT_REPORT}
+    expire_in: 1 week
+    when: always
+
