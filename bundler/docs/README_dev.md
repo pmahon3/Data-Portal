@@ -68,6 +68,7 @@ The Bundler code is intentionally split into **three** parts:
     - generated routers (`bundler_server/apis/*`)
     - generated Pydantic models (`bundler_server/models/*`)
     - **hand-written** HTTP adapter implementations under `bundler_server/core/*` (protected from overwrite via [`.openapi-generator-ignore`](.openapi-generator-ignore))
+    - **hand-owned** observability entry under `bundler_server/observability/*` (`observability.app:app` wraps generated `main:app` with `/metrics` and `/actuator/*`; also ignore-protected)
   - The repo [`Makefile`](Makefile) and [`make/`](make/) scripts wrap codegen, `uv` wiring, and optional patches. Generate via `make generate-openapi APP_CORE_DIR=bundler_core` (OpenAPI Generator CLI via `npx -y @openapitools/openapi-generator-cli`, as in **How server generation is invoked** below).
   - After codegen, the tree is adjusted for a `uv`-managed workflow (see [`README_patch.md`](README_patch.md)).
 
@@ -75,7 +76,7 @@ The Bundler code is intentionally split into **three** parts:
 
 - Generated server code under **`bundler_server`** keeps the HTTP layer consistent and reproducible from the spec [`openapi.source.yaml`](openapi.source.yaml), including when the contract changes often. Development stays API-driven instead of only code-driven.
 - Business logic in **`bundler_core`** stays stable, testable, and not at risk during regeneration. The separation keeps complex domain rules out of generated routers.
-- The generated server stub stays a thin HTTP adapter: **`bundler_server/core`** maps requests and responses; **`bundler_core`** owns behavior.
+- The generated server stub stays a thin HTTP adapter: **`bundler_server/core`** maps requests and responses; **`bundler_core`** owns behavior. Run the service via **`bundler_server.observability.app:app`** so ops routes stay outside OpenAPI.
 
 For an intro to **`openapitools.json`**, see [`getting-started.md` → This repository](../getting-started.md#this-repository-openapitoolsjson). For **`vars.mk`** fallbacks, **`OPENAPI_*`** variables, and deeper regeneration mechanics, see [`README_reference.md`](README_reference.md#openapitoolsjson-and-defaults).
 

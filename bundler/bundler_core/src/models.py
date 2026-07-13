@@ -5,6 +5,7 @@ from datetime import datetime
 from enum import Enum
 
 from bundler_core.failures import FailureKind
+from bundler_core.archive_build.timings import ArchiveBuildTimings
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from typing_extensions import Annotated
 
@@ -58,3 +59,5 @@ class BundleRecord:
     content_type: str | None = None
     retry_count: int = 0
     failure_kind: FailureKind | None = None
+    last_build_timings: ArchiveBuildTimings | None = None  # observability only; not exposed via HTTP
+    last_build_strategy: str | None = None  # observability only; not exposed via HTTP

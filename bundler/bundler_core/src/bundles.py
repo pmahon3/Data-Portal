@@ -5,18 +5,22 @@ from pathlib import Path
 from threading import RLock
 from typing import Any
 import os
-import shutil
-import tempfile
 from urllib.parse import unquote, urlsplit
-import zipfile
 
 import anyio
 import httpx
 from anyio.from_thread import BlockingPortal, start_blocking_portal
+from bundler_core.archive_build.context import ArchiveBuildContext
+from bundler_core.archive_build.factory import create_archive_build_strategy
+from bundler_core.archive_build.protocol import ArchiveBuildStrategy
+from bundler_core.archive_build.timings import ArchiveBuildResult
 from bundler_core.failures import MAX_BUNDLE_RETRIES, FailureKind
 from bundler_core.fingerprint import _bundle_key
+from bundler_core.job_store import JobStorePort, create_job_store
+from bundler_core.job_store.memory import InMemoryJobStore
 from bundler_core.logger import logger
 from bundler_core.models import BundleRecord, BundleState, CreateBundleRequest
+from bundler_core.observability import BundleMetricsHook, BundleRuntimeSnapshot
 from bundler_core.state_ops import _finalize_complete, _mark_failed, _requeue_for_retry, _transition_state
 
 
@@ -94,21 +98,25 @@ class BundleService:
         download_concurrency: int,
         http_timeout_seconds: float,
         queue_max_size: int,
+        archive_strategy: ArchiveBuildStrategy | None = None,
+        job_store: JobStorePort | None = None,
     ) -> None:
         # RLock is used because some code paths can re-enter lock-protected helpers on the same thread.
         self.state_lock = RLock()
-        # Keep two indexes for different concerns:
-        # - bundle_by_id: primary lookup for status/download by public bundle id
-        # - bundle_id_by_key: idempotency lookup from normalized request fingerprint
-        #
-        # Today id == key, but this is intentional future-proofing. We may move
-        # to generated/public ids (UUID/ULID) while keeping key as an internal
-        # dedupe fingerprint so equivalent requests map to one bundle id.
-        self.bundle_by_id: dict[str, BundleRecord] = {}
-        self.bundle_id_by_key: dict[str, str] = {}
+        self._store: JobStorePort = job_store if job_store is not None else create_job_store()
+        # Compat for tests that poke the legacy in-memory maps directly.
+        if isinstance(self._store, InMemoryJobStore):
+            self.bundle_by_id = self._store.by_id
+            self.bundle_id_by_key = self._store.by_key
+        else:
+            self.bundle_by_id = {}
+            self.bundle_id_by_key = {}
 
         self._runtime = _PortalRuntime()
         self._send_stream: anyio.streams.memory.MemoryObjectSendStream[str] | None = None
+        # Approximate jobs waiting on the memory stream (enqueue − dequeue).
+        self._queued_jobs = 0
+        self._metrics_hook: BundleMetricsHook | None = None
 
         # Two concurrency knobs at different layers:
         # - worker_count: number of bundle jobs processed concurrently
@@ -117,6 +125,35 @@ class BundleService:
         self.download_concurrency = download_concurrency
         self.http_timeout_seconds = http_timeout_seconds
         self.queue_max_size = queue_max_size
+        self._archive_strategy = archive_strategy or create_archive_build_strategy()
+
+    def _save(self, record: BundleRecord) -> None:
+        self._store.save(record)
+
+    def set_metrics_hook(self, hook: BundleMetricsHook | None) -> None:
+        """Attach or clear the optional push metrics hook (adapter-owned)."""
+        self._metrics_hook = hook
+
+    def snapshot(self) -> BundleRuntimeSnapshot:
+        """Return a lock-consistent runtime/job inventory for readiness and gauges."""
+        with self.state_lock:
+            return BundleRuntimeSnapshot(
+                runtime_running=self._runtime.is_running,
+                worker_count=self.worker_count,
+                download_concurrency=self.download_concurrency,
+                queue_max_size=self.queue_max_size,
+                queued_jobs=self._queued_jobs,
+                jobs_by_status=self._store.count_by_status(),
+            )
+
+    def _notify_metrics(self, method: str, **kwargs: Any) -> None:
+        hook = self._metrics_hook
+        if hook is None:
+            return
+        try:
+            getattr(hook, method)(**kwargs)
+        except Exception:
+            logger.exception("Bundle metrics hook failed: method={}", method)
 
     def _to_response(self, record: BundleRecord) -> dict[str, Any]:
         """Return HTTP-serializable bundle fields from domain state without adapter-model coupling."""
@@ -152,6 +189,7 @@ class BundleService:
         record.compression = request.compression
         record.retry_count += 1
         _requeue_for_retry(record)
+        self._save(record)
         return self._to_response(record)
 
     # ------------------------------------------------------------------
@@ -181,6 +219,7 @@ class BundleService:
             portal = self._runtime.portal
             send_stream = self._send_stream
             self._send_stream = None
+            self._queued_jobs = 0
 
         if portal is not None and send_stream is not None:
             try:
@@ -196,6 +235,8 @@ class BundleService:
         if self._send_stream is None:
             raise RuntimeError("Bundle worker queue unavailable")
         await self._send_stream.send(bundle_id)
+        with self.state_lock:
+            self._queued_jobs += 1
 
     # ------------------------------------------------------------------
     # Public Domain API
@@ -212,11 +253,8 @@ class BundleService:
         now = datetime.now(tz=timezone.utc)
 
         with self.state_lock:
-            existing_id = self.bundle_id_by_key.get(key)
-            if existing_id is not None:
-                existing_record = self.bundle_by_id.get(existing_id)
-                if existing_record is None:
-                    raise KeyError(f"Duplicate bundle request: {key}")
+            existing_record = self._store.get_by_key(key)
+            if existing_record is not None:
                 if existing_record.status == BundleState.COMPLETE:
                     return self._to_response(existing_record)
                 if existing_record.status == BundleState.FAILED:
@@ -235,8 +273,7 @@ class BundleService:
                     compression=request.compression,
                     urls=request.urls,
                 )
-                self.bundle_by_id[record.id] = record
-                self.bundle_id_by_key[key] = record.id
+                self._save(record)
                 response = self._to_response(record)
                 bundle_id = record.id
 
@@ -256,14 +293,14 @@ class BundleService:
 
     def get_bundle_status(self, bundle_id: str) -> dict[str, Any]:
         with self.state_lock:
-            record = self.bundle_by_id.get(bundle_id)
+            record = self._store.get(bundle_id)
         if record is None:
             raise KeyError(f"Bundle not found: {bundle_id}")
         return self._to_response(record)
 
     def download_bundle_archive(self, bundle_id: str) -> bytes:
         with self.state_lock:
-            record = self.bundle_by_id.get(bundle_id)
+            record = self._store.get(bundle_id)
             if record is None:
                 raise KeyError(f"Bundle not found: {bundle_id}")
             if record.status != BundleState.COMPLETE:
@@ -277,6 +314,7 @@ class BundleService:
         except Exception as exc:
             with self.state_lock:
                 _mark_failed(record, exc)
+                self._save(record)
             logger.exception("Failed to read bundle archive: bundle_id={}", bundle_id)
             raise RuntimeError(f"Failed to read bundle archive: {exc}") from exc
 
@@ -286,7 +324,8 @@ class BundleService:
     # Sync/async bridge helper for tests/debug tooling.
     @logger.catch
     def build_bundle_zip(self, record: BundleRecord) -> Path:
-        return anyio.run(self._build_bundle_archive, record)
+        result = anyio.run(self._build_bundle_archive, record)
+        return result.archive_path
 
     # ------------------------------------------------------------------
     # Worker Orchestration
@@ -309,12 +348,14 @@ class BundleService:
                     bundle_id = await receive_stream.receive()
                 except anyio.EndOfStream:
                     return
+                with self.state_lock:
+                    self._queued_jobs = max(0, self._queued_jobs - 1)
                 await self._process_bundle_job(bundle_id)
 
     async def _process_bundle_job(self, bundle_id: str) -> None:
         """Process one queued bundle id through transition, build, and completion/failure finalization."""
         with self.state_lock:
-            record = self.bundle_by_id.get(bundle_id)
+            record = self._store.get(bundle_id)
             if record is None:
                 logger.warning("Bundle job skipped: unknown bundle_id={}", bundle_id)
                 return
@@ -327,27 +368,46 @@ class BundleService:
                 )
                 return
             _transition_state(record, BundleState.PROCESSING)
+            self._save(record)
         try:
-            archive_path = await self._build_bundle_archive(record)
+            build_result = await self._build_bundle_archive(record)
         except Exception as exc:
             with self.state_lock:
                 _mark_failed(record, exc)
+                self._save(record)
+                failure_kind = record.failure_kind.value if record.failure_kind is not None else None
+            self._notify_metrics("on_job_failed", failure_kind=failure_kind)
             logger.exception("Bundle archive build failed: {}", bundle_id)
             return
 
+        # --- observability: record/log build timings (does not affect finalize or job outcome) ---
         with self.state_lock:
+            self._observe_archive_build_timings(record, build_result)
+            strategy = record.last_build_strategy or self._archive_strategy_name()
+            timings = build_result.timings
             try:
-                _finalize_complete(record, archive_path)
+                _finalize_complete(record, build_result.archive_path)
             except Exception as exc:
-                archive_path.unlink(missing_ok=True)
+                build_result.archive_path.unlink(missing_ok=True)
                 _mark_failed(record, exc)
+                failure_kind = record.failure_kind.value if record.failure_kind is not None else None
+                finalize_ok = False
                 logger.exception("Bundle finalize failed: {}", bundle_id)
             else:
+                failure_kind = None
+                finalize_ok = True
                 logger.info(
                     "Bundle job completed: bundle_id={} size_bytes={}",
                     record.id,
                     record.archive_size_bytes,
                 )
+            self._save(record)
+
+        self._notify_metrics("on_archive_built", strategy=strategy, timings=timings)
+        if finalize_ok:
+            self._notify_metrics("on_job_completed")
+        else:
+            self._notify_metrics("on_job_failed", failure_kind=failure_kind)
 
     # ------------------------------------------------------------------
     # Bundling Internals (name mapping, download, archive assembly)
@@ -399,49 +459,45 @@ class BundleService:
                     async for chunk in response.aiter_bytes():
                         await out_f.write(chunk)
 
-    async def _build_bundle_archive(self, record: BundleRecord) -> Path:
-        """Build one bundle archive by downloading eligible URLs and zipping staged files."""
-        # Per-bundle staging workspace: isolates concurrent jobs and simplifies cleanup/debugging.
-        temp_dir = Path(tempfile.mkdtemp(prefix=f"bundle-stage-{record.id}-"))
-        downloaded_files: list[tuple[str, Path]] = []
-        timeout = httpx.Timeout(self.http_timeout_seconds)
-        # Bound concurrent downloads to avoid unbounded sockets/memory usage when
-        # a bundle contains many URLs. TaskGroup structures task lifetime; this
-        # semaphore enforces capacity/backpressure.
-        semaphore = anyio.Semaphore(self.download_concurrency)
+    def _archive_strategy_name(self) -> str:
+        strategy = self._archive_strategy
+        name = getattr(strategy, "STRATEGY_NAME", None)
+        if isinstance(name, str) and name:
+            return name
+        return type(strategy).__name__
 
-        try:
-            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-                async with anyio.create_task_group() as tg:
-                    for index, url in enumerate(record.urls, start=1):
-                        archive_name = self._archive_name_from_url(url, index)
-                        if archive_name is None:
-                            continue
-                        # Stable local temp filename (not URL-derived) to avoid path traversal and name collisions.
-                        stage_path = temp_dir / f"download-{index:05d}.bin"
-                        downloaded_files.append((archive_name, stage_path))
-                        tg.start_soon(self._download_url_to_file, client, semaphore, url, stage_path)
+    def _observe_archive_build_timings(
+        self,
+        record: BundleRecord,
+        build_result: ArchiveBuildResult,
+    ) -> None:
+        """Persist and log archive build timings. Observability only; does not affect bundle outcome."""
+        timings = build_result.timings
+        strategy = self._archive_strategy_name()
+        record.last_build_timings = timings
+        record.last_build_strategy = strategy
+        logger.info(
+            "Bundle archive built: bundle_id={} strategy={} download_s={:.3f} zip_s={:.3f} total_s={:.3f} url_count={}",
+            record.id,
+            strategy,
+            timings.download_seconds,
+            timings.zip_seconds,
+            timings.total_seconds,
+            timings.url_count,
+        )
 
-            # Keep download and zipping separate: downloads are async IO-bound
-            # work, while zip creation is blocking file/CPU work offloaded to a
-            # worker thread to keep the event loop responsive.
-            archive_path = await anyio.to_thread.run_sync(
-                self._zip_from_files,
-                downloaded_files,
-                record.id,
-            )
-            return archive_path
-        finally:
-            await anyio.to_thread.run_sync(shutil.rmtree, temp_dir, True)
+    def _archive_build_context(self) -> ArchiveBuildContext:
+        """Build strategy dependencies from current service settings (resolved at build time)."""
+        return ArchiveBuildContext(
+            archive_name_from_url=self._archive_name_from_url,
+            download_url_to_file=self._download_url_to_file,
+            download_concurrency=self.download_concurrency,
+            http_timeout_seconds=self.http_timeout_seconds,
+        )
 
-    @staticmethod
-    def _zip_from_files(files: list[tuple[str, Path]], bundle_id: str) -> Path:
-        with tempfile.NamedTemporaryFile(prefix=f"bundle-{bundle_id}-", suffix=".zip", delete=False) as tmp:
-            tmp_path = Path(tmp.name)
-        with zipfile.ZipFile(tmp_path, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-            for archive_name, file_path in files:
-                zf.write(file_path, arcname=archive_name)
-        return tmp_path
+    async def _build_bundle_archive(self, record: BundleRecord) -> ArchiveBuildResult:
+        """Build one bundle archive via the configured archive build strategy."""
+        return await self._archive_strategy.build(record, self._archive_build_context())
 
     # ------------------------------------------------------------------
     # Test Hook
@@ -449,9 +505,8 @@ class BundleService:
     # Test hook.
     def reset_runtime_state_for_tests(self) -> None:
         with self.state_lock:
-            records = list(self.bundle_by_id.values())
-            self.bundle_by_id.clear()
-            self.bundle_id_by_key.clear()
+            records = self._store.list_all()
+            self._store.clear()
         self.stop_runtime()
 
         for record in records:
@@ -481,6 +536,14 @@ def get_bundle_status(bundle_id: str) -> dict[str, Any]:
 
 def download_bundle_archive(bundle_id: str) -> bytes:
     return _DEFAULT_SERVICE.download_bundle_archive(bundle_id)
+
+
+def get_bundle_runtime_snapshot() -> BundleRuntimeSnapshot:
+    return _DEFAULT_SERVICE.snapshot()
+
+
+def set_bundle_metrics_hook(hook: BundleMetricsHook | None) -> None:
+    _DEFAULT_SERVICE.set_metrics_hook(hook)
 
 
 def _reset_runtime_state_for_tests() -> None:

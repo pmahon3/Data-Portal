@@ -36,7 +36,9 @@ add-deps:
 	uv add --directory "$(OPENAPI_OUTPUT_FOLDER)" "$(CORE_SOURCE_PATH)" --no-sync # Path-only: uv reads [project].name from the dependency tree; --no-sync: update metadata/lock, skip install until `uv sync`;
 	@echo "Adding runtime dependencies from requirements.txt ..."
 	uv add --directory "$(OPENAPI_OUTPUT_FOLDER)" --no-sync -r requirements.txt
-	echo
+	@echo "Adding hand-owned observability dependencies from requirements-observability.txt ..."
+	uv add --directory "$(OPENAPI_OUTPUT_FOLDER)" --no-sync -r requirements-observability.txt
+	@echo
 
 add-dev-deps:
 	@echo "Adding dev dependencies from requirements-dev.txt ..."
