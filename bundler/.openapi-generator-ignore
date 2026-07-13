@@ -26,3 +26,7 @@
 src/openapi_server/impl/**
 # Hand-written FastAPI implementation package (matches openapitools.json fastapiImplementationPackage: core).
 bundler_server/core/**
+# Hand-owned observability shell (Prometheus /actuator; not generated from OpenAPI).
+bundler_server/observability/**
+# Hand-owned ops deps (wired by Makefile add-deps; not part of generated requirements.txt).
+requirements-observability.txt

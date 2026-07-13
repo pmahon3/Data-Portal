@@ -218,6 +218,9 @@ npx -y @openapitools/openapi-generator-cli generate --generator-key "${OPENAPI_G
 ```bash
 cd "${OPENAPI_OUTPUT_FOLDER}"
 uv add "${CORE_SOURCE_PATH}" --no-sync
+uv add --no-sync -r requirements.txt
+# Hand-owned ops deps (not OpenAPI-generated); see requirements-observability.txt
+uv add --no-sync -r requirements-observability.txt
 ```
 
 **3. Wire dev dependencies** (`add-dev-deps`):
@@ -265,6 +268,8 @@ So the **`uv`** steps match (same **`cd`** simplification as above; with **`OPEN
 ```bash
 # After codegen (step 1); current directory: bundler/ (same as OPENAPI_OUTPUT_FOLDER when it is ".")
 uv add "./bundler_core" --no-sync
+uv add --no-sync -r requirements.txt
+uv add --no-sync -r requirements-observability.txt
 cp bundler_core/requirements-dev.txt requirements-dev.txt
 uv add --dev --no-sync -r requirements-dev.txt
 uv sync
@@ -288,9 +293,12 @@ Work from the **OpenAPI output directory** (with **tracked** [`openapitools.json
 ```bash
 cd bundler   # if not already there
 uv run uvicorn bundler_server.main:app --reload --host 0.0.0.0 --port 8080
+# or
+uv run uvicorn bundler_server.observability.app:app --reload --host 0.0.0.0 --port 8080
+
 ```
 
-- **ASGI app:** **`bundler_server.main:app`** (see [`bundler_server/main.py`](bundler_server/main.py)).
+- **ASGI app:** **`bundler_server.observability.app:app`** (hand-owned shell over generated [`bundler_server/main.py`](bundler_server/main.py); adds `/metrics` and `/actuator/*`).
 - **Port `8080`:** matches **`serverPort`** in [`openapitools.json`](openapitools.json) and the Docker docs in [`docs/README_patch.md`](docs/README_patch.md).
 - **Docs UI:** open **`http://localhost:8080/docs/`** (Swagger UI).
 
