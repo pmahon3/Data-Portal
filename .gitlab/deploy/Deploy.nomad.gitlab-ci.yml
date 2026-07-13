@@ -1,0 +1,506 @@
+
+# Default variables for Nomad deployment jobs
+# These can be overridden in individual jobs or in calling .gitlab-ci.yml files
+# Variables used by nomad_setup.sh / nomad_routing.sh when deploy jobs source them
+# (SERVICE_NAME must be set by the including pipeline, e.g. per-job or matrix)
+variables:
+  NOMAD_DEPLOY_ENABLED: "true"
+  NOMAD_DATACENTERS: '["dc1"]'
+  NOMAD_JOB_DRIVER: "docker"
+  NOMAD_IMAGE_FORCE_PULL: "true"
+  # NOMAD_EXTERNAL_ACCESS: ""  # Leave unset to use environment-based defaults
+  NOMAD_RESOURCE_CPU: 1000
+  NOMAD_RESOURCE_MEMORY: 1024
+  NOMAD_COUNT: 1
+  # Defaults for script variables (replaces ${VAR:-default} in shell)
+  NOMAD_NAMESPACE: "default"
+  HEALTH_BASE: "api"
+  NOMAD_DOMAIN: "example.com"
+  RUNTIME_ENV: ""
+  # Set by CI for deploy jobs; scripts expect these in the environment when sourced
+  __SERVICE__: $SERVICE_NAME
+  __IMAGE_NAME__: "${CI_REGISTRY_IMAGE}/${SERVICE_NAME}"
+  __IMAGE_TAG__: $CI_COMMIT_SHORT_SHA
+  __DATACENTERS__: $NOMAD_DATACENTERS
+  __NAMESPACE__: $NOMAD_NAMESPACE
+  __JOB_DRIVER__: $NOMAD_JOB_DRIVER
+  __IMAGE_FORCE_PULL__: $NOMAD_IMAGE_FORCE_PULL
+  __CI_REGISTRY__: $CI_REGISTRY
+  __USERNAME__: $CI_REGISTRY_USER
+  __PASSWORD__: $CI_REGISTRY_PASSWORD
+  __RESOURCE_CPU__: $NOMAD_RESOURCE_CPU
+  __RESOURCE_MEMORY__: $NOMAD_RESOURCE_MEMORY
+  __COUNT__: $NOMAD_COUNT
+  __HEALTH_BASE__: $HEALTH_BASE
+  __RUNTIME_ENV__: $RUNTIME_ENV
+
+# Nomad Deployment Integration with Auto DevOps
+# This template provides Nomad deployment jobs following Auto DevOps patterns
+# Structure mirrors: https://gitlab.com/gitlab-org/gitlab/blob/master/lib/gitlab/ci/templates/Jobs/Deploy.gitlab-ci.yml
+#
+# Base template: .deploy (hidden job, similar to Auto DevOps)
+# Deploy jobs: review, staging, production (mirrors Auto DevOps naming)
+# Additional: deploy:development (Nomad-specific, not in Auto DevOps)
+# Stop job: stop_review (for Review Apps cleanup, mirrors Auto DevOps)
+#
+# Staging deploys are disabled by default since continuous deployment to production
+# is enabled by default. If you prefer to automatically deploy to staging and only
+# manually promote to production, enable staging by setting STAGING_ENABLED.
+
+# Preparation job removed: helper scripts now live in .gitlab/deploy/scripts and are executed directly by deploy jobs.
+
+# Base deploy template (mirrors Auto DevOps .auto-deploy pattern)
+.deploy:
+  stage: deploy
+  image: 
+    name: hashicorp/nomad:latest
+    entrypoint: [""]
+  needs:
+    - job: build
+      artifacts: false
+  after_script:
+    - echo "===== Deployment job completed ====="
+    - |
+      if [ -n "$NOMAD_ENVIRONMENT_URL" ]; then
+        echo "Deployment URL = $NOMAD_ENVIRONMENT_URL"
+      fi
+  artifacts:
+    paths:
+      - "*.nomad"
+    expire_in: 1 week
+    when: always
+  # Base rules - should not run directly (extended by specific deploy jobs)
+  # NOTE: DEPLOY_DISABLED is only for Auto DevOps Kubernetes deployment, not Nomad
+  # Nomad jobs should only check NOMAD_DEPLOY_ENABLED
+  rules:
+    - if: '$NOMAD_DEPLOY_ENABLED != "true"'
+      when: never
+    # - if: '$DEPLOY_DISABLED == "true"'
+    #   when: never
+
+# Deploy job for Review Apps (mirrors Auto DevOps review pattern)
+# Note: Does not use 'extends: .deploy' to avoid merge conflicts with Auto DevOps review job.
+review:
+  stage: review
+  image: 
+    name: hashicorp/nomad:latest
+    entrypoint: [""]
+  variables:
+    NOMAD_ENVIRONMENT: "review"
+    NOMAD_ENVIRONMENT_NAME: "review/$CI_COMMIT_REF_NAME"
+    __ENVIRONMENT__: "review-${CI_COMMIT_REF_SLUG}"
+  needs:
+    - job: build
+      artifacts: false
+  before_script:
+    # Verify Nomad helper scripts exist in the repository
+    - |
+      echo "===== Checking Nomad helper scripts under .gitlab/deploy/scripts ====="
+      if [ ! -f "$CI_PROJECT_DIR/.gitlab/deploy/scripts/nomad_setup.sh" ] || \
+         [ ! -f "$CI_PROJECT_DIR/.gitlab/deploy/scripts/nomad_routing.sh" ] || \
+         [ ! -f "$CI_PROJECT_DIR/.gitlab/deploy/scripts/nomad_deploy.sh" ]; then
+        echo "Error - Required Nomad helper scripts not found under .gitlab/deploy/scripts"
+        exit 1
+      fi
+  script:
+    - echo "===== Sourcing nomad-setup.sh ====="
+    - if ! source "$CI_PROJECT_DIR/.gitlab/deploy/scripts/nomad_setup.sh"; then echo "Error - Failed to source nomad-setup.sh"; exit 1; fi
+    - echo "===== nomad-setup.sh sourced successfully ====="
+    - echo "Deploying to environment = $NOMAD_ENVIRONMENT_NAME"
+    - source "$CI_PROJECT_DIR/.gitlab/deploy/scripts/nomad_routing.sh"
+    - source "$CI_PROJECT_DIR/.gitlab/deploy/scripts/nomad_deploy.sh"
+    - NOMAD_JOB_FILE="$CI_PROJECT_DIR/${SERVICE_NAME}-${__ENVIRONMENT__}.nomad"
+    - if [ ! -f "$NOMAD_JOB_FILE" ]; then echo "Error - Expected Nomad job file not found = $NOMAD_JOB_FILE"; exit 1; fi
+    - echo "Nomad job file present = $NOMAD_JOB_FILE"
+    - echo "NOMAD_ENVIRONMENT_URL=${NOMAD_ENVIRONMENT_URL:-}" >> deploy.env
+    # Persist environment URL for Auto DevOps browser_performance and similar jobs
+    # They expect environment_url.txt containing the base URL of this environment.
+    - echo "${NOMAD_ENVIRONMENT_URL:-}" > environment_url.txt
+  rules:
+    - if: '$NOMAD_DEPLOY_ENABLED != "true"'
+      when: never
+    - if: '$DEPLOY_DISABLED == "true"'
+      when: never
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      when: never
+    - if: '$REVIEW_DISABLED'
+      when: never
+    - if: '$CI_COMMIT_TAG || $CI_COMMIT_BRANCH'
+  environment:
+    name: review/$CI_COMMIT_REF_NAME
+    url: $NOMAD_ENVIRONMENT_URL
+    on_stop: stop_review
+    auto_stop_in: 1 week
+  artifacts:
+    paths:
+      - "*.nomad"
+      - "environment_url.txt"
+    reports:
+      dotenv: deploy.env
+    expire_in: 1 week
+    when: always
+  after_script:
+    - echo "===== Deployment job completed ====="
+    - |
+      echo "Current working directory = $(pwd)"
+      echo "Searching for .nomad files"
+      ls -la *.nomad 2>&1 || echo "No *.nomad files found"
+    - |
+      if [ -n "$NOMAD_ENVIRONMENT_URL" ]; then
+        echo "Deployment URL = $NOMAD_ENVIRONMENT_URL"
+      fi
+
+# Review App cleanup job (mirrors Auto DevOps stop_review pattern)
+stop_review:
+  extends: .deploy
+  stage: cleanup
+  image:
+    name: hashicorp/nomad:latest
+    entrypoint: [""]
+  variables:
+    GIT_STRATEGY: none
+  script:
+    # Note: nomad CLI is already available in hashicorp/nomad:latest image
+    # No additional packages needed for stop_review job
+    - |
+      if [ -z "$NOMAD_SERVER_ADDRESS" ] || [ -z "$NOMAD_SERVER_TOKEN" ]; then
+        echo "Error - NOMAD_SERVER_ADDRESS and NOMAD_SERVER_TOKEN must be set"
+        exit 1
+      fi
+      # Determine environment name from CI_ENVIRONMENT_NAME
+      # Auto DevOps uses review/$CI_COMMIT_REF_NAME format, convert to Nomad job name
+      if echo "$CI_ENVIRONMENT_NAME" | grep -q "^review/"; then
+        # Extract branch name from review/$CI_COMMIT_REF_NAME
+        BRANCH_NAME=$(echo "$CI_ENVIRONMENT_NAME" | sed 's|^review/||')
+        JOB_NAME="${SERVICE_NAME}-review-$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')"
+      else
+        JOB_NAME="${SERVICE_NAME}-${CI_ENVIRONMENT_NAME}"
+      fi
+      echo "Stopping Nomad job = $JOB_NAME"
+      nomad job stop \
+        -address="$NOMAD_SERVER_ADDRESS" \
+        -token="$NOMAD_SERVER_TOKEN" \
+        -namespace="${NOMAD_NAMESPACE:-default}" \
+        -purge \
+        "$JOB_NAME" || echo "Job $JOB_NAME not found or already stopped"
+  rules:
+    - if: '$NOMAD_DEPLOY_ENABLED != "true"'
+      when: never
+    - if: '$DEPLOY_DISABLED == "true"'
+      when: never
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      when: never
+    - if: '$REVIEW_DISABLED'
+      when: never
+    - if: '$CI_COMMIT_TAG || $CI_COMMIT_BRANCH'
+      when: manual
+  allow_failure: true
+  environment:
+    name: review/$CI_COMMIT_REF_NAME
+    action: stop
+
+# Deploy job for Staging (mirrors Auto DevOps staging pattern)
+# Staging deploys are disabled by default. Enable by setting STAGING_ENABLED.
+staging:
+  extends: .deploy
+  stage: staging
+  variables:
+    NOMAD_ENVIRONMENT: "staging"
+    NOMAD_ENVIRONMENT_NAME: "staging"
+    __ENVIRONMENT__: "staging"
+  script:
+    - source "$CI_PROJECT_DIR/.gitlab/deploy/scripts/nomad_setup.sh"
+    - echo "Deploying to environment = $NOMAD_ENVIRONMENT_NAME"
+    - source "$CI_PROJECT_DIR/.gitlab/deploy/scripts/nomad_routing.sh"
+    - source "$CI_PROJECT_DIR/.gitlab/deploy/scripts/nomad_deploy.sh"
+    - NOMAD_JOB_FILE="$CI_PROJECT_DIR/${SERVICE_NAME}-${__ENVIRONMENT__}.nomad"
+    - if [ ! -f "$NOMAD_JOB_FILE" ]; then echo "Error - Expected Nomad job file not found = $NOMAD_JOB_FILE"; exit 1; fi
+    - echo "Nomad job file present = $NOMAD_JOB_FILE"
+    - echo "NOMAD_ENVIRONMENT_URL=${NOMAD_ENVIRONMENT_URL:-}" >> deploy.env
+  artifacts:
+    paths:
+      - "*.nomad"
+    expire_in: 1 week
+    when: always
+  rules:
+    - if: '$NOMAD_DEPLOY_ENABLED != "true"'
+      when: never
+    - if: '$DEPLOY_DISABLED == "true"'
+      when: never
+    - if: '$CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH'
+      when: never
+    - if: '$STAGING_ENABLED'
+  environment:
+    name: staging
+    url: $NOMAD_ENVIRONMENT_URL
+
+# Canaries are disabled by default, but if you want them,
+# and know what the downsides are, you can enable this by setting
+# CANARY_ENABLED.
+canary:
+  extends: .deploy
+  stage: canary
+  allow_failure: true
+  variables:
+    NOMAD_ENVIRONMENT: "production"
+    NOMAD_ENVIRONMENT_NAME: "production"
+    __ENVIRONMENT__: "production"
+    NOMAD_CANARY_COUNT: "1"
+    ROLLOUT_PERCENTAGE: "50"
+  script:
+    - source "$CI_PROJECT_DIR/.gitlab/deploy/scripts/nomad_setup.sh"
+    - echo "Deploying canary to environment = $NOMAD_ENVIRONMENT_NAME"
+    - source "$CI_PROJECT_DIR/.gitlab/deploy/scripts/nomad_routing.sh"
+    - source "$CI_PROJECT_DIR/.gitlab/deploy/scripts/nomad_deploy.sh"
+    - NOMAD_JOB_FILE="$CI_PROJECT_DIR/${SERVICE_NAME}-${__ENVIRONMENT__}.nomad"
+    - if [ ! -f "$NOMAD_JOB_FILE" ]; then echo "Error - Expected Nomad job file not found = $NOMAD_JOB_FILE"; exit 1; fi
+    - echo "Nomad job file present = $NOMAD_JOB_FILE"
+    - echo "NOMAD_ENVIRONMENT_URL=${NOMAD_ENVIRONMENT_URL:-}" >> deploy.env
+  artifacts:
+    paths:
+      - "*.nomad"
+    expire_in: 1 week
+    when: always
+  rules:
+    - if: '$CI_DEPLOY_FREEZE'
+      when: never
+    - if: '$NOMAD_DEPLOY_ENABLED != "true"'
+      when: never
+    - if: '$DEPLOY_DISABLED == "true"'
+      when: never
+    - if: '$CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH'
+      when: never
+    - if: '$CANARY_ENABLED'
+      when: manual
+  environment:
+    name: production
+    url: $NOMAD_ENVIRONMENT_URL
+
+# Production deploy template (mirrors Auto DevOps .production pattern)
+# Uses extends instead of YAML anchors for better compatibility with GitLab CI
+# NOTE: Renamed to .nomad-production to avoid conflict with Auto DevOps .production template
+.nomad-production:
+  extends: .deploy
+  stage: production
+  variables:
+    NOMAD_ENVIRONMENT: "production"
+    NOMAD_ENVIRONMENT_NAME: "production"
+    __ENVIRONMENT__: "production"
+  script:
+    - source "$CI_PROJECT_DIR/.gitlab/deploy/scripts/nomad_setup.sh"
+    - echo "Deploying to environment = $NOMAD_ENVIRONMENT_NAME"
+    - source "$CI_PROJECT_DIR/.gitlab/deploy/scripts/nomad_routing.sh"
+    - source "$CI_PROJECT_DIR/.gitlab/deploy/scripts/nomad_deploy.sh"
+    - NOMAD_JOB_FILE="$CI_PROJECT_DIR/${SERVICE_NAME}-${__ENVIRONMENT__}.nomad"
+    - if [ ! -f "$NOMAD_JOB_FILE" ]; then echo "Error - Expected Nomad job file not found = $NOMAD_JOB_FILE"; exit 1; fi
+    - echo "Nomad job file present = $NOMAD_JOB_FILE"
+    - echo "NOMAD_ENVIRONMENT_URL=${NOMAD_ENVIRONMENT_URL:-}" >> deploy.env
+    - echo "${NOMAD_ENVIRONMENT_URL:-}" > environment_url.txt
+  environment:
+    name: production
+    url: $NOMAD_ENVIRONMENT_URL
+  artifacts:
+    paths:
+      - "*.nomad"
+      - "environment_url.txt"
+    reports:
+      dotenv: deploy.env
+    expire_in: 1 week
+    when: always
+
+# Deploy job for Production (mirrors Auto DevOps production pattern)
+# Continuous deployment to production is enabled by default.
+# If STAGING_ENABLED is set, this job is disabled and production_manual is used instead.
+# NOTE: Renamed to nomad:production to avoid conflict with Auto DevOps production job
+nomad:production:
+  extends: .nomad-production
+  rules:
+    - if: '$CI_DEPLOY_FREEZE'
+      when: never
+    - if: '$NOMAD_DEPLOY_ENABLED != "true"'
+      when: never
+    - if: '$DEPLOY_DISABLED == "true"'
+      when: never
+    - if: '$STAGING_ENABLED'
+      when: never
+    - if: '$CANARY_ENABLED'
+      when: never
+    - if: '$INCREMENTAL_ROLLOUT_ENABLED'
+      when: never
+    - if: '$INCREMENTAL_ROLLOUT_MODE'
+      when: never
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      when: on_success
+
+# Manual production deployment (used when STAGING_ENABLED is set)
+# Allows manual promotion from staging to production
+production_manual:
+  extends: .nomad-production
+  allow_failure: false
+  when: manual
+  rules:
+    - if: '$CI_DEPLOY_FREEZE'
+      when: never
+    - if: '$NOMAD_DEPLOY_ENABLED != "true"'
+      when: never
+    - if: '$DEPLOY_DISABLED == "true"'
+      when: never
+    - if: '$INCREMENTAL_ROLLOUT_ENABLED'
+      when: never
+    - if: '$INCREMENTAL_ROLLOUT_MODE'
+      when: never
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $STAGING_ENABLED'
+      when: manual
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CANARY_ENABLED'
+      when: manual
+
+
+# This job implements incremental rollout on for every push to the default branch.
+
+.rollout: &rollout_template
+  extends: .deploy
+  variables:
+    NOMAD_ENVIRONMENT: "production"
+    NOMAD_ENVIRONMENT_NAME: "production"
+    __ENVIRONMENT__: "production"
+    NOMAD_CANARY_COUNT: "1"
+  script:
+    - source "$CI_PROJECT_DIR/.gitlab/deploy/scripts/nomad_setup.sh"
+    - echo "Deploying rollout (${ROLLOUT_PERCENTAGE}%) to environment = $NOMAD_ENVIRONMENT_NAME"
+    - source "$CI_PROJECT_DIR/.gitlab/deploy/scripts/nomad_routing.sh"
+    - source "$CI_PROJECT_DIR/.gitlab/deploy/scripts/nomad_deploy.sh"
+    - NOMAD_JOB_FILE="$CI_PROJECT_DIR/${SERVICE_NAME}-${__ENVIRONMENT__}.nomad"
+    - if [ ! -f "$NOMAD_JOB_FILE" ]; then echo "Error - Expected Nomad job file not found = $NOMAD_JOB_FILE"; exit 1; fi
+    - echo "Nomad job file present = $NOMAD_JOB_FILE"
+    - echo "NOMAD_ENVIRONMENT_URL=${NOMAD_ENVIRONMENT_URL:-}" >> deploy.env
+    - echo "${NOMAD_ENVIRONMENT_URL:-}" > environment_url.txt
+  environment:
+    name: production
+    url: $NOMAD_ENVIRONMENT_URL
+  artifacts:
+    paths:
+      - "*.nomad"
+      - "environment_url.txt"
+    reports:
+      dotenv: deploy.env
+    expire_in: 1 week
+    when: always
+
+.manual_rollout_template: &manual_rollout_template
+  <<: *rollout_template
+  stage: production
+  resource_group: production
+  allow_failure: true
+  rules:
+    - if: '$CI_DEPLOY_FREEZE'
+      when: never
+    - if: '$NOMAD_DEPLOY_ENABLED != "true"'
+      when: never
+    - if: '$DEPLOY_DISABLED == "true"'
+      when: never
+    - if: '$INCREMENTAL_ROLLOUT_MODE == "timed"'
+      when: never
+    - if: '$CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH'
+      when: never
+    # $INCREMENTAL_ROLLOUT_ENABLED is for compatibility with pre-GitLab 11.4 syntax
+    - if: '$INCREMENTAL_ROLLOUT_MODE == "manual" || $INCREMENTAL_ROLLOUT_ENABLED'
+      when: manual
+
+.timed_rollout_template: &timed_rollout_template
+  <<: *rollout_template
+  rules:
+    - if: '$CI_DEPLOY_FREEZE'
+      when: never
+    - if: '$NOMAD_DEPLOY_ENABLED != "true"'
+      when: never
+    - if: '$DEPLOY_DISABLED == "true"'
+      when: never
+    - if: '$INCREMENTAL_ROLLOUT_MODE == "manual"'
+      when: never
+    - if: '$CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH'
+      when: never
+    - if: '$INCREMENTAL_ROLLOUT_MODE == "timed"'
+      when: delayed
+      start_in: 5 minutes
+
+timed rollout 10%:
+  <<: *timed_rollout_template
+  stage: incremental rollout 10%
+  variables:
+    ROLLOUT_PERCENTAGE: 10
+
+timed rollout 25%:
+  <<: *timed_rollout_template
+  stage: incremental rollout 25%
+  variables:
+    ROLLOUT_PERCENTAGE: 25
+
+timed rollout 50%:
+  <<: *timed_rollout_template
+  stage: incremental rollout 50%
+  variables:
+    ROLLOUT_PERCENTAGE: 50
+
+timed rollout 100%:
+  extends:
+    - .timed_rollout_template
+    - .nomad-production
+  stage: incremental rollout 100%
+  variables:
+    ROLLOUT_PERCENTAGE: 100
+
+rollout 10%:
+  <<: *manual_rollout_template
+  variables:
+    ROLLOUT_PERCENTAGE: 10
+
+rollout 25%:
+  <<: *manual_rollout_template
+  variables:
+    ROLLOUT_PERCENTAGE: 25
+
+rollout 50%:
+  <<: *manual_rollout_template
+  variables:
+    ROLLOUT_PERCENTAGE: 50
+
+rollout 100%:
+  extends:
+    - .manual_rollout_template
+    - .nomad-production
+  allow_failure: false
+
+# Note: Auto DevOps doesn't have a development job, but we keep it for Nomad-specific needs
+deploy:development:
+  extends: .deploy
+  stage: deploy
+  variables:
+    NOMAD_ENVIRONMENT: "development"
+    NOMAD_ENVIRONMENT_NAME: "development"
+    __ENVIRONMENT__: "development"
+  script:
+    - source "$CI_PROJECT_DIR/.gitlab/deploy/scripts/nomad_setup.sh"
+    - echo "Deploying to environment = $NOMAD_ENVIRONMENT_NAME"
+    - source "$CI_PROJECT_DIR/.gitlab/deploy/scripts/nomad_routing.sh"
+    - source "$CI_PROJECT_DIR/.gitlab/deploy/scripts/nomad_deploy.sh"
+    - NOMAD_JOB_FILE="$CI_PROJECT_DIR/${SERVICE_NAME}-${__ENVIRONMENT__}.nomad"
+    - if [ ! -f "$NOMAD_JOB_FILE" ]; then echo "Error - Expected Nomad job file not found = $NOMAD_JOB_FILE"; exit 1; fi
+    - echo "Nomad job file present = $NOMAD_JOB_FILE"
+    - echo "NOMAD_ENVIRONMENT_URL=${NOMAD_ENVIRONMENT_URL:-}" >> deploy.env
+    - echo "${NOMAD_ENVIRONMENT_URL:-}" > environment_url.txt
+  artifacts:
+    paths:
+      - "*.nomad"
+      - "environment_url.txt"
+    expire_in: 1 week
+    when: always
+  rules:
+    - if: '$NOMAD_DEPLOY_ENABLED != "true"'
+      when: never
+    - if: '$DEPLOY_DISABLED == "true"'
+      when: never
+    - if: '$CI_COMMIT_BRANCH == "development"'
+      when: on_success
+  environment:
+    name: development
+    url: $NOMAD_ENVIRONMENT_URL

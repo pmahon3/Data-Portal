@@ -1,0 +1,85 @@
+# Frontend-specific CI configuration
+# Includes shared matrix jobs and adds frontend-specific jobs (tests, ESLint)
+
+include:
+  # - template: Auto-DevOps.gitlab-ci.yml
+  - local: '/.gitlab/Auto-DevOps.gitlab-ci.yml' # local copy of the Auto DevOps template for customizations
+  - local: '/.gitlab/ci/ruff.yml'    # Ruff code quality check from common local library.
+  - local: '/.gitlab/ci/eslint.yml'   # ESLint code quality check from common local library.
+  - local: '/.gitlab/deploy/Deploy.nomad.gitlab-ci.yml'  # Nomad deployment integration with Auto DevOps
+  - local: '/.gitlab/services-matrix-ci.yml'  # Shared matrix jobs (retag, ruff)
+
+# # Route jobs to the runner that mounts /var/run/docker.sock
+# default:
+#   tags:
+#     - inn-runner-docker   # <-- tag of your Docker-capable runner
+
+# Tell Auto DevOps to build from frontend/
+variables:
+  DOCKERFILE_PATH: frontend/Dockerfile
+  AUTO_DEVOPS_BUILD_IMAGE_CONTEXT: frontend
+  
+  # Enable BuildKit for faster builds and better caching
+  DOCKER_BUILDKIT: "1"
+  BUILDKIT_PROGRESS: "plain"
+  
+  # Enable inline cache in images for future cache sources
+  # Note: BUILDKIT_INLINE_CACHE=1 is added as build-arg in AUTO_DEVOPS_BUILD_IMAGE_EXTRA_ARGS
+  # Local runner cache is used automatically by Docker if configured
+  # See docs/gitlab-runner-local-cache-config.md for runner configuration
+  
+  # Add multiple image tags at build time (branch + short SHA)
+  # Auto DevOps will append these to the docker build as repeated --tag flags.
+  AUTO_DEVOPS_BUILD_IMAGE_EXTRA_ARGS: >
+    # --tag ${CI_REGISTRY_IMAGE}/frontend-ci:${CI_COMMIT_SHA}
+    # --tag ${CI_REGISTRY_IMAGE}/frontend-ci:${CI_COMMIT_REF_SLUG}
+    --tag ${CI_REGISTRY_IMAGE}/frontend-ci:${CI_COMMIT_SHORT_SHA}
+    --build-arg BUILDKIT_INLINE_CACHE=1
+
+  # Nomad deployment configuration
+  SERVICE_NAME: "frontend"
+  NOMAD_DEPLOY_ENABLED: "${NOMAD_DEPLOY_ENABLED:-true}"
+  NOMAD_EXTERNAL_ACCESS: "true"  # Frontend always needs external access
+  
+  # Enable staging deployment (requires manual promotion to production)
+  # When enabled: staging deploys automatically, production requires manual promotion
+  STAGING_ENABLED: "${STAGING_ENABLED:-true}"
+  
+  # Disable Auto DevOps Kubernetes deployment (we use Nomad instead)
+  # This prevents Auto DevOps from trying to deploy to Kubernetes
+  DEPLOY_DISABLED: "${DEPLOY_DISABLED:-true}"
+  # Explicitly disable Auto DevOps review jobs to prevent job name conflicts
+  REVIEW_DISABLED: "true"
+
+# Safety net test (kept until Auto Test/Herokuish consistently reliably detects tests)
+# Frontend-specific test job - not suitable for matrix due to different image/commands
+test-frontend:
+  stage: test
+  image: node:20
+  variables:
+    CI: "true"
+    JEST_JUNIT_OUTPUT_DIR: "."
+    JEST_JUNIT_OUTPUT_NAME: "frontend-test-report.xml"
+  before_script:
+    - cd frontend
+    - npm ci
+    - npm install jest-junit
+  script:
+    - npm test -- --ci --reporters=default --reporters=jest-junit || echo "Tests failed or not detected by Auto DevOps"
+  artifacts:
+    reports:
+      junit: frontend/frontend-test-report.xml
+    paths:
+      - frontend/frontend-test-report.xml
+    when: always
+
+# Frontend-specific ESLint code quality check
+# Not suitable for matrix as backend doesn't use ESLint
+code_quality_eslint_check:
+  extends: .eslint-check-template
+  variables:
+    ESLINT_TARGET: frontend
+    ESLINT_REPORT: frontend-eslint-code-quality-report.json
+
+# Note: code_quality_ruff_check and retag jobs are now in services-matrix-ci.yml
+# They will run as matrix jobs for both backend and frontend

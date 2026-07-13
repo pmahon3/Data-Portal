@@ -1,10 +1,23 @@
 server {
   listen 80 default_server;
-  server_name ${SERVER_NAME};
+  server_name "";
 
   # React SPA: serve files or fall back to index.html
   root /usr/share/nginx/html;
   index index.html;
+
+  # Health check endpoints
+  location /health {
+    access_log off;
+    return 200 "healthy\n";
+    add_header Content-Type text/plain;
+  }
+
+  location /ready {
+    access_log off;
+    return 200 "ready\n";
+    add_header Content-Type text/plain;
+  }
 
   location / {
     try_files $uri /index.html;

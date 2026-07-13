@@ -1,3 +1,5 @@
+
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -86,6 +88,15 @@ class App:
     def get_app(self):
         return self.app
 
+# 1. Define the filter class
+class HealthCheckFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        # Returns False if the log message contains health/ready endpoint paths
+        msg = record.getMessage()
+        return "/health" not in msg and "/ready" not in msg
+
+# 2. Add the filter to the uvicorn access logger
+logging.getLogger("uvicorn.access").addFilter(HealthCheckFilter())
 
 app_instance = App()
 app = app_instance.get_app()

@@ -1,0 +1,39 @@
+.base_eslint:
+  stage: test
+  interruptible: true
+  image: node:20
+  before_script:
+    - cd $CI_PROJECT_DIR
+    - npm --version || echo "npm not found, will install dependencies"
+
+.eslint-check-template:
+  extends: .base_eslint
+  variables:
+    ESLINT_TARGET: "frontend"
+    ESLINT_REPORT: "eslint-code-quality-report.json"
+  script:
+    # Install dependencies if package.json exists in target directory
+    - |
+      if [ -f "${ESLINT_TARGET}/package.json" ]; then
+        cd ${ESLINT_TARGET}
+        npm ci
+        # Install GitLab formatter compatible with ESLint 8
+        # Note: @gitlab-formatters/eslint-formatter-gitlab supports ESLint 8+
+        npm install @gitlab-formatters/eslint-formatter-gitlab
+        # Run ESLint with GitLab formatter
+        npx eslint . --format=@gitlab-formatters/gitlab --output-file ${CI_PROJECT_DIR}/${ESLINT_REPORT} || true
+        cd ${CI_PROJECT_DIR}
+      else
+        echo "No package.json found in ${ESLINT_TARGET}, skipping ESLint"
+        echo '[]' > ${ESLINT_REPORT}
+      fi
+    - echo "---- ESLint report (${ESLINT_REPORT}) ----"
+    - cat ${ESLINT_REPORT} || true
+  artifacts:
+    reports:
+      codequality: $CI_PROJECT_DIR/${ESLINT_REPORT}
+    paths:
+      - ${ESLINT_REPORT}
+    expire_in: 1 week
+    when: always
+

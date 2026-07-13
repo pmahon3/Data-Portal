@@ -1,0 +1,41 @@
+# Shared matrix jobs for backend and frontend services
+# This file contains common jobs that can be parallelized using GitLab's matrix feature
+# Service-specific jobs (tests, ESLint) remain in their respective service files
+
+include:
+  - local: '/.gitlab/ci/retag.yml'   # Retag job template
+
+# Matrix configuration anchor for reuse
+.services_matrix: &services_matrix
+  parallel:
+    matrix:
+      - SERVICE_NAME: [backend, frontend]
+
+# Ruff code quality check (common to both services)
+code_quality_ruff_check:
+  extends: .ruff-check-template
+  <<: *services_matrix
+  variables:
+    RUFF_TARGET: "${SERVICE_NAME}"
+    RUFF_REPORT: "${SERVICE_NAME}-code-quality-report.json"
+
+# Post-build: add timestamp tag and branch-specific 'latest' tags
+# Backend-specific retag job - runs only when backend files change
+retag:backend:
+  extends: .retag_job_base
+  variables:
+    SERVICE_CHANGED: "backend"
+  rules:
+    - changes:
+        - backend/**/*
+      when: on_success
+
+# Frontend-specific retag job - runs only when frontend files change
+retag:frontend:
+  extends: .retag_job_base
+  variables:
+    SERVICE_CHANGED: "frontend"
+  rules:
+    - changes:
+        - frontend/**/*
+      when: on_success

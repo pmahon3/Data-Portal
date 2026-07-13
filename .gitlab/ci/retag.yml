@@ -1,0 +1,93 @@
+# Generic retag job template - reused by service-specific jobs via extends
+# This template handles retagging Docker images with timestamp and branch-specific tags
+.retag_job_base:
+  stage: build
+  image: docker:27-cli
+  needs:
+    # Make build dependency optional because Auto DevOps may not create the build job
+    # in certain conditions (e.g., only/except rules, branch conditions). However,
+    # we enforce that retag only runs when build has completed by checking build job
+    # status in the script below.
+    - job: build
+      artifacts: false
+      optional: true
+  variables:
+    DOCKER_API_VERSION: "1.41"
+  script:
+    # Wait for DinD/Docker daemon to be ready
+    - until docker info >/dev/null 2>&1; do echo "Waiting for Docker daemon..."; sleep 2; done
+    # Use shared pipeline timestamp (set in root pipeline's generate-timestamp job)
+    # Note: Fallback is provided in case this runs standalone or timestamp is not set
+    - ts="${PIPELINE_TIMESTAMP:-20000101-0001}"
+    - | 
+      echo "Using pipeline timestamp: $ts"
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    # Pull the image tagged with 'ci' and verify commit SHA matches
+    - |
+      SOURCE_IMAGE=""
+      ci_tag="${CI_REGISTRY_IMAGE}/${SERVICE_CHANGED}:${CI_COMMIT_SHA}"
+      echo "Pulling image with commit SHA tag: $ci_tag"
+      if docker pull "$ci_tag" 2>/dev/null; then
+        SOURCE_IMAGE="$ci_tag"
+        echo "Successfully pulled image: $SOURCE_IMAGE"
+        
+        # Extract commit SHA from image labels and verify it matches current commit
+        IMAGE_COMMIT_SHA=$(docker inspect "$SOURCE_IMAGE" --format='{{index .Config.Labels "org.opencontainers.image.revision"}}' 2>/dev/null || \
+                          docker inspect "$SOURCE_IMAGE" --format='{{index .Config.Labels "CI_COMMIT_SHA"}}' 2>/dev/null || \
+                          docker inspect "$SOURCE_IMAGE" --format='{{index .Config.Labels "vcs.ref"}}' 2>/dev/null || \
+                          echo "")
+        
+        # temporary debug output
+        echo "IMAGE_COMMIT_SHA: $IMAGE_COMMIT_SHA, CI_COMMIT_SHA: $CI_COMMIT_SHA"
+        echo "org.opencontainers.image.revision: $(docker inspect "$SOURCE_IMAGE" --format='{{index .Config.Labels "org.opencontainers.image.revision"}}' 2>/dev/null)"
+        echo "CI_COMMIT_SHA: $(docker inspect "$SOURCE_IMAGE" --format='{{index .Config.Labels "CI_COMMIT_SHA"}}' 2>/dev/null)"
+        echo "vcs.ref: $(docker inspect "$SOURCE_IMAGE" --format='{{index .Config.Labels "vcs.ref"}}' 2>/dev/null)"
+
+        if [ -z "$IMAGE_COMMIT_SHA" ] || [ "$IMAGE_COMMIT_SHA" != "$CI_COMMIT_SHA" ]; then
+          [ -z "$IMAGE_COMMIT_SHA" ] && echo "Error: Could not extract commit SHA from image labels."
+          [ -n "$IMAGE_COMMIT_SHA" ] && echo "Error: Image commit SHA ($IMAGE_COMMIT_SHA) does not match current commit ($CI_COMMIT_SHA)"
+          exit 1
+        fi
+      else
+        echo "Error: Failed to pull image with commit SHA tag: $ci_tag"
+        echo "Build job may not have completed or image not found in registry."
+        exit 1
+      fi
+
+    # Tag with timestamp and other tags
+    # e.g., backend:20251222-2357 or frontend:20251222-2357
+    - docker tag "$SOURCE_IMAGE" "${CI_REGISTRY_IMAGE}/${SERVICE_CHANGED}:${ts}"
+    - docker tag "$SOURCE_IMAGE" "${CI_REGISTRY_IMAGE}/${SERVICE_CHANGED}:${CI_COMMIT_SHORT_SHA}"
+    - docker tag "$SOURCE_IMAGE" "${CI_REGISTRY_IMAGE}/${SERVICE_CHANGED}:${CI_COMMIT_REF_SLUG}"
+
+    # 'latest' for default branch (usually main)
+    - |
+      if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
+        docker tag "$SOURCE_IMAGE" "${CI_REGISTRY_IMAGE}/${SERVICE_CHANGED}:latest"
+        docker push "${CI_REGISTRY_IMAGE}/${SERVICE_CHANGED}:latest"
+      fi
+
+    # 'latest-dev' for development branch
+    - |
+      if [ "$CI_COMMIT_BRANCH" = "development" ]; then
+        docker tag "$SOURCE_IMAGE" "${CI_REGISTRY_IMAGE}/${SERVICE_CHANGED}:latest-dev"
+        docker push "${CI_REGISTRY_IMAGE}/${SERVICE_CHANGED}:latest-dev"
+      fi
+    
+    # Display all local tags of the image ${CI_REGISTRY_IMAGE}/${SERVICE_CHANGED}
+    - |
+      echo "All local tags for image: ${CI_REGISTRY_IMAGE}/${SERVICE_CHANGED}"
+      docker images --format "{{.Repository}}:{{.Tag}}" | grep "^${CI_REGISTRY_IMAGE}/${SERVICE_CHANGED}:" | while read tag; do
+        echo " - $tag"
+      done
+
+    # Push all new tags for the -ci image
+    # - docker push --all-tags "${CI_REGISTRY_IMAGE}/${SERVICE_CHANGED}"
+    
+    # Explicitly push only the newly created tags (timestamp, short SHA, ref slug, optional: latest, latest-dev)
+    # Note: We push only the explicitly retagged tags instead of using --all-tags to avoid pushing old, cached, deprecated, or undesired tags that might be present locally. 
+    # Using --all-tags can inadvertently upload historical/leftover tags that should not be published.
+    - docker push "${CI_REGISTRY_IMAGE}/${SERVICE_CHANGED}:${ts}"
+    - docker push "${CI_REGISTRY_IMAGE}/${SERVICE_CHANGED}:${CI_COMMIT_SHORT_SHA}"
+    - docker push "${CI_REGISTRY_IMAGE}/${SERVICE_CHANGED}:${CI_COMMIT_REF_SLUG}"
+    # Note: 'latest' and 'latest-dev' are already pushed conditionally above if created
