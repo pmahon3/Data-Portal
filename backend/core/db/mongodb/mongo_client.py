@@ -4,10 +4,7 @@ MongoDB session management.
 Provides a shared MongoClient singleton for the process lifetime.
 
 Environment variables needed:
-    MONGO_HOST
-    MONGO_PORT
-    MONGO_INIT_ROOT_USERNAME
-    MONGO_INIT_ROOT_PASSWORD
+    MONGO_URI or (MONGO_HOST, MONGO_PORT, MONGO_INIT_ROOT_USERNAME, MONGO_INIT_ROOT_PASSWORD)
 """
 
 import logging
@@ -35,17 +32,14 @@ def get_mongo_client() -> MongoClient:
     global _mongo_client
 
     if _mongo_client is None:
-        user = os.environ["MONGO_INIT_ROOT_USERNAME"]
-        password = os.environ["MONGO_INIT_ROOT_PASSWORD"]
-        host = os.getenv("MONGO_HOST", "")
-        port = os.getenv("MONGO_PORT", "27017")
-
-        logger.info("Initializing MongoDB connection...")
-
-        # Singleton synchronous shared MongoDB client connection. Using a singleton ensures that all consumers are ACID. 
-        # If there are multiple instances of the client (e.g., multiple backends), the synchronous client does not 
-        # guarantee asynchronous and thread-safe operations (across all instances) when interacting with MongoDB.
-        _mongo_client = MongoClient(host=host, port=int(port), username=user, password=password)
+        if "MONGO_URI" in os.environ:
+            _mongo_client = MongoClient(os.environ["MONGO_URI"])
+        else:
+            user = os.environ["MONGO_INIT_ROOT_USERNAME"]
+            password = os.environ["MONGO_INIT_ROOT_PASSWORD"]
+            host = os.getenv("MONGO_HOST", "")
+            port = os.getenv("MONGO_PORT", "27017")
+            _mongo_client = MongoClient(host=host, port=int(port), username=user, password=password)
 
         # Verify
         try:
