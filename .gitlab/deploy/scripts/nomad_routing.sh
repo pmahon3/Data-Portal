@@ -21,7 +21,7 @@ else
   SERVICE_TYPE="backend"
   export __RUNTIME_ENV__="${__RUNTIME_ENV_BACKEND__}"
 fi
-echo "Selected runtime environment for ${SERVICE_TYPE}"
+echo "Selected runtime environment (NOMAD_ENVIRONMENT=${NOMAD_ENVIRONMENT}) for ${SERVICE_TYPE}"
 
 # Determine if external (Traefik) access is needed
 NEEDS_EXTERNAL_ACCESS="false"
