@@ -467,7 +467,10 @@ rollout 100%:
     - .nomad-production
   allow_failure: false
 
-# Note: Auto DevOps doesn't have a development job, but we keep it for Nomad-specific needs
+# Auto DevOps has no "development" deploy job (only review / staging / production).
+# We keep this Nomad job so pushes to the long-lived `development` branch deploy a
+# shared, durable Nomad environment (e.g. backend-development), distinct from
+# ephemeral review apps and from staging/production on the default branch.
 deploy:development:
   extends: .deploy
   stage: deploy
