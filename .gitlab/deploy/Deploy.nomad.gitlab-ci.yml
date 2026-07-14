@@ -355,8 +355,10 @@ production_manual:
 
 
 # This job implements incremental rollout on for every push to the default branch.
+# Use `extends` (not YAML << merge) so child `variables:` merge with the parent
+# instead of replacing the whole map (which would drop __ENVIRONMENT__, etc.).
 
-.rollout: &rollout_template
+.rollout:
   extends: .deploy
   variables:
     NOMAD_ENVIRONMENT: "production"
@@ -383,8 +385,8 @@ production_manual:
     expire_in: 1 week
     when: always
 
-.manual_rollout_template: &manual_rollout_template
-  <<: *rollout_template
+.manual_rollout_template:
+  extends: .rollout
   stage: production
   resource_group: production
   allow_failure: true
@@ -403,8 +405,8 @@ production_manual:
     - if: '$INCREMENTAL_ROLLOUT_MODE == "manual" || $INCREMENTAL_ROLLOUT_ENABLED'
       when: manual
 
-.timed_rollout_template: &timed_rollout_template
-  <<: *rollout_template
+.timed_rollout_template:
+  extends: .rollout
   rules:
     - if: '$CI_DEPLOY_FREEZE'
       when: never
@@ -421,19 +423,19 @@ production_manual:
       start_in: 5 minutes
 
 timed rollout 10%:
-  <<: *timed_rollout_template
+  extends: .timed_rollout_template
   stage: incremental rollout 10%
   variables:
     ROLLOUT_PERCENTAGE: 10
 
 timed rollout 25%:
-  <<: *timed_rollout_template
+  extends: .timed_rollout_template
   stage: incremental rollout 25%
   variables:
     ROLLOUT_PERCENTAGE: 25
 
 timed rollout 50%:
-  <<: *timed_rollout_template
+  extends: .timed_rollout_template
   stage: incremental rollout 50%
   variables:
     ROLLOUT_PERCENTAGE: 50
@@ -447,17 +449,17 @@ timed rollout 100%:
     ROLLOUT_PERCENTAGE: 100
 
 rollout 10%:
-  <<: *manual_rollout_template
+  extends: .manual_rollout_template
   variables:
     ROLLOUT_PERCENTAGE: 10
 
 rollout 25%:
-  <<: *manual_rollout_template
+  extends: .manual_rollout_template
   variables:
     ROLLOUT_PERCENTAGE: 25
 
 rollout 50%:
-  <<: *manual_rollout_template
+  extends: .manual_rollout_template
   variables:
     ROLLOUT_PERCENTAGE: 50
 
