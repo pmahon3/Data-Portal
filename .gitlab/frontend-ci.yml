@@ -38,16 +38,16 @@ variables:
 
   # Nomad deployment configuration
   SERVICE_NAME: "frontend"
-  NOMAD_DEPLOY_ENABLED: "${NOMAD_DEPLOY_ENABLED:-true}"
+  NOMAD_DEPLOY_ENABLED: "${NOMAD_DEPLOY_ENABLED}"
   NOMAD_EXTERNAL_ACCESS: "true"  # Frontend always needs external access
   
   # Enable staging deployment (requires manual promotion to production)
   # When enabled: staging deploys automatically, production requires manual promotion
-  STAGING_ENABLED: "${STAGING_ENABLED:-true}"
+  STAGING_ENABLED: "${STAGING_ENABLED}"
   
   # Disable Auto DevOps Kubernetes deployment (we use Nomad instead)
   # This prevents Auto DevOps from trying to deploy to Kubernetes
-  DEPLOY_DISABLED: "${DEPLOY_DISABLED:-true}"
+  DEPLOY_DISABLED: "${DEPLOY_DISABLED}"
   # Explicitly disable Auto DevOps review jobs to prevent job name conflicts
   REVIEW_DISABLED: "true"
 
