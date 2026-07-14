@@ -112,7 +112,6 @@ review:
     - NOMAD_JOB_FILE="$CI_PROJECT_DIR/${SERVICE_NAME}-${__ENVIRONMENT__}.nomad"
     - if [ ! -f "$NOMAD_JOB_FILE" ]; then echo "Error - Expected Nomad job file not found = $NOMAD_JOB_FILE"; exit 1; fi
     - echo "Nomad job file present = $NOMAD_JOB_FILE"
-    - echo "NOMAD_ENVIRONMENT_URL=${NOMAD_ENVIRONMENT_URL:-}" >> deploy.env
     # Persist environment URL for Auto DevOps browser_performance and similar jobs
     # They expect environment_url.txt containing the base URL of this environment.
     - echo "${NOMAD_ENVIRONMENT_URL:-}" > environment_url.txt
@@ -135,8 +134,6 @@ review:
     paths:
       - "*.nomad"
       - "environment_url.txt"
-    reports:
-      dotenv: deploy.env
     expire_in: 1 week
     when: always
   after_script:
@@ -217,10 +214,13 @@ staging:
     - NOMAD_JOB_FILE="$CI_PROJECT_DIR/${SERVICE_NAME}-${__ENVIRONMENT__}.nomad"
     - if [ ! -f "$NOMAD_JOB_FILE" ]; then echo "Error - Expected Nomad job file not found = $NOMAD_JOB_FILE"; exit 1; fi
     - echo "Nomad job file present = $NOMAD_JOB_FILE"
-    - echo "NOMAD_ENVIRONMENT_URL=${NOMAD_ENVIRONMENT_URL:-}" >> deploy.env
+    # Persist environment URL for Auto DevOps browser_performance and similar jobs
+    # They expect environment_url.txt containing the base URL of this environment.
+    - echo "${NOMAD_ENVIRONMENT_URL:-}" > environment_url.txt
   artifacts:
     paths:
       - "*.nomad"
+      - "environment_url.txt"
     expire_in: 1 week
     when: always
   rules:
@@ -257,7 +257,6 @@ canary:
     - NOMAD_JOB_FILE="$CI_PROJECT_DIR/${SERVICE_NAME}-${__ENVIRONMENT__}.nomad"
     - if [ ! -f "$NOMAD_JOB_FILE" ]; then echo "Error - Expected Nomad job file not found = $NOMAD_JOB_FILE"; exit 1; fi
     - echo "Nomad job file present = $NOMAD_JOB_FILE"
-    - echo "NOMAD_ENVIRONMENT_URL=${NOMAD_ENVIRONMENT_URL:-}" >> deploy.env
   artifacts:
     paths:
       - "*.nomad"
@@ -297,7 +296,6 @@ canary:
     - NOMAD_JOB_FILE="$CI_PROJECT_DIR/${SERVICE_NAME}-${__ENVIRONMENT__}.nomad"
     - if [ ! -f "$NOMAD_JOB_FILE" ]; then echo "Error - Expected Nomad job file not found = $NOMAD_JOB_FILE"; exit 1; fi
     - echo "Nomad job file present = $NOMAD_JOB_FILE"
-    - echo "NOMAD_ENVIRONMENT_URL=${NOMAD_ENVIRONMENT_URL:-}" >> deploy.env
     - echo "${NOMAD_ENVIRONMENT_URL:-}" > environment_url.txt
   environment:
     name: production
@@ -306,8 +304,6 @@ canary:
     paths:
       - "*.nomad"
       - "environment_url.txt"
-    reports:
-      dotenv: deploy.env
     expire_in: 1 week
     when: always
 
@@ -376,7 +372,6 @@ production_manual:
     - NOMAD_JOB_FILE="$CI_PROJECT_DIR/${SERVICE_NAME}-${__ENVIRONMENT__}.nomad"
     - if [ ! -f "$NOMAD_JOB_FILE" ]; then echo "Error - Expected Nomad job file not found = $NOMAD_JOB_FILE"; exit 1; fi
     - echo "Nomad job file present = $NOMAD_JOB_FILE"
-    - echo "NOMAD_ENVIRONMENT_URL=${NOMAD_ENVIRONMENT_URL:-}" >> deploy.env
     - echo "${NOMAD_ENVIRONMENT_URL:-}" > environment_url.txt
   environment:
     name: production
@@ -385,8 +380,6 @@ production_manual:
     paths:
       - "*.nomad"
       - "environment_url.txt"
-    reports:
-      dotenv: deploy.env
     expire_in: 1 week
     when: always
 
@@ -491,7 +484,6 @@ deploy:development:
     - NOMAD_JOB_FILE="$CI_PROJECT_DIR/${SERVICE_NAME}-${__ENVIRONMENT__}.nomad"
     - if [ ! -f "$NOMAD_JOB_FILE" ]; then echo "Error - Expected Nomad job file not found = $NOMAD_JOB_FILE"; exit 1; fi
     - echo "Nomad job file present = $NOMAD_JOB_FILE"
-    - echo "NOMAD_ENVIRONMENT_URL=${NOMAD_ENVIRONMENT_URL:-}" >> deploy.env
     - echo "${NOMAD_ENVIRONMENT_URL:-}" > environment_url.txt
   artifacts:
     paths:
