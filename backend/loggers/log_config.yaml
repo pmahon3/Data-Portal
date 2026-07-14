@@ -44,6 +44,12 @@ handlers:
     filename: ${LOG_DIR}/uvicorn.log
     mode: a
     formatter: detailed
+  error_file:
+    class: logging.FileHandler
+    filename: ${LOG_DIR}/errors.log
+    mode: a
+    level: ERROR
+    formatter: detailed
 
 loggers:
   # Application-level loggers
@@ -94,6 +100,12 @@ loggers:
   casbin:
     level: ${LOG_LEVEL}
     handlers: [console, policy_manager_file]
+    propagate: false
+
+  # API endpoint error logger
+  api.endpoints:
+    level: ${LOG_LEVEL}
+    handlers: [console, app_file, error_file]
     propagate: false
 
 root:

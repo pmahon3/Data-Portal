@@ -1,0 +1,9 @@
+# Pytest configuration (pytest 9+). Takes precedence over pyproject.toml.
+# https://docs.pytest.org/en/stable/reference/customize.html#pytest-toml
+
+[pytest]
+minversion = "9.0"
+pythonpath = ["bundler_core/src"]
+# ``--cov`` must match an importable package (``bundler_core`` here), not the distribution hyphen name.
+# ``--cov-append`` merges into ``.coverage`` when multiple pytest runs share the same cwd (e.g. ``make test``).
+addopts = ["--cov=bundler_core", "--cov-append", "--cov-report=term-missing"]

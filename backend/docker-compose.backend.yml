@@ -6,7 +6,14 @@ secrets:
 services:
   backend:
     container_name: ams-backend
-    build: .
+    build: 
+      context: .
+      platforms:
+        - "linux/amd64"
+    depends_on:
+    # Require keycloak be ready before backend starts up
+      keycloak:
+        condition: service_healthy
     # entrypoint: ["bash", "/app/entrypoint.backend.sh"]
     environment:
       # Keycloak connection (external instance on separate domain)
@@ -16,6 +23,8 @@ services:
       KEYCLOAK_ADMIN_CLIENT_ID: ams-portal-admin
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: admin123
+      KEYCLOAK_ADMIN_CLIENT_SECRET_FILE: /run/secrets/kc_admin_client_secret
+      KEYCLOAK_ADMIN_CLIENT_SECRET: ${KEYCLOAK_ADMIN_CLIENT_SECRET}
       # Token issuer must match the URL in JWT tokens (frontend accesses via localhost)
       KEYCLOAK_TOKEN_ISSUER: http://localhost:8080/realms/ams-portal
       # External issuer for smoke tests (how tokens are actually issued)
@@ -26,18 +35,24 @@ services:
       AMS_PORT: "8000"
       AMS_RELOAD: "false"
       SYSTEM_RESET: "false"
+      SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-JzATRY8v4ztexRVDLlqpaOBm8AfGvwwtC2NU47diyE0=}
       LOG_LEVEL: INFO
       LOG_DIR: /app/data/logs
       API_VERSION: "0_1"
 
       # Casbin/data paths
-      ENFORCER_MODEL: /app/core/settings/managers/policies/casbin/model.conf
-      ENFORCER_POLICY: /app/core/settings/managers/policies/casbin/policy.csv
+      ENFORCER_MODEL: /app/core/services/policies/casbin/model.conf
+      ENFORCER_POLICY: /app/core/services/policies/casbin/policy.csv
       USER_POLICIES: /app/data/policies
       INSTANCE_CONFIGS: /app/data/configs
 
       # Backend base URL
       BACKEND_BASE_URL: http://localhost:8000
+
+      # Bundler provider switch: set BUNDLER_PROVIDER to "python" or "java"
+      BUNDLER_PROVIDER: ${BUNDLER_PROVIDER:-java}
+      PYTHON_BUNDLER_URL: ${PYTHON_BUNDLER_URL:-http://bundler:8082}
+      JAVA_BUNDLER_URL: ${JAVA_BUNDLER_URL:-http://host.docker.internal:8888}
 
       # Control smoke test execution on startup (default: true)
       RUN_SMOKE_TESTS: "true"
@@ -53,7 +68,7 @@ services:
 
     volumes:
       - .:/app
-      - ./logs:/app/data/logs
+      - ./data/logs:/app/data/logs
       - ./data/policies:/app/data/policies
       - ./data/configs:/app/data/configs
     secrets:

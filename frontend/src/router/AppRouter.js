@@ -1,8 +1,8 @@
 /* Handling App Routes and then export them to App.js
    The AuthenticatedApp function check if users have proper role to access admin page or normal user page
 */
-import React, { useEffect } from "react";
-import { Routes, Route, useNavigate, useLocation } from "react-router-dom";
+import React from "react";
+import { Routes, Route, Navigate } from "react-router-dom";
 import { useKeycloak } from "@react-keycloak/web";
 import Navbar from "../components/navbar/Navbar";
 import LandingPage from "../components/landing_page/LandingPage";
@@ -14,35 +14,43 @@ import About from "../components/about/About";
 // Check the role of user
 function AuthenticatedApp({ keycloak }) {
   const roles = keycloak.tokenParsed?.realm_access?.roles || [];
+  const projects = keycloak.tokenParsed?.projects || [];
+  const isProjectManager = projects.some(path => String(path).replace(/\/$/, "").endsWith("/managers"));
   const token = keycloak.token;
 
   console.log("This is the token: "+ token)
 
-  return roles.includes("admin") ? <AdminPage token={token} /> : <NormalUserPage />;
+  return roles.includes("admin") || isProjectManager ? <AdminPage token={token} /> : <NormalUserPage />;
 }
 
 //handle application routes
 const AppRouter = () => {
   const { keycloak, initialized } = useKeycloak();
-  const navigate = useNavigate();
-  const location = useLocation();
-
- /* if user is authenticated, navigate to /app. If the path is "/app" and the user is authneticated, 
-  run AuthenticatedApp, which checks the role of the user. If not authenticated, returns to the landing page. */
-  useEffect(() => {
-    if (initialized && keycloak.authenticated && location.pathname === "/") {
-      navigate("/app");
-    }
-  }, [initialized, keycloak.authenticated, location.pathname, navigate]);
+  const isAuthenticated = Boolean(keycloak.authenticated);
 
   return (
     <>
       <Navbar />
       <Routes>
-        <Route path="/" element={<LandingPage />} />
+        <Route
+          path="/"
+          element={
+            initialized && isAuthenticated ? (
+              <Navigate to="/app" replace />
+            ) : (
+              <LandingPage />
+            )
+          }
+        />
         <Route
           path="/app/*"
-          element={keycloak.authenticated ? <AuthenticatedApp keycloak={keycloak} /> : <LandingPage />}
+          element={
+            !initialized ? null : isAuthenticated ? (
+              <AuthenticatedApp keycloak={keycloak} />
+            ) : (
+              <Navigate to="/" replace />
+            )
+          }
         />
         <Route path="/about" element={<About />} />
       </Routes>

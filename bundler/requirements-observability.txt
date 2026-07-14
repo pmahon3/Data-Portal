@@ -1,0 +1,4 @@
+# Hand-owned ops/observability deps for bundler_server.observability (not OpenAPI-generated).
+# Wired by Makefile add-deps via: uv add --no-sync -r requirements-observability.txt
+prometheus-client>=0.20.0,<1
+prometheus-fastapi-instrumentator>=7.0.0,<8

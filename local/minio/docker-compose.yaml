@@ -11,7 +11,13 @@ services:
     volumes:
       - data-minio:/data
       # - ./data:/data
+    networks:
+      - ams-network
     command: server /data --console-address ":9001"
+
+networks:
+  ams-network:
+    driver: bridge
 
 volumes:
   data-minio:

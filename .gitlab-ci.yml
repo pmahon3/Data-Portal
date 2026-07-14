@@ -1,0 +1,277 @@
+workflow:
+  rules:
+    - if: $CI_COMMIT_BRANCH # This makes it a 'branch' job, matching Auto DevOps
+      # Even though it's technically a "branch pipeline," GitLab is smart enough to display the results of this pipeline directly inside your Merge Request widget.
+
+variables:
+  DOCKER_API_VERSION: "1.41"
+#   DOCKER_TLS_CERTDIR: ""            # disable TLS cert generation inside DinD
+#   DOCKER_HOST: tcp://docker:2375    # point client to the DinD service
+
+# services:
+#   - docker:27-dind
+# services: []   # empty array to disable DinD service, using Docker socket instead
+#   DOCKER_HOST is not set - uses socket by default
+
+  # Disable deprecated CodeClimate-based Code Quality scanning
+  # This feature was deprecated in GitLab 17.3 and is planned for removal in 19.0.
+  # Reference: https://docs.gitlab.com/ci/testing/code_quality/#use-the-built-in-code-quality-cicd-template-deprecated
+  # 
+  # BREAKING CHANGE: This disables the built-in CodeClimate-based code quality scanning.
+  # We use direct tool integration instead (Ruff, ESLint, Bandit, MyPy) which provide
+  # better control and are the recommended approach going forward.
+  # 
+  # To re-enable (not recommended), remove this variable or set it to "false".
+  CODE_QUALITY_DISABLED: "true"
+  
+  NOMAD_DEPLOY_ENABLED: "${NOMAD_DEPLOY_ENABLED}"
+  # NOMAD_EXTERNAL_ACCESS not set - uses defaults:
+  #   - Review Apps: external access enabled (for testing)
+  #   - Production/Staging/Development: internal only (service discovery)
+  
+  # Enable staging deployment (requires manual promotion to production)
+  # When enabled: staging deploys automatically, production requires manual promotion
+  STAGING_ENABLED: "${STAGING_ENABLED}"
+  
+  # Disable Auto DevOps Kubernetes deployment (we use Nomad instead)
+  # This prevents Auto DevOps from trying to deploy to Kubernetes
+  # NOTE: This only disables Auto DevOps deploy jobs, NOT Nomad deploy jobs
+  # Nomad jobs check NOMAD_DEPLOY_ENABLED, not DEPLOY_DISABLED
+  DEPLOY_DISABLED: "${DEPLOY_DISABLED}"
+  # Explicitly disable Auto DevOps review jobs to prevent job name conflicts
+  # REVIEW_DISABLED: "true"
+  
+  # Disable Helm/Kubernetes jobs (not needed for Nomad deployment)
+  MIGRATE_HELM_2TO3: "false"
+  CLEANUP_HELM_2TO3: "false"
+
+
+# stages: [build, triggers]
+stages:
+  - build
+  - test
+  - deploy  # dummy stage to follow the template guidelines
+  - review
+  - dast
+  - staging
+  - canary
+  - production
+  - incremental rollout 10%
+  - incremental rollout 25%
+  - incremental rollout 50%
+  - incremental rollout 100%
+  - performance
+  - cleanup
+  - triggers
+
+# Generate shared timestamp once for entire pipeline
+# This timestamp is used by all downstream jobs for consistent image tagging
+# Uses commit timestamp (CI_COMMIT_TIMESTAMP) instead of pipeline creation time
+generate-timestamp:
+  stage: build
+  image: alpine:latest
+  script:
+    # Format commit timestamp as YYYYMMDD-HHMM (UTC)
+    - |
+      if [ -n "$CI_COMMIT_TIMESTAMP" ]; then
+        # Format: 2025-12-24T03:13:23Z -> 20251224-0313
+        TIMESTAMP=$(echo "$CI_COMMIT_TIMESTAMP" | sed 's/T/ /; s/Z$//; s/-//g; s/://g' | awk '{print substr($1,1,8) "-" substr($2,1,4)}')
+        echo "Using commit timestamp: $CI_COMMIT_TIMESTAMP -> $TIMESTAMP"
+      else
+        # Fallback to current time if CI_COMMIT_TIMESTAMP not available
+        TIMESTAMP=$(date -u +%Y%m%d-%H%M)
+        echo "CI_COMMIT_TIMESTAMP not available, using current time: $TIMESTAMP"
+      fi
+      echo "PIPELINE_TIMESTAMP=$TIMESTAMP" >> timestamp.env
+      echo "Using pipeline timestamp: $TIMESTAMP"
+  artifacts:
+    reports:
+      dotenv: timestamp.env
+    expire_in: 1 hour
+  rules:
+    - when: always
+
+# Simple root-level smoke test job (optional)
+runner:
+  stage: build
+  tags:
+    - inn-runner-docker   # Replace with the tag you set during runner registration
+  image: docker:27-cli    # Matches the executor image you configured
+  needs:
+    - job: generate-timestamp
+      artifacts: true
+  script:
+    - echo "Runner is working!"
+    - |
+      echo "Pipeline timestamp: ${PIPELINE_TIMESTAMP:-not set}"
+    
+    # - until docker info >/dev/null 2>&1; do echo "Waiting for Docker daemon..."; sleep 2; done
+    # Temporarily replace your loop with this to see the real error:
+    - |
+      until docker info; do 
+        echo "Waiting for Docker daemon..."
+        sleep 2
+      done
+    - docker version
+    - docker info
+
+
+# Include matrix service CI configuration
+# All jobs run in the same pipeline scope (no child pipelines)
+# include:
+#   - local: '.gitlab/backend-ci.yml'
+#   - local: '.gitlab/frontend-ci.yml'
+
+# Trigger Auto DevOps pipelines
+# Note: "when: always" ensures pipelines run even without file changes (temporary override)
+
+# Trigger Auto DevOps for the frontend only when frontend/ changes
+frontend-autodevops:
+  stage: triggers
+  needs:
+    - job: generate-timestamp
+      artifacts: true
+  trigger:
+    include:
+      - local: 'frontend/.gitlab-ci.yml'
+    strategy: depend  # Wait for child pipeline to complete and fail if it fails
+  variables:
+    # Pass shared timestamp to child pipeline
+    PIPELINE_TIMESTAMP: "${PIPELINE_TIMESTAMP}"
+    # Disable deprecated CodeClimate-based Code Quality (inherited from parent)
+    CODE_QUALITY_DISABLED: "${CODE_QUALITY_DISABLED}"
+  rules:
+    - changes:
+        - frontend/**/*
+      when: on_success
+    - when: always  # <— temporary "override/fallback" to run every pipeline
+
+
+# Trigger Auto DevOps for the backend only when backend/ changes
+backend-autodevops:
+  stage: triggers
+  needs:
+    - job: generate-timestamp
+      artifacts: true
+  trigger:
+    include:
+      - local: 'backend/.gitlab-ci.yml'
+    strategy: depend  # Wait for child pipeline to complete and fail if it fails
+  variables:
+    # Pass shared timestamp to child pipeline
+    PIPELINE_TIMESTAMP: "${PIPELINE_TIMESTAMP}"
+    # Disable deprecated CodeClimate-based Code Quality (inherited from parent)
+    CODE_QUALITY_DISABLED: "${CODE_QUALITY_DISABLED}"
+  rules:
+    - changes:
+        - backend/**/*
+      when: on_success    
+    - when: always   # <— temporary "override/fallback" so this job still runs
+
+
+
+# # Use native Auto DevOps jobs (Auto Build/Test/Security/Deploy)
+# include:
+#   # - template: Auto-DevOps.gitlab-ci.yml
+#   - local: '/.gitlab/Auto-DevOps.gitlab-ci.yml' # local copy of the Auto DevOps template for customizations
+#   - local: '/.gitlab/ci/ruff.yml'    # Ruff code quality check from common local library.
+#   - local: '/.gitlab/ci/retag.yml'   # Retag job template
+#   - local: '/.gitlab/deploy/Deploy.nomad.gitlab-ci.yml'  # Nomad deployment integration with Auto DevOps
+
+# # # Route jobs to the runner that mounts /var/run/docker.sock
+# # default:
+# #   tags:
+# #     - inn-runner-docker   # <-- tag of your Docker-capable runner
+
+# # Tell Auto DevOps to build from backend/
+# variables:
+#   DOCKER_API_VERSION: "1.41"
+#   CODE_QUALITY_DISABLED: "true"
+#   #####
+
+#   DOCKERFILE_PATH: backend/Dockerfile
+#   AUTO_DEVOPS_BUILD_IMAGE_CONTEXT: backend
+  
+#   # Enable BuildKit for faster builds and better caching
+#   DOCKER_BUILDKIT: "1"
+#   BUILDKIT_PROGRESS: "plain"
+  
+#   # Enable inline cache in images for future cache sources
+#   # Note: BUILDKIT_INLINE_CACHE=1 is added as build-arg in AUTO_DEVOPS_BUILD_IMAGE_EXTRA_ARGS
+#   # Local runner cache is used automatically by Docker if configured
+#   # See docs/gitlab-runner-local-cache-config.md for runner configuration
+  
+#   # Add multiple image tags at build time (branch + short SHA)
+#   # Auto DevOps will append these to the docker build as repeated --tag flags.
+#   AUTO_DEVOPS_BUILD_IMAGE_EXTRA_ARGS: >
+#     --tag ${CI_REGISTRY_IMAGE}/backend:${CI_COMMIT_SHA}
+#     --tag ${CI_REGISTRY_IMAGE}/backend:${CI_COMMIT_REF_SLUG}
+#     --tag ${CI_REGISTRY_IMAGE}/backend:${CI_COMMIT_SHORT_SHA}
+#     --build-arg BUILDKIT_INLINE_CACHE=1
+#     --label org.opencontainers.image.version=${PIPELINE_TIMESTAMP}
+#     --label org.opencontainers.image.created=${CI_COMMIT_TIMESTAMP}
+#     --label org.opencontainers.image.revision=${CI_COMMIT_SHA}
+#     --label org.opencontainers.image.source=${CI_PROJECT_URL}
+#     --label org.opencontainers.image.title=${CI_PROJECT_NAME}
+#     --label org.opencontainers.image.description=${CI_PROJECT_NAME}
+#     --label org.opencontainers.image.url=${CI_PROJECT_URL}
+#     --label org.opencontainers.image.ref.name=${CI_COMMIT_REF_NAME}
+#     --label org.opencontainers.image.authors=${GITLAB_USER_NAME:-${CI_COMMIT_AUTHOR}}
+
+#   # Nomad deployment configuration
+#   SERVICE_NAME: "backend"
+#   NOMAD_DEPLOY_ENABLED: "${NOMAD_DEPLOY_ENABLED:-true}"
+#   # NOMAD_EXTERNAL_ACCESS not set - uses defaults:
+#   #   - Review Apps: external access enabled (for testing)
+#   #   - Production/Staging/Development: internal only (service discovery)
+  
+#   # Enable staging deployment (requires manual promotion to production)
+#   # When enabled: staging deploys automatically, production requires manual promotion
+#   STAGING_ENABLED: "${STAGING_ENABLED:-true}"
+  
+#   # Disable Auto DevOps Kubernetes deployment (we use Nomad instead)
+#   # This prevents Auto DevOps from trying to deploy to Kubernetes
+#   # NOTE: This only disables Auto DevOps deploy jobs, NOT Nomad deploy jobs
+#   # Nomad jobs check NOMAD_DEPLOY_ENABLED, not DEPLOY_DISABLED
+#   DEPLOY_DISABLED: "${DEPLOY_DISABLED:-true}"
+#   # Explicitly disable Auto DevOps review jobs to prevent job name conflicts
+#   # REVIEW_DISABLED: "true"
+#   # Disable Helm/Kubernetes jobs (not needed for Nomad deployment)
+#   MIGRATE_HELM_2TO3: "false"
+#   CLEANUP_HELM_2TO3: "false"
+  
+# # Safety net test (kept until Auto Test/Herokuish consistently reliably detects tests)
+# test-backend:
+#   stage: test
+#   image: python:3.12
+#   before_script:
+#     - cd backend
+#     - pip install -r requirements.txt
+#   script:
+#     - pytest -q --junit-xml=backend-test-report.xml || echo "Tests failed or not detected by Auto DevOps"
+#   artifacts:
+#     reports:
+#       junit: backend/backend-test-report.xml
+#     paths:
+#       - backend-test-report.xml
+#       - backend/backend-test-report.xml
+#     when: always
+
+# code_quality_ruff_check:
+#   extends: .ruff-check-template
+#   variables:
+#     RUFF_TARGET: backend
+#     RUFF_REPORT: backend-code-quality-report.json
+
+# # Post-build: add timestamp tag and branch-specific 'latest' tags
+#
+# # Backend-specific retag job - runs only when backend files change
+# retag-backend:
+#   extends: .retag_job_base
+#   variables:
+#     SERVICE_CHANGED: "backend"
+#   rules:
+#     - changes:
+#         - backend/**/*
+#       when: on_success
+#     - when: always   # <— temporary "override/fallback" so this job still runs

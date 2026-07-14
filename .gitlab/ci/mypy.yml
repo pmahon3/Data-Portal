@@ -1,0 +1,45 @@
+.base_mypy:
+  stage: test
+  interruptible: true
+  image: python:3.12
+  before_script:
+    - cd $CI_PROJECT_DIR
+    - pip install --upgrade pip
+
+.mypy-check-template:
+  extends: .base_mypy
+  variables:
+    MYPY_TARGET: "backend"
+    MYPY_REPORT: "mypy-type-check-report.xml"
+    MYPY_CONFIG: ""  # Optional: path to mypy.ini or pyproject.toml section
+  script:
+    # Install mypy and dependencies
+    - pip install mypy
+    # Run MyPy type checking
+    - |
+      if [ -d "${MYPY_TARGET}" ]; then
+        # Check if mypy config exists
+        if [ -n "${MYPY_CONFIG}" ] && [ -f "${MYPY_CONFIG}" ]; then
+          mypy ${MYPY_TARGET} \
+            --config-file ${MYPY_CONFIG} \
+            --junit-xml ${MYPY_REPORT} \
+            || true
+        else
+          mypy ${MYPY_TARGET} \
+            --junit-xml ${MYPY_REPORT} \
+            || true
+        fi
+      else
+        echo "Target directory ${MYPY_TARGET} not found, skipping MyPy"
+        echo '<?xml version="1.0" encoding="utf-8"?><testsuites></testsuites>' > ${MYPY_REPORT}
+      fi
+    - echo "---- MyPy type check report (${MYPY_REPORT}) ----"
+    - cat ${MYPY_REPORT} | head -50 || true
+  artifacts:
+    reports:
+      junit: $CI_PROJECT_DIR/${MYPY_REPORT}
+    paths:
+      - ${MYPY_REPORT}
+    expire_in: 1 week
+    when: always
+

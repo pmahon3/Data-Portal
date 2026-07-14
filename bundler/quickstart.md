@@ -1,0 +1,133 @@
+# Bundler quick start (commands only, no Make)
+
+> **Start here:** This doc is the **Just run it** path. For other goals, see [getting-started.md → Start here](getting-started.md#start-here-what-to-read).
+
+This is the **simple path** for working on the Bundler service: run each step yourself instead of `make all APP_CORE_DIR=bundler_core`. It matches what the Makefile does, plus the **uv** patch steps the stock OpenAPI Generator output needs.
+
+**Assumptions (this repo):**
+
+- You are in **`bundler/`** (generator **`output`** is **`#{cwd}/`** in [`openapitools.json`](openapitools.json)).
+- Domain logic lives in **`bundler_core/`** (sibling of **`bundler_server/`**).
+- You have **`npx`** (Node.js) and **`uv`** on your `PATH`.
+
+For *why* the tree looks like this, see [`getting-started.md`](getting-started.md). For Make variables and edge cases, see [`docs/README_reference.md`](docs/README_reference.md).
+
+---
+
+## Before you start
+
+```bash
+cd bundler
+```
+
+All commands below assume this directory unless noted.
+
+> **Tip:** Many steps use **`uv --directory <path> …`**. 
+> ```--directory <DIRECTORY> — Change to the given directory prior to running the command.```
+
+---
+
+## 1. Generate the OpenAPI server stub
+
+Reads **`openapi.source.yaml`** and writes the FastAPI package under pwd (**`bundler/`**), (e.g. **`bundler_server/`**).
+
+```bash
+npx -y @openapitools/openapi-generator-cli generate --generator-key bundler-server-fastapi
+```
+
+Skip this step if you already have a fresh generated tree and only changed hand-owned code.
+
+---
+
+## 2. Patch for `uv` (required when using `uv`, optional otherwise)
+
+The **python-fastapi** generator emits pip/Poetry project. This section uses scripts to align **`pyproject.toml`**, **`setup.cfg`**, and **`requirements.txt`** with a **uv** workflow. The uv-based Dockerfile is independently committed. See [`docs/README_patch.md`](docs/README_patch.md) for rationale.
+
+```bash
+printf "%s\n" "3.10" > ./.python-version
+
+SERVER_PYTHON_VERSION=3.10 \
+  uv run --with tomlkit python make/patch_pyproject_toml.py ./pyproject.toml
+
+SERVER_PYTHON_VERSION=3.10 \
+  uv run python make/patch_setup_cfg.py ./setup.cfg
+
+uv run python make/patch_requirements.py ./requirements.txt
+```
+
+**Python version:** `3.10` matches **`bundler_core`** and the patched server metadata. If **`bundler_core/.python-version`** differs, use that value instead.
+
+---
+
+## 3. Wire dependencies and sync
+
+Link **`bundler_core`** into the server project, copy dev requirements, install, then add the core package as a dev dependency (same order as **`make build`** + **`make sync`**).
+
+```bash
+# Runtime: add bundler_core as a path dependency (metadata only until sync)
+uv add --directory . ./bundler_core --no-sync
+
+# Generated OpenAPI runtime deps
+uv add --directory . --no-sync -r requirements.txt
+
+# Hand-owned ops/observability deps (not generated; see requirements-observability.txt)
+uv add --directory . --no-sync -r requirements-observability.txt
+
+# Dev: copy core's dev requirements
+cp bundler_core/requirements-dev.txt ./requirements-dev.txt
+uv add --directory . --dev --no-sync -r requirements-dev.txt
+
+# Install everything; then add bundler_core again as a dev dependency for local edits
+uv sync --directory .
+#uv add --directory . -dev ./bundler_core
+```
+
+---
+
+## 4. Run tests
+
+Two suites: HTTP/contract tests under **`bundler/tests/`**, then domain tests under **`bundler_core/tests/`**.
+
+```bash
+# Server tree (coverage on hand-owned adapter code)
+uv run --directory . --with pytest --with pytest-cov \
+  python -m pytest tests --cov=./bundler_server/core
+
+# Domain package
+uv run --directory bundler_core --with pytest --with pytest-cov \
+  python -m pytest tests
+```
+
+---
+
+## 5. Run the API locally
+
+```bash
+# Preferred: product API + /metrics + /actuator/*
+uv run uvicorn bundler_server.observability.app:app --reload --host 0.0.0.0 --port 8080
+
+# Optional: generated app only (no ops routes)
+# uv run uvicorn bundler_server.main:app --reload --host 0.0.0.0 --port 8080
+```
+
+Open **`http://localhost:8080/docs/`**. Ops: **`/metrics`**, **`/actuator/health/live`**. Port **`8080`** matches **`serverPort`** in [`openapitools.json`](openapitools.json).
+
+**Job persistence:** unset ``MONGO_URI`` → in-memory (default). Set e.g.  
+``MONGO_URI=mongodb://USER:PASSWORD@localhost:27017/bundler?collection=bundles``  
+→ Mongo store (db from path, collection from query; default collection ``bundles``). URL-encode special characters in the password.
+
+---
+
+## Make equivalent (optional)
+
+If you prefer one entry point after you understand the steps:
+
+```bash
+cd bundler
+make generate-openapi APP_CORE_DIR=bundler_core
+make -f Makefile -f make/bootstrap.mk build patch APP_CORE_DIR=bundler_core
+make sync APP_CORE_DIR=bundler_core
+make test APP_CORE_DIR=bundler_core
+```
+
+**`make all APP_CORE_DIR=bundler_core`** runs generate → add-deps → sync → test but **does not** include the uv patch scripts; use **`bootstrap.mk patch`** (or step 3 above) when the generated scaffold is new or was regenerated.

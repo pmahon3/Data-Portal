@@ -55,7 +55,7 @@ def get_client_credentials_token(timeout=10) -> str:
     data = {
         "grant_type": "client_credentials",
         "client_id": kc_admin_client_id(),
-        "client_secret": read_admin_client_secret(),
+        "client_secret": env("KEYCLOAK_ADMIN_CLIENT_SECRET"),
     }
     r = requests.post(token_url, data=data, timeout=timeout)
     try:

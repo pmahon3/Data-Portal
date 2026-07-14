@@ -1,0 +1,408 @@
+openapi: 3.0.3
+info:
+  title: Bundler Service
+  version: 0.2.0
+  description: |
+    API contract for the Bundler service.
+
+    Unversioned paths (``/health``, ``/bundles``, …) always track the **current**
+    API (today: v2). Versioned paths (``/v1/...``, ``/v2/...``) remain stable for
+    clients that pin a revision.
+
+servers:
+  - url: http://localhost:8000
+
+paths:
+  # --- v1 (legacy; deprecated — migrate to /v2/... or unversioned “current”) ---
+  /v1/health:
+    get:
+      operationId: getHealthV1
+      summary: Health check (v1)
+      deprecated: true
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /v1/bundles:
+    post:
+      operationId: createBundleV1
+      summary: Request a bundle (v1)
+      deprecated: true
+      description: >
+        Starts an asynchronous job that downloads the provided files (via presigned URLs),
+        processes them, and produces a compressed archive for later download.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBundleRequest"
+      responses:
+        "202":
+          description: Bundle creation accepted
+          headers:
+            Location:
+              description: URL to poll for bundle status
+              schema:
+                type: string
+                format: uri
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Bundle"
+        "400":
+          description: Invalid request
+        "422":
+          description: Validation error
+        "413":
+          description: Payload too large
+        "409":
+          description: Duplicate bundle request
+        "500":
+          description: Unexpected server error
+        "501":
+          description: Not implemented
+
+  /v1/bundles/{bundleId}:
+    get:
+      operationId: getBundleV1
+      summary: Get bundle status (v1)
+      deprecated: true
+      parameters:
+        - in: path
+          name: bundleId
+          required: true
+          schema:
+            $ref: "#/components/schemas/BundleId"
+      responses:
+        "202":
+          description: Bundle accepted for processing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Bundle"
+        "404":
+          description: Bundle not found
+        "422":
+          description: Validation error (e.g. bundle id must not contain whitespace)
+        "500":
+          description: Unexpected server error
+        "501":
+          description: Not implemented
+
+  /v1/bundles/{bundleId}/download:
+    get:
+      operationId: downloadBundleV1
+      summary: Download bundle archive (v1)
+      deprecated: true
+      description: Returns the compressed archive after the bundle has completed.
+      parameters:
+        - in: path
+          name: bundleId
+          required: true
+          schema:
+            $ref: "#/components/schemas/BundleId"
+      responses:
+        "200":
+          description: Bundle archive
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Bundle not found
+        "422":
+          description: Validation error (e.g. bundle id must not contain whitespace)
+        "202":
+          description: Bundle accepted but not ready
+        "500":
+          description: Unexpected server error
+        "501":
+          description: Not implemented
+
+  # --- v2 (explicit revision) ---
+  /v2/health:
+    get:
+      operationId: getHealthV2
+      summary: Health check (v2)
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /v2/bundles:
+    post:
+      operationId: createBundleV2
+      summary: Request a bundle (v2)
+      description: >
+        Starts an asynchronous job that downloads the provided files (via presigned URLs),
+        processes them, and produces a compressed archive for later download.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBundleRequest"
+      responses:
+        "202":
+          description: Bundle creation accepted
+          headers:
+            Location:
+              description: URL to poll for bundle status
+              schema:
+                type: string
+                format: uri
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Bundle"
+        "400":
+          description: Invalid request
+        "422":
+          description: Validation error
+        "413":
+          description: Payload too large
+        "409":
+          description: Duplicate bundle request
+        "500":
+          description: Unexpected server error
+        "501":
+          description: Not implemented
+
+  /v2/bundles/{bundleId}:
+    get:
+      operationId: getBundleV2
+      summary: Get bundle status (v2)
+      parameters:
+        - in: path
+          name: bundleId
+          required: true
+          schema:
+            $ref: "#/components/schemas/BundleId"
+      responses:
+        "202":
+          description: Bundle accepted for processing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Bundle"
+        "404":
+          description: Bundle not found
+        "422":
+          description: Validation error (e.g. bundle id must not contain whitespace)
+        "500":
+          description: Unexpected server error
+        "501":
+          description: Not implemented
+
+  /v2/bundles/{bundleId}/download:
+    get:
+      operationId: downloadBundleV2
+      summary: Download bundle archive (v2)
+      description: Returns the compressed archive after the bundle has completed.
+      parameters:
+        - in: path
+          name: bundleId
+          required: true
+          schema:
+            $ref: "#/components/schemas/BundleId"
+      responses:
+        "200":
+          description: Bundle archive
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Bundle not found
+        "422":
+          description: Validation error (e.g. bundle id must not contain whitespace)
+        "202":
+          description: Bundle accepted but not ready
+        "500":
+          description: Unexpected server error
+        "501":
+          description: Not implemented
+
+  # --- Current (unversioned) — alias of v2; always “latest” ---
+  /health:
+    get:
+      operationId: getHealth
+      summary: Health check
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /bundles:
+    post:
+      operationId: createBundle
+      summary: Request a bundle to be created from presigned file URLs
+      description: >
+        Starts an asynchronous job that downloads the provided files (via presigned URLs),
+        processes them, and produces a compressed archive for later download.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBundleRequest"
+      responses:
+        "202":
+          description: Bundle creation accepted
+          headers:
+            Location:
+              description: URL to poll for bundle status
+              schema:
+                type: string
+                format: uri
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Bundle"
+        "400":
+          description: Invalid request
+        "422":
+          description: Validation error
+        "413":
+          description: Payload too large
+        "409":
+          description: Duplicate bundle request
+        "500":
+          description: Unexpected server error
+        "501":
+          description: Not implemented
+
+  /bundles/{bundleId}:
+    get:
+      operationId: getBundle
+      summary: Get bundle status
+      parameters:
+        - in: path
+          name: bundleId
+          required: true
+          schema:
+            $ref: "#/components/schemas/BundleId"
+      responses:
+        "202":
+          description: Bundle accepted for processing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Bundle"
+        "404":
+          description: Bundle not found
+        "422":
+          description: Validation error (e.g. bundle id must not contain whitespace)
+        "500":
+          description: Unexpected server error
+        "501":
+          description: Not implemented
+
+  /bundles/{bundleId}/download:
+    get:
+      operationId: downloadBundle
+      summary: Download the completed bundle archive
+      description: Returns the compressed archive after the bundle has completed.
+      parameters:
+        - in: path
+          name: bundleId
+          required: true
+          schema:
+            $ref: "#/components/schemas/BundleId"
+      responses:
+        "200":
+          description: Bundle archive
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Bundle not found
+        "422":
+          description: Validation error (e.g. bundle id must not contain whitespace)
+        "202":
+          description: Bundle accepted but not ready
+        "500":
+          description: Unexpected server error
+        "501":
+          description: Not implemented
+
+components:
+  schemas:
+    # JSON Schema string constraints; no ``strip_whitespace`` (apply in server / Pydantic).
+    BundleId:
+      type: string
+      minLength: 1
+      pattern: '^\S+$'
+      description: >
+        Bundle identifier: non-empty and must not contain any whitespace (spaces, tabs,
+        or line breaks). JSON Schema pattern ^\S+$ (entire string is non-whitespace).
+        Invalid path values typically produce HTTP 422.
+
+    HealthResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          example: ok
+
+    CreateBundleRequest:
+      type: object
+      required:
+        - urls
+      properties:
+        folderName:
+          type: string
+          description: Logical folder name for the resulting archive
+        urls:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            format: uri
+            minLength: 1
+            description: Presigned URL to a file (non-empty string)
+        compression:
+          type: string
+          enum: [zip]
+          default: zip
+          description: Compression format for the resulting archive
+
+    Bundle:
+      type: object
+      required:
+        - id
+        - status
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          $ref: "#/components/schemas/BundleId"
+        status:
+          type: string
+          enum: [pending, processing, complete, failed]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        resultUrl:
+          type: string
+          format: uri
+          description: Direct URL to download the completed archive (if available)

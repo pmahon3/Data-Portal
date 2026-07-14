@@ -61,12 +61,12 @@ def get_admin_token(timeout=10) -> str:
 
 # --- Test fixtures -----------------------------------------------------------
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def admin_token():
-    """Provide admin token."""
+    """Provide admin token (fetched once per test session)."""
     return get_admin_token()
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def auth_headers(admin_token):
     """Provide auth headers."""
     return {"Authorization": f"Bearer {admin_token}"}
@@ -293,3 +293,152 @@ def test_delete_nonexistent_policy(auth_headers):
     r = requests.delete(policy_url, json=delete_payload, headers=auth_headers, timeout=10)
     assert r.status_code in (400, 404), \
         f"Expected 400 or 404 for non-existent policy, got {r.status_code}"
+
+
+def test_read_policies_filtered_by_user(auth_headers):
+    """Test that GET /policies/ with user_uuid filter returns only that user's policies."""
+    username = "policy_filter_user"
+    instance_name = "policy_filter_instance"
+
+    delete_test_user(auth_headers, username)
+    delete_test_instance(auth_headers, instance_name)
+
+    try:
+        user = create_test_user(auth_headers, username)
+        instance = create_test_instance(auth_headers, instance_name)
+        assert user and instance, "Failed to create test fixtures"
+
+        user_uuid = user["uuid"]
+        instance_uuid = instance["uuid"]
+
+        # Create a policy for this user
+        policy_url = f"{backend_base()}/api/policies/"
+        r = requests.post(policy_url, json={
+            "username": username,
+            "instance_name": instance_name,
+            "resource": "/filtered/.*",
+            "action": "read"
+        }, headers=auth_headers, timeout=10)
+        assert r.status_code == 201, f"Policy creation failed: {r.text[:500]}"
+
+        # Filter by user_uuid
+        r = requests.get(policy_url, params={"user_uuid": user_uuid}, headers=auth_headers, timeout=10)
+        assert r.status_code == 200, f"Filtered GET failed: {r.status_code}"
+
+        policies = r.json().get("details", [])
+        assert all(p.get("user_uuid") == user_uuid for p in policies), \
+            f"Filter returned policies belonging to other users: {policies}"
+        assert len(policies) == 1
+
+        # Cleanup policy
+        requests.delete(policy_url, json={
+            "user_uuid": user_uuid,
+            "instance_uuid": instance_uuid,
+            "resource": "/filtered/.*",
+            "action": "read"
+        }, headers=auth_headers, timeout=10)
+
+    finally:
+        delete_test_user(auth_headers, username)
+        delete_test_instance(auth_headers, instance_name)
+
+
+def test_duplicate_policy_creation(auth_headers):
+    """Test that creating the same policy twice is handled gracefully (idempotent or 400)."""
+    username = "policy_dup_user"
+    instance_name = "policy_dup_instance"
+
+    delete_test_user(auth_headers, username)
+    delete_test_instance(auth_headers, instance_name)
+
+    try:
+        user = create_test_user(auth_headers, username)
+        instance = create_test_instance(auth_headers, instance_name)
+        assert user and instance, "Failed to create test fixtures"
+
+        user_uuid = user["uuid"]
+        instance_uuid = instance["uuid"]
+        policy_url = f"{backend_base()}/api/policies/"
+        payload = {
+            "username": username,
+            "instance_name": instance_name,
+            "resource": "/dup/.*",
+            "action": "read"
+        }
+
+        # First creation must succeed
+        r = requests.post(policy_url, json=payload, headers=auth_headers, timeout=10)
+        assert r.status_code == 201, f"First policy creation failed: {r.text[:500]}"
+
+        # Second creation of the identical policy: accept 201 (idempotent) or 400 (rejected)
+        r = requests.post(policy_url, json=payload, headers=auth_headers, timeout=10)
+        assert r.status_code in (201, 400, 409), \
+            f"Unexpected status for duplicate policy: {r.status_code}: {r.text[:500]}"
+
+        # Cleanup
+        requests.delete(policy_url, json={
+            "user_uuid": user_uuid,
+            "instance_uuid": instance_uuid,
+            "resource": "/dup/.*",
+            "action": "read"
+        }, headers=auth_headers, timeout=10)
+
+    finally:
+        delete_test_user(auth_headers, username)
+        delete_test_instance(auth_headers, instance_name)
+
+
+def test_create_and_read_policy_for_multiple_instances(auth_headers):
+    """Test that policies for different instances are correctly isolated."""
+    username = "policy_multi_inst_user"
+    instance_a = "policy_inst_b"
+    instance_b = "policy_inst_a"
+
+    delete_test_user(auth_headers, username)
+    delete_test_instance(auth_headers, instance_a)
+    delete_test_instance(auth_headers, instance_b)
+
+    try:
+        user = create_test_user(auth_headers, username)
+        inst_a = create_test_instance(auth_headers, instance_a)
+        inst_b = create_test_instance(auth_headers, instance_b)
+        assert user and inst_a and inst_b, "Failed to create test fixtures"
+
+        user_uuid = user["uuid"]
+        uuid_a = inst_a["uuid"]
+        uuid_b = inst_b["uuid"]
+        policy_url = f"{backend_base()}/api/policies/"
+
+        # Create one policy per instance for the same user
+        for inst_name in (instance_a, instance_b):
+            r = requests.post(policy_url, json={
+                "username": username,
+                "instance_name": inst_name,
+                "resource": "/shared/.*",
+                "action": "read"
+            }, headers=auth_headers, timeout=10)
+            assert r.status_code == 201, \
+                f"Policy creation for instance '{inst_name}' failed: {r.text[:500]}"
+
+        # Read all policies for this user and verify both instances are present
+        r = requests.get(policy_url, params={"user_uuid": user_uuid}, headers=auth_headers, timeout=10)
+        assert r.status_code == 200
+        policies = r.json().get("details", [])
+
+        covered_instances = {p["instance_uuid"] for p in policies}
+        assert uuid_a in covered_instances, f"Policy for instance A ({uuid_a}) not found"
+        assert uuid_b in covered_instances, f"Policy for instance B ({uuid_b}) not found"
+
+        # Cleanup policies
+        for inst_uuid in (uuid_a, uuid_b):
+            requests.delete(policy_url, json={
+                "user_uuid": user_uuid,
+                "instance_uuid": inst_uuid,
+                "resource": "/shared/.*",
+                "action": "read"
+            }, headers=auth_headers, timeout=10)
+
+    finally:
+        delete_test_user(auth_headers, username)
+        delete_test_instance(auth_headers, instance_a)
+        delete_test_instance(auth_headers, instance_b)

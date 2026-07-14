@@ -1,17 +1,19 @@
 import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import { useKeycloak } from "@react-keycloak/web";
+import { CircularProgress } from '@mui/material';
+import { DataGrid } from "@mui/x-data-grid";
 import "./PolicyManagement.css";
+import { formatError } from "../../../utils/errorUtils";
+import { getAuthHeaders } from '../../../utils/authUtils';
 // Constants and the component states
 // const http = axios.create({ baseURL: "http://localhost:8000" });
-const http = axios.create({ baseURL: "/api" });
-// const INSTANCES_BASE = "/api/instances";   
-// const POLICIES_BASE  = "/api/policies";    
+const http = axios.create({ baseURL: "/api" });    
 const INSTANCES_BASE = "/instances";   
 const POLICIES_BASE  = "/policies";    
 
 export default function PolicyManagement() {
-  const { keycloak, initialized } = useKeycloak();
+  const { initialized } = useKeycloak();
 
   const [policies, setPolicies] = useState([]);
   const [instances, setInstances] = useState([]);
@@ -26,16 +28,9 @@ export default function PolicyManagement() {
 
   /////////////////////////////////////////////
 
-  // keycloack token handling
-  const authHeaders = async () => {
-    if (!initialized) return {};
-    try { await keycloak.updateToken(30); } catch {}
-    return keycloak?.token ? { Authorization: `Bearer ${keycloak.token}` } : {};
-  };
-
   // Load instances to be displayed in a deop down list
   async function loadInstances() {
-    const headers = await authHeaders();
+    const headers = await getAuthHeaders();
     const { data } = await http.get(`${INSTANCES_BASE}/`, { headers });
     setInstances(Array.isArray(data?.instances) ? data.instances : []);
   }
@@ -43,7 +38,7 @@ export default function PolicyManagement() {
   // Load polices to be displayed
   // TODO ----> policies are returned based user_uuid and instance_uuid , which are not human readable. This needs to be changed to return username and instance names. These changes impact th ebody request of create/delete policies.  
   async function loadPolicies() {
-    const headers = await authHeaders();
+    const headers = await getAuthHeaders();
     const { data } = await http.get(`${POLICIES_BASE}/`, { headers });
     console.log("These are policies")
     console.log(data)
@@ -80,7 +75,7 @@ export default function PolicyManagement() {
     if (!a) { setCreating(false); return setErr("Action is required."); }
 
     try {
-      const headers = await authHeaders();
+      const headers = await getAuthHeaders();
       await http.post(
         `${POLICIES_BASE}/`,
         { username: u, instance_name: i, resource: r, action: a },
@@ -103,18 +98,53 @@ export default function PolicyManagement() {
     if (!window.confirm(`Delete policy:\nresource="${p.resource}" action="${p.action}" ?`)) return;
     setErr("");
 
-    const headers = await authHeaders();
-    await http.delete(`${POLICIES_BASE}/`, {
-      headers,
-      data: {
-        user_uuid: p.user_uuid,
-        instance_uuid: p.instance_uuid,
-        resource: p.resource,
-        action: p.action,
-      },
-    });
-    await loadPolicies();
+    try {
+      const headers = await getAuthHeaders();
+      await http.delete(`${POLICIES_BASE}/`, {
+        headers,
+        data: {
+          user_uuid: p.user_uuid,
+          instance_uuid: p.instance_uuid,
+          resource: p.resource,
+          action: p.action,
+        },
+      });
+      await loadPolicies();
+    } catch (e) {
+      const message = formatError(e);
+      if (e?.response?.status === 403) {
+        alert(message);
+      }
+      setErr(message);
+    }
   }
+
+  // Creates a saved list of policies with a unique composite ID added for MUI data grid
+  const policyRows = useMemo(
+    () => policies.map((p, idx) => ({
+      id: `${p.user_uuid}-${p.instance_uuid}-${p.resource}-${p.action}`,
+      ...p,
+    })),
+    [policies]
+  );
+
+  // Configurations for the policy table to be rendered with MUI data grid
+  const policyColumns = [
+    { field: "username", headerName: "Username", flex: 1, minWidth: 160, renderCell: params => {String(params.value || "")}},
+    { field: "instance_name", headerName: "Instance Name", flex: 1, minWidth: 180, renderCell: params => {String(params.value || "")}},
+    { field: "resource", headerName: "Resource", flex: 1.5, minWidth: 220 },
+    { field: "action", headerName: "Action", width: 120 },
+    {
+      field: "delete",
+      headerName: "",
+      width: 120,
+      sortable: false,
+      filterable: false,
+      renderCell: params => (
+        <button className="pm-btn pm-btn-danger" onClick={() => handleDelete(params.row)}>Delete</button>
+      ),
+    },
+  ];
 
   // sorted list of instances for the drop down 
   const instanceOptions = instances
@@ -124,7 +154,7 @@ export default function PolicyManagement() {
 
     // HTML part
   return (
-    <div className="pm-root">
+    <div className="pm-root policy-management">
       <h1>Policy Management</h1>
     {/* Showing error on the top of the page */}
       {err && (
@@ -172,7 +202,7 @@ export default function PolicyManagement() {
 
           <div className="pm-actions">
             <button className="pm-btn pm-btn-primary" type="submit" disabled={creating}>
-              {creating ? "Creating…" : "Create Policy"}
+              {creating ? <CircularProgress size={20} color="inherit" /> : "Create Policy"}
             </button>
             {/* {err && <div className="pm-error">{err}</div>} */}
           </div>
@@ -187,39 +217,22 @@ export default function PolicyManagement() {
         ) : (policies?.length ?? 0) === 0 ? (
           <p className="pm-muted">No policies found.</p>
         ) : (
-          <table className="pm-table">
-            <thead>
-              <tr>
-                <th>User UUID</th>
-                <th>Instance UUID</th>
-                <th>Resource</th>
-                <th>Action</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {policies.map((p, idx) => (
-                <tr key={idx}>
-                  <td><code className="pm-mono">{String(p.user_uuid || "").slice(0, 12)}…</code></td>
-                  <td><code className="pm-mono">{String(p.instance_uuid || "").slice(0, 12)}…</code></td>
-                  <td>{p.resource || "—"}</td>
-                  <td>{p.action || "—"}</td>
-                  <td className="pm-actions-right">
-                    <button className="pm-btn pm-btn-danger" onClick={() => handleDelete(p)}>Delete</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="pm-grid">
+            <DataGrid
+              rows={policyRows}
+              columns={policyColumns}
+              sx={{ width: "100%", '& .MuiDataGrid-columnHeaderTitle': { fontWeight: 700 }, '& .MuiDataGrid-cell:focus, & .MuiDataGrid-cell:focus-within': { outline: 'none' } }}
+              showToolbar
+              disableRowSelectionOnClick
+              pageSizeOptions={[5, 10, 25]}
+              disableColumnMenu
+              disableColumnFilter
+              disableColumnSelector 
+              hideFooter
+            />
+          </div>
         )}
       </section>
     </div>
   );
-}
-// standard way to formatting errors
-function formatError(err) {
-  const d = err?.response?.data;
-  if (!d) return String(err?.message || err);
-  if (Array.isArray(d.detail)) return d.detail.map(x => `${(x.loc || []).join(".")} → ${x.msg}`).join(" | ");
-  return d.detail || JSON.stringify(d);
 }

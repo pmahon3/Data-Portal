@@ -7,10 +7,12 @@ fastapi>=0.110.1
 uvicorn[standard]>=0.29.0
 starlette>=0.37.2
 pydantic>=2.8.2
+orjson>=3.10.0
 
 # Authentication & Authorization
 python-keycloak>=5.3.0
 casbin>=1.36.0
+casbin_pymongo_adapter>=1.7.0
 cryptography>=42.0.5
 
 # Configuration & Environment
@@ -79,4 +81,15 @@ setuptools>=68.2.0
 wheel>=0.41.2
 six>=1.16.0
 
-# Note: django-request may not be needed - review and remove if unused
+#database (postgres)
+sqlalchemy==2.0.36
+asyncpg==0.29.0
+sqlalchemy-utils==0.41.2
+pydantic-settings==2.6.1
+greenlet>=3.1.1
+
+# Database (MongoDB) 
+pymongo>=4.16.0
+
+#zip stream
+zipstream-ng==1.8.0
