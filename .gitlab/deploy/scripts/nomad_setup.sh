@@ -66,7 +66,7 @@ echo "✓ Connected to Nomad cluster"
 
 # Service and runtime variables (__SERVICE__, __IMAGE_NAME__, __IMAGE_TAG__, etc.) are
 # set by the GitLab CI variables block (.deploy). Only __API_GATEWAY__ default is set
-# here; nomad-routing.sh may override it and __RUNTIME_ENV__ for external access.
+# here; nomad_routing.sh always sets __RUNTIME_ENV__ and gates Traefik on NOMAD_EXTERNAL_ACCESS.
 export __API_GATEWAY__="http://backend-${CI_COMMIT_REF_SLUG}.${NOMAD_DOMAIN:-example.com}"
 
 echo "===== nomad-setup.sh completed successfully ====="

@@ -208,6 +208,7 @@ staging:
     NOMAD_ENVIRONMENT: "staging"
     NOMAD_ENVIRONMENT_NAME: "staging"
     __ENVIRONMENT__: "staging"
+    NOMAD_EXTERNAL_ACCESS: "true" # Traefik + environment URL; runtime env is always injected
   script:
     - source "$CI_PROJECT_DIR/.gitlab/deploy/scripts/nomad_setup.sh"
     - echo "Deploying to environment = $NOMAD_ENVIRONMENT_NAME"
@@ -247,6 +248,7 @@ canary:
     __ENVIRONMENT__: "production"
     NOMAD_CANARY_COUNT: "1"
     ROLLOUT_PERCENTAGE: "50"
+    NOMAD_EXTERNAL_ACCESS: "true" # Traefik + environment URL; runtime env is always injected
   script:
     - source "$CI_PROJECT_DIR/.gitlab/deploy/scripts/nomad_setup.sh"
     - echo "Deploying canary to environment = $NOMAD_ENVIRONMENT_NAME"
@@ -286,6 +288,7 @@ canary:
     NOMAD_ENVIRONMENT: "production"
     NOMAD_ENVIRONMENT_NAME: "production"
     __ENVIRONMENT__: "production"
+    NOMAD_EXTERNAL_ACCESS: "true" # Traefik + environment URL; runtime env is always injected
   script:
     - source "$CI_PROJECT_DIR/.gitlab/deploy/scripts/nomad_setup.sh"
     - echo "Deploying to environment = $NOMAD_ENVIRONMENT_NAME"
@@ -364,6 +367,7 @@ production_manual:
     NOMAD_ENVIRONMENT_NAME: "production"
     __ENVIRONMENT__: "production"
     NOMAD_CANARY_COUNT: "1"
+    NOMAD_EXTERNAL_ACCESS: "true" # Traefik + environment URL; runtime env is always injected
   script:
     - source "$CI_PROJECT_DIR/.gitlab/deploy/scripts/nomad_setup.sh"
     - echo "Deploying rollout (${ROLLOUT_PERCENTAGE}%) to environment = $NOMAD_ENVIRONMENT_NAME"
@@ -478,7 +482,7 @@ deploy:development:
     NOMAD_ENVIRONMENT: "development"
     NOMAD_ENVIRONMENT_NAME: "development"
     __ENVIRONMENT__: "development"
-    NOMAD_EXTERNAL_ACCESS: "true" # true: enable Traefik + inject __RUNTIME_ENV_*__ / false: internal-only without traefik
+    NOMAD_EXTERNAL_ACCESS: "true" # Traefik + environment URL; runtime env is always injected
   script:
     - source "$CI_PROJECT_DIR/.gitlab/deploy/scripts/nomad_setup.sh"
     - echo "Deploying to environment = $NOMAD_ENVIRONMENT_NAME"
