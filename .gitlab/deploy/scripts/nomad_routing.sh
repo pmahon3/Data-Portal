@@ -42,6 +42,12 @@ if [ "$NEEDS_EXTERNAL_ACCESS" = "true" ]; then
   # For review, use branch name (CI_COMMIT_REF_SLUG) for hostname
   if [ "$NOMAD_ENVIRONMENT" = "review" ]; then
     export __HOSTNAME__="${SERVICE_NAME}-${CI_COMMIT_REF_SLUG}.${NOMAD_DOMAIN:-example.com}"
+    
+    if [ "${CI_COMMIT_REF_SLUG}" = "development" ]; then
+    # For development, use review-development as hostname to avoid conflicts with `development` branch/environment.
+    export __HOSTNAME__="${SERVICE_NAME}-review-${CI_COMMIT_REF_SLUG}.${NOMAD_DOMAIN:-example.com}"
+    fi
+
   else
     export __HOSTNAME__="${SERVICE_NAME}-${NOMAD_ENVIRONMENT}.${NOMAD_DOMAIN:-example.com}"
   fi
