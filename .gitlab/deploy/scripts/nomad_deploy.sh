@@ -58,7 +58,7 @@ echo "Substituting variables = $SHELL_FORMAT_STRING"
 echo "Note - Other variables (e.g. \${NOMAD_PORT_http}, \${meta.role}) will remain unchanged"
 # GNU gettext envsubst format
 envsubst "$SHELL_FORMAT_STRING" < "${NOMAD_OUTPUT_FILE}".temp.nomad > "$NOMAD_OUTPUT_FILE"
-rm "temp.${NOMAD_OUTPUT_FILE}"
+rm "${NOMAD_OUTPUT_FILE}.temp.nomad"
 
 nomad fmt "$NOMAD_OUTPUT_FILE" || {
   echo "===== Nomad job file is not formatted correctly ====="
