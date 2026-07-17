@@ -42,11 +42,11 @@ fi
 echo "Substituting variables = $SHELL_FORMAT_STRING"
 echo "Note - Other variables (e.g. \${NOMAD_PORT_http}, \${meta.role}) will remain unchanged"
 # GNU gettext envsubst format
-envsubst "$SHELL_FORMAT_STRING" < "$NOMAD_JOB_TEMPLATE" > "$NOMAD_OUTPUT_FILE".temp
+envsubst "$SHELL_FORMAT_STRING" < "$NOMAD_JOB_TEMPLATE" > "temp.${NOMAD_OUTPUT_FILE}"
 
 echo "===== Pass 2: Substituting variables ======"
 # in case a variable block contains another variable, we need to substitute again
-SHELL_FORMAT_STRING=$(grep -oE '\$\{__[A-Z_]+__\}' "$NOMAD_OUTPUT_FILE".temp | \
+SHELL_FORMAT_STRING=$(grep -oE '\$\{__[A-Z_]+__\}' "temp.${NOMAD_OUTPUT_FILE}" | \
   sort -u | \
   awk '{printf "%s ", $1}')
 
@@ -57,8 +57,8 @@ fi
 echo "Substituting variables = $SHELL_FORMAT_STRING"
 echo "Note - Other variables (e.g. \${NOMAD_PORT_http}, \${meta.role}) will remain unchanged"
 # GNU gettext envsubst format
-envsubst "$SHELL_FORMAT_STRING" < "$NOMAD_OUTPUT_FILE".temp > "$NOMAD_OUTPUT_FILE"
-rm "$NOMAD_OUTPUT_FILE".temp
+envsubst "$SHELL_FORMAT_STRING" < "temp.${NOMAD_OUTPUT_FILE}" > "$NOMAD_OUTPUT_FILE"
+rm "temp.${NOMAD_OUTPUT_FILE}"
 
 nomad fmt "$NOMAD_OUTPUT_FILE" || {
   echo "===== Nomad job file is not formatted correctly ====="
