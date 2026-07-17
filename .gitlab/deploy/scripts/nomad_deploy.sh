@@ -46,7 +46,7 @@ envsubst "$SHELL_FORMAT_STRING" < "$NOMAD_JOB_TEMPLATE" > "$NOMAD_OUTPUT_FILE".t
 
 echo "===== Pass 2: Substituting variables ======"
 # in case a variable block contains another variable, we need to substitute again
-SHELL_FORMAT_STRING=$(grep -oE '\$\{__[A-Z_]+__\}' "$NOMAD_JOB_TEMPLATE" | \
+SHELL_FORMAT_STRING=$(grep -oE '\$\{__[A-Z_]+__\}' "$NOMAD_OUTPUT_FILE".temp | \
   sort -u | \
   awk '{printf "%s ", $1}')
 
