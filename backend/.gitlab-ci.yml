@@ -55,20 +55,24 @@ variables:
   # Nomad deployment configuration
   SERVICE_NAME: "backend"
   HEALTH_BASE: "api"
-  NOMAD_DEPLOY_ENABLED: "${NOMAD_DEPLOY_ENABLED:-true}"
+  NOMAD_DEPLOY_ENABLED: "${NOMAD_DEPLOY_ENABLED}"
   # NOMAD_EXTERNAL_ACCESS not set - uses defaults:
   #   - Review Apps: external access enabled (for testing)
   #   - Production/Staging/Development: internal only (service discovery)
   
   # Enable staging deployment (requires manual promotion to production)
   # When enabled: staging deploys automatically, production requires manual promotion
-  STAGING_ENABLED: "${STAGING_ENABLED:-true}"
+  STAGING_ENABLED: "${STAGING_ENABLED}"
   
   # Disable Auto DevOps Kubernetes deployment (we use Nomad instead)
   # This prevents Auto DevOps from trying to deploy to Kubernetes
-  DEPLOY_DISABLED: "${DEPLOY_DISABLED:-true}"
+  DEPLOY_DISABLED: "${DEPLOY_DISABLED}"
   # Explicitly disable Auto DevOps review jobs to prevent job name conflicts
   # REVIEW_DISABLED: "true"
+
+  # Disable Auto DevOps browser performance testing
+  # Sitespeed.io / browser_performance jobs are not needed for the backend API service
+  BROWSER_PERFORMANCE_DISABLED: "true"
   
 # Override Auto DevOps test job for backend monorepo layout (we have separate test jobs for backend and frontend)
 # If necessary, disable Auto DevOps test via CI variable: TEST_DISABLED: "true"

@@ -46,6 +46,7 @@ if [ "$NEEDS_EXTERNAL_ACCESS" = "true" ]; then
     export __HOSTNAME__="${SERVICE_NAME}-${NOMAD_ENVIRONMENT}.${NOMAD_DOMAIN:-example.com}"
   fi
   export NOMAD_ENVIRONMENT_URL="https://${__HOSTNAME__}"
+  export __NOMAD_ENVIRONMENT_URL__=${NOMAD_ENVIRONMENT_URL}
 
   # Build Traefik tags
   if [ "$SERVICE_TYPE" = "frontend" ]; then
@@ -57,5 +58,6 @@ else
   # Internal access only via service discovery (no Traefik)
   export __HOSTNAME__=""
   export NOMAD_ENVIRONMENT_URL=""
+  export __NOMAD_ENVIRONMENT_URL__=${NOMAD_ENVIRONMENT_URL}
   export __SERVICE_TAGS__='["api"]'
 fi

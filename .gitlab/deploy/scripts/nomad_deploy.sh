@@ -30,9 +30,10 @@ echo "Output file = $NOMAD_OUTPUT_FILE"
 # Note: envsubst only replaces variables in the format string.
 # Unspecified variables (like ${NOMAD_PORT_http}, ${meta.role}, ${node.unique.name})
 # are left unchanged in the output.
+echo "===== Pass 1: Substituting variables ======"
 SHELL_FORMAT_STRING=$(grep -oE '\$\{__[A-Z_]+__\}' "$NOMAD_JOB_TEMPLATE" | \
   sort -u | \
-  awk '{printf "%s ", $1}')
+  awk '{printf "%s ", $1}' || true)
 
 if [ -z "$SHELL_FORMAT_STRING" ]; then
   echo "Warning - No __*__ variables found in template"
@@ -41,7 +42,23 @@ fi
 echo "Substituting variables = $SHELL_FORMAT_STRING"
 echo "Note - Other variables (e.g. \${NOMAD_PORT_http}, \${meta.role}) will remain unchanged"
 # GNU gettext envsubst format
-envsubst "$SHELL_FORMAT_STRING" < "$NOMAD_JOB_TEMPLATE" > "$NOMAD_OUTPUT_FILE"
+envsubst "$SHELL_FORMAT_STRING" < "$NOMAD_JOB_TEMPLATE" > "${NOMAD_OUTPUT_FILE}".temp.nomad
+
+echo "===== Pass 2: Substituting variables ======"
+# in case a variable block contains another variable, we need to substitute again
+SHELL_FORMAT_STRING=$(grep -oE '\$\{__[A-Z_]+__\}' "${NOMAD_OUTPUT_FILE}".temp.nomad | \
+  sort -u | \
+  awk '{printf "%s ", $1}' || true)
+
+if [ -z "$SHELL_FORMAT_STRING" ]; then
+  echo "Warning - No __*__ variables found in template"
+fi
+
+echo "Substituting variables = $SHELL_FORMAT_STRING"
+echo "Note - Other variables (e.g. \${NOMAD_PORT_http}, \${meta.role}) will remain unchanged"
+# GNU gettext envsubst format
+envsubst "$SHELL_FORMAT_STRING" < "${NOMAD_OUTPUT_FILE}".temp.nomad > "$NOMAD_OUTPUT_FILE"
+rm "${NOMAD_OUTPUT_FILE}.temp.nomad"
 
 nomad fmt "$NOMAD_OUTPUT_FILE" || {
   echo "===== Nomad job file is not formatted correctly ====="
