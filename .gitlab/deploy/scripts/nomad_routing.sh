@@ -7,13 +7,23 @@
 __ENVIRONMENT_SANITIZED__=$(echo "$__ENVIRONMENT__" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
 export __ENVIRONMENT_SANITIZED__="${__ENVIRONMENT_SANITIZED__:-default}"
 
+# Review public host id (shared by Traefik Host and frontend API_GATEWAY).
+# Default: branch slug. Prefix with review- when the slug matches a durable env
+# name so review apps do not collide (e.g. development branch vs deploy:development).
+if [ "$NOMAD_ENVIRONMENT" = "review" ]; then
+  __REVIEW_HOST_ID__="${CI_COMMIT_REF_SLUG}"
+  if [ "${CI_COMMIT_REF_SLUG}" = "development" ]; then
+    __REVIEW_HOST_ID__="review-${CI_COMMIT_REF_SLUG}"
+  fi
+fi
+
 # Always inject runtime env (independent of Traefik / external access)
 if [ "$SERVICE_NAME" = "frontend" ]; then
   SERVICE_TYPE="frontend"
   export __RUNTIME_ENV__="${__RUNTIME_ENV_FRONTEND__}"
   # Frontend proxies /api/ to API_GATEWAY; it must match the backend's Traefik host or Traefik returns 418 (no route).
   if [ "$NOMAD_ENVIRONMENT" = "review" ]; then
-    export __API_GATEWAY__="http://backend-${CI_COMMIT_REF_SLUG}.${NOMAD_DOMAIN:-example.com}"
+    export __API_GATEWAY__="http://backend-${__REVIEW_HOST_ID__}.${NOMAD_DOMAIN:-example.com}"
   else
     export __API_GATEWAY__="http://backend-${NOMAD_ENVIRONMENT}.${NOMAD_DOMAIN:-example.com}"
   fi
@@ -39,15 +49,8 @@ fi
 
 if [ "$NEEDS_EXTERNAL_ACCESS" = "true" ]; then
   # Generate hostname based on environment
-  # For review, use branch name (CI_COMMIT_REF_SLUG) for hostname
   if [ "$NOMAD_ENVIRONMENT" = "review" ]; then
-    export __HOSTNAME__="${SERVICE_NAME}-${CI_COMMIT_REF_SLUG}.${NOMAD_DOMAIN:-example.com}"
-    
-    if [ "${CI_COMMIT_REF_SLUG}" = "development" ]; then
-    # For development, use review-development as hostname to avoid conflicts with `development` branch/environment.
-    export __HOSTNAME__="${SERVICE_NAME}-review-${CI_COMMIT_REF_SLUG}.${NOMAD_DOMAIN:-example.com}"
-    fi
-
+    export __HOSTNAME__="${SERVICE_NAME}-${__REVIEW_HOST_ID__}.${NOMAD_DOMAIN:-example.com}"
   else
     export __HOSTNAME__="${SERVICE_NAME}-${NOMAD_ENVIRONMENT}.${NOMAD_DOMAIN:-example.com}"
   fi
