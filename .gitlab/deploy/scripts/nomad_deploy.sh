@@ -33,7 +33,7 @@ echo "Output file = $NOMAD_OUTPUT_FILE"
 echo "===== Pass 1: Substituting variables ======"
 SHELL_FORMAT_STRING=$(grep -oE '\$\{__[A-Z_]+__\}' "$NOMAD_JOB_TEMPLATE" | \
   sort -u | \
-  awk '{printf "%s ", $1}')
+  awk '{printf "%s ", $1}' || true)
 
 if [ -z "$SHELL_FORMAT_STRING" ]; then
   echo "Warning - No __*__ variables found in template"
@@ -48,7 +48,7 @@ echo "===== Pass 2: Substituting variables ======"
 # in case a variable block contains another variable, we need to substitute again
 SHELL_FORMAT_STRING=$(grep -oE '\$\{__[A-Z_]+__\}' "${NOMAD_OUTPUT_FILE}".temp.nomad | \
   sort -u | \
-  awk '{printf "%s ", $1}')
+  awk '{printf "%s ", $1}' || true)
 
 if [ -z "$SHELL_FORMAT_STRING" ]; then
   echo "Warning - No __*__ variables found in template"
