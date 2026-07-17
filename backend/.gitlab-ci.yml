@@ -69,6 +69,10 @@ variables:
   DEPLOY_DISABLED: "${DEPLOY_DISABLED}"
   # Explicitly disable Auto DevOps review jobs to prevent job name conflicts
   # REVIEW_DISABLED: "true"
+
+  # Disable Auto DevOps browser performance testing
+  # Sitespeed.io / browser_performance jobs are not needed for the backend API service
+  BROWSER_PERFORMANCE_DISABLED: "true"
   
 # Override Auto DevOps test job for backend monorepo layout (we have separate test jobs for backend and frontend)
 # If necessary, disable Auto DevOps test via CI variable: TEST_DISABLED: "true"
