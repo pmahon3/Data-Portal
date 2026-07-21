@@ -12,6 +12,7 @@ export function useStorageInstances() {
   const [instances, setInstances] = useState([]);   // List of storage instances
   const [loading, setLoading] = useState(true);     // Global loading state for instances
   const [creating, setCreating] = useState(false);  // Submission state
+  const [syncingIds, setSyncingIds] = useState({});  // Per-instance sync state
   const [err, setErr] = useState("");               // Error display message
 
   // Fetches the full list of instances from the server.
@@ -88,16 +89,36 @@ export function useStorageInstances() {
     }
   };
 
+  // Sync object storage contents into the database for one instance
+  const syncInstance = async (instanceId) => {
+    setSyncingIds(prev => ({ ...prev, [instanceId]: true }));
+    try {
+      const headers = await getAuthHeaders();
+      const { data } = await http.post(`${INSTANCES_BASE}/${encodeURIComponent(instanceId)}/sync`, null, { headers });
+      return data;
+    } catch (e) {
+      throw e;
+    } finally {
+      setSyncingIds(prev => {
+        const next = { ...prev };
+        delete next[instanceId];
+        return next;
+      });
+    }
+  };
+
   // Expose state and methods to the consuming component
   return {
     instances,
     loading,
     creating,
+    syncingIds,
     err,
     setErr,
     fetchInstances,
     createInstance,
     deleteInstance,
-    updateInstance
+    updateInstance,
+    syncInstance
   };
 }
