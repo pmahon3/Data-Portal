@@ -9,10 +9,14 @@ import ca.inn.bundler.exception.InvalidBundleStateTransitionException;
 import ca.inn.bundler.model.BundleJob;
 import ca.inn.bundler.model.BundleSourceFile;
 import ca.inn.bundler.model.BundleStatus;
+import ca.inn.bundler.repository.BundleJobJpaRepository;
 import ca.inn.bundler.support.RejectingExecutorService;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -25,17 +29,32 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+@SpringBootTest
 public class BundleServiceTest {
-    private final ExecutorService executor = new NoOpExecutorService();
-    private final ExecutorService downloadExecutor = Executors.newFixedThreadPool(2);
+    @Autowired
+    private JpaBundleJobMetadataService bundleJobMetadataService;
 
-    private final BundleService service = new BundleService(
-            executor,
-            newCurrentArchiveService(downloadExecutor),
-            newBatchArchiveService(downloadExecutor),
-            newStreamingArchiveService(),
-            newHybridArchiveService(downloadExecutor)
-    );
+    @Autowired
+    private BundleJobJpaRepository bundleJobJpaRepository;
+
+    private ExecutorService executor;
+    private ExecutorService downloadExecutor;
+    private BundleService service;
+
+    @BeforeEach
+    void setUp() {
+        bundleJobJpaRepository.deleteAll();
+        executor = new NoOpExecutorService();
+        downloadExecutor = Executors.newFixedThreadPool(2);
+        service = new BundleService(
+                executor,
+                newCurrentArchiveService(downloadExecutor),
+                newBatchArchiveService(downloadExecutor),
+                newStreamingArchiveService(),
+                newHybridArchiveService(downloadExecutor),
+                bundleJobMetadataService
+        );
+    }
 
     @AfterEach
     void shutdownExecutor() {
@@ -85,30 +104,43 @@ public class BundleServiceTest {
 
     @Test
     void createBundleThrowsQueueFullWhenExecutorRejectsJob() {
-        // a fake executer
+        ExecutorService rejectingDownloadExecutor = Executors.newFixedThreadPool(2);
+        ExecutorService rejectingBatchDownloadExecutor = Executors.newFixedThreadPool(2);
+        ExecutorService rejectingHybridDownloadExecutor = Executors.newFixedThreadPool(2);
         BundleService rejectingService = new BundleService(
                 new RejectingExecutorService(),
-                newCurrentArchiveService(Executors.newFixedThreadPool(2)),
-                newBatchArchiveService(Executors.newFixedThreadPool(2)),
+                newCurrentArchiveService(rejectingDownloadExecutor),
+                newBatchArchiveService(rejectingBatchDownloadExecutor),
                 newStreamingArchiveService(),
-                newHybridArchiveService(Executors.newFixedThreadPool(2))
+                newHybridArchiveService(rejectingHybridDownloadExecutor),
+                bundleJobMetadataService
         );
 
-        assertThrows(
-                BundleQueueFullException.class,
-                () -> rejectingService.createBundle(validRequest())
-        );
+        try {
+            assertThrows(
+                    BundleQueueFullException.class,
+                    () -> rejectingService.createBundle(validRequest())
+            );
+        } finally {
+            rejectingDownloadExecutor.shutdownNow();
+            rejectingBatchDownloadExecutor.shutdownNow();
+            rejectingHybridDownloadExecutor.shutdownNow();
+        }
     }
 
     @Test
     void failedBundleExposesErrorMessageInResponse() throws Exception {
         ExecutorService failingExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService failingCurrentDownloadExecutor = Executors.newFixedThreadPool(2);
+        ExecutorService failingBatchDownloadExecutor = Executors.newFixedThreadPool(2);
+        ExecutorService failingHybridDownloadExecutor = Executors.newFixedThreadPool(2);
         BundleService failingService = new BundleService(
                 failingExecutor,
-                new FailingCurrentBundleArchiveService(),
-                newBatchArchiveService(Executors.newFixedThreadPool(2)),
+                new FailingCurrentBundleArchiveService(failingCurrentDownloadExecutor),
+                newBatchArchiveService(failingBatchDownloadExecutor),
                 newStreamingArchiveService(),
-                newHybridArchiveService(Executors.newFixedThreadPool(2))
+                newHybridArchiveService(failingHybridDownloadExecutor),
+                bundleJobMetadataService
         );
 
         try {
@@ -122,6 +154,9 @@ public class BundleServiceTest {
             assertThrows(BundleFailedException.class, () -> failingService.getArchivePath(created.getId()));
         } finally {
             failingExecutor.shutdownNow();
+            failingCurrentDownloadExecutor.shutdownNow();
+            failingBatchDownloadExecutor.shutdownNow();
+            failingHybridDownloadExecutor.shutdownNow();
         }
     }
 
@@ -187,7 +222,7 @@ public class BundleServiceTest {
     }
 
     private static class FailingCurrentBundleArchiveService extends CurrentBundleArchiveService {
-        FailingCurrentBundleArchiveService() {
+        FailingCurrentBundleArchiveService(ExecutorService downloadExecutor) {
             super(
                     System.getProperty("java.io.tmpdir"),
                     5,
@@ -195,7 +230,7 @@ public class BundleServiceTest {
                     3,
                     500,
                     4,
-                    Executors.newFixedThreadPool(2)
+                    downloadExecutor
             );
         }
 
@@ -240,6 +275,5 @@ public class BundleServiceTest {
             // worker racing the explicit status transitions under assertion.
         }
     }
-
 
 }

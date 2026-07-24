@@ -22,4 +22,11 @@ public class BundleJob {
     private Path archivePath;
     private String resultUrl;
     private String errorMessage;
+    private Instant startedAt;
+    private Instant completedAt;
+    private String lockedBy;
+    private Instant lockExpiresAt;
+    private int attemptCount;
+    private String bundleFingerprint;
+    private String fingerprintAlgorithm;
 }

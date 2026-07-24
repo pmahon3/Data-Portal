@@ -2,6 +2,8 @@ package ca.inn.bundler.model;
 
 import com.fasterxml.jackson.annotation.JsonValue;
 
+import java.util.Arrays;
+
 public enum BundleStatus {
     PENDING("pending"),
     PROCESSING("processing"),
@@ -17,6 +19,13 @@ public enum BundleStatus {
     @JsonValue
     public String getValue() {
         return value;
+    }
+
+    public static BundleStatus fromValue(String value) {
+        return Arrays.stream(values())
+                .filter(status -> status.value.equals(value))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Unknown bundle status: " + value));
     }
 
     public boolean canTransitionTo(BundleStatus nextStatus) {
