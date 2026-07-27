@@ -21,7 +21,10 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @RequiredArgsConstructor
@@ -34,6 +37,7 @@ public class BundleService {
     private final StreamingBundleArchiveService streamingBundleArchiveService;
     private final BundleArchiveHybridService bundleArchiveHybridService;
     private final JpaBundleJobMetadataService bundleJobMetadataService;
+    private final BundleObjectStorageService bundleObjectStorageService;
 
     @Value("${bundler.archive.strategy:current}")
     private String archiveStrategy;
@@ -52,7 +56,7 @@ public class BundleService {
 
     private final String fallbackInstanceId = "bundler-" + UUID.randomUUID();
 
-    public BundleResponse createBundle(CreateBundleRequest request){
+    public BundleResponse createBundle(CreateBundleRequest request) {
         Instant now=Instant.now();
         String id=UUID.randomUUID().toString();
         BundleJob job= BundleJob.builder()
@@ -114,7 +118,16 @@ public class BundleService {
                 .status(job.getStatus())
                 .createdAt(job.getCreatedAt())
                 .updatedAt(job.getUpdatedAt())
-                .resultUrl(job.getResultUrl())
+                .startedAt(job.getStartedAt())
+                .completedAt(job.getCompletedAt())
+                .archiveStartedAt(job.getArchiveStartedAt())
+                .archiveCompletedAt(job.getArchiveCompletedAt())
+                .uploadStartedAt(job.getUploadStartedAt())
+                .uploadCompletedAt(job.getUploadCompletedAt())
+                .archiveDurationMillis(job.getArchiveDurationMillis())
+                .uploadDurationMillis(job.getUploadDurationMillis())
+                .totalDurationMillis(job.getTotalDurationMillis())
+                .resultObjectKey(job.getResultObjectKey())
                 .errorMessage(job.getErrorMessage())
                 .build();
     }
@@ -192,32 +205,33 @@ public class BundleService {
         return job.getStatus();
     }
 
-    public Path getArchivePath(String bundleId){
-        BundleJob job=getRequiredJob(bundleId, "Bundle archive lookup failed");
+    public String getBundleDownloadUrl(String bundleId) {
+        BundleJob job=getRequiredJob(bundleId, "Bundle download URL lookup failed");
         if (job.getStatus() == BundleStatus.FAILED) {
             log.warn(
-                    "Bundle archive requested after failure: bundleId={} errorMessage={}",
+                    "Bundle download URL requested after failure: bundleId={} errorMessage={}",
                     bundleId,
                     job.getErrorMessage()
             );
             throw new BundleFailedException(bundleId, job.getErrorMessage());
         }
-        if (job.getStatus() != BundleStatus.COMPLETE || job.getArchivePath() == null) {
+        if (job.getStatus() != BundleStatus.COMPLETE || job.getResultObjectKey() == null) {
             log.warn(
-                    "Bundle archive requested before ready: bundleId={} status={} hasArchivePath={}",
+                    "Bundle download URL requested before ready: bundleId={} status={} hasResultObjectKey={}",
                     bundleId,
                     job.getStatus(),
-                    job.getArchivePath() != null
+                    job.getResultObjectKey() != null
             );
             throw new BundleNotReadyException(bundleId);
         }
-        return job.getArchivePath();
+        return bundleObjectStorageService.createDownloadUrl(job.getResultObjectKey());
     }
 
 
     //########################### Helper function
     private void processBundle(String bundleId) {
         String instanceId = instanceId();
+        ScheduledExecutorService lockHeartbeat = null;
         try{
             Instant now = Instant.now();
             Instant lockExpiresAt = now.plusSeconds(effectiveLockDurationSeconds());
@@ -240,8 +254,33 @@ public class BundleService {
                     lockExpiresAt
             );
 
+            lockHeartbeat = startClaimHeartbeat(bundleId, instanceId);
+
+            Instant archiveStartedAt = Instant.now();
             Path archivePath = buildArchiveWithConfiguredStrategy(claimedJob);
-            boolean completed = bundleJobMetadataService.completeClaimedJob(bundleId, instanceId, archivePath, Instant.now());
+            Instant archiveCompletedAt = Instant.now();
+            // After the ZIP is created locally, upload it and persist the object key for later downloads.
+            Instant uploadStartedAt = Instant.now();
+            BundleObjectStorageService.UploadResult uploadResult = bundleObjectStorageService.uploadBundle(
+                    claimedJob.getId(),
+                    archivePath
+            );
+            Instant uploadCompletedAt = Instant.now();
+            Instant completedAt = Instant.now();
+            boolean completed = bundleJobMetadataService.completeClaimedJob(
+                    bundleId,
+                    instanceId,
+                    archivePath,
+                    uploadResult == null ? null : uploadResult.getObjectKey(),
+                    archiveStartedAt,
+                    archiveCompletedAt,
+                    uploadStartedAt,
+                    uploadCompletedAt,
+                    durationMillis(archiveStartedAt, archiveCompletedAt),
+                    durationMillis(uploadStartedAt, uploadCompletedAt),
+                    durationMillis(claimedJob.getStartedAt(), completedAt),
+                    completedAt
+            );
             if (!completed) {
                 log.warn(
                         "Bundle processing completed locally but DB claim was lost before completion: bundleId={} instanceId={} archivePath={}",
@@ -251,7 +290,15 @@ public class BundleService {
                 );
                 return;
             }
-            log.info("Bundle processing completed: bundleId={} instanceId={} archivePath={}", bundleId, instanceId, archivePath);
+            log.info(
+                    "Bundle processing completed: bundleId={} instanceId={} archivePath={} archiveDurationMs={} uploadDurationMs={} totalProcessingDurationMs={}",
+                    bundleId,
+                    instanceId,
+                    archivePath,
+                    durationMillis(archiveStartedAt, archiveCompletedAt),
+                    durationMillis(uploadStartedAt, uploadCompletedAt),
+                    durationMillis(claimedJob.getStartedAt(), completedAt)
+            );
 
         }
 
@@ -268,6 +315,56 @@ public class BundleService {
                         exception
                 );
             }
+        }
+        finally {
+            if (lockHeartbeat != null) {
+                lockHeartbeat.shutdownNow();
+            }
+        }
+    }
+
+    private ScheduledExecutorService startClaimHeartbeat(String bundleId, String instanceId) {
+        long intervalSeconds = effectiveLockHeartbeatIntervalSeconds();
+        ScheduledExecutorService heartbeat = Executors.newSingleThreadScheduledExecutor(runnable -> {
+            Thread thread = new Thread(runnable, "bundle-lock-heartbeat-" + bundleId);
+            thread.setDaemon(true);
+            return thread;
+        });
+        heartbeat.scheduleWithFixedDelay(
+                () -> refreshClaimLock(bundleId, instanceId),
+                intervalSeconds,
+                intervalSeconds,
+                TimeUnit.SECONDS
+        );
+        return heartbeat;
+    }
+
+    private void refreshClaimLock(String bundleId, String instanceId) {
+        try {
+            Instant now = Instant.now();
+            Instant lockExpiresAt = now.plusSeconds(effectiveLockDurationSeconds());
+            boolean refreshed = bundleJobMetadataService.refreshClaimLock(bundleId, instanceId, now, lockExpiresAt);
+            if (refreshed) {
+                log.debug(
+                        "Bundle processing claim refreshed: bundleId={} instanceId={} lockExpiresAt={}",
+                        bundleId,
+                        instanceId,
+                        lockExpiresAt
+                );
+            } else {
+                log.warn(
+                        "Bundle processing claim refresh skipped because claim is no longer owned: bundleId={} instanceId={}",
+                        bundleId,
+                        instanceId
+                );
+            }
+        } catch (Exception exception) {
+            log.warn(
+                    "Bundle processing claim refresh failed: bundleId={} instanceId={} message={}",
+                    bundleId,
+                    instanceId,
+                    exception.getMessage()
+            );
         }
     }
 
@@ -321,6 +418,13 @@ public class BundleService {
         return Duration.ofNanos(System.nanoTime() - startNanos).toMillis();
     }
 
+    private Long durationMillis(Instant startedAt, Instant completedAt) {
+        if (startedAt == null || completedAt == null) {
+            return null;
+        }
+        return Duration.between(startedAt, completedAt).toMillis();
+    }
+
     private BundleJob getRequiredJob(String bundleId, String logMessage) {
         return bundleJobMetadataService.findById(bundleId)
                 .orElseThrow(() -> {
@@ -338,6 +442,10 @@ public class BundleService {
 
     private long effectiveLockDurationSeconds() {
         return lockDurationSeconds > 0 ? lockDurationSeconds : 600;
+    }
+
+    private long effectiveLockHeartbeatIntervalSeconds() {
+        return Math.max(10, Math.min(300, effectiveLockDurationSeconds() / 3));
     }
 
     private int effectiveClaimScanBatchSize() {

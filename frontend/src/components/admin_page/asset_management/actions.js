@@ -2,8 +2,11 @@
 // This file contains asynchronous functions for download, upload and delete actions
 import { getAuthHeaders } from '../../../utils/authUtils';
 
+const BUNDLE_POLL_INTERVAL_MS = 2000;
+const BUNDLE_MAX_POLL_ATTEMPTS = 1800; // 60 minutes for large folder bundles.
+
 // Initiates an asynchronous server-side bundling process for specific assets,
-// polls for completion, and triggers a browser download once the ZIP is ready.
+// polls for completion, and opens the final object-storage URL once the ZIP is ready.
 export const downloadAssetBundle = async (http, endpointName, fileIds, folderIds = []) => {
   let headers = await getAuthHeaders();
   
@@ -36,11 +39,9 @@ export const downloadAssetBundle = async (http, endpointName, fileIds, folderIds
 
   // Poll for completion
   let status = "processing";
-  const maxRetries = 60;
-  const pollInterval = 2000; // 2 seconds
 
-  for (let i = 0; i < maxRetries; i++) {
-    await new Promise(resolve => setTimeout(resolve, pollInterval));
+  for (let i = 0; i < BUNDLE_MAX_POLL_ATTEMPTS; i++) {
+    await new Promise(resolve => setTimeout(resolve, BUNDLE_POLL_INTERVAL_MS));
     
     headers = await getAuthHeaders();
     const statusResp = await http.get(`/tree/bundle/${bundle_id}/status`, { headers });
@@ -54,28 +55,19 @@ export const downloadAssetBundle = async (http, endpointName, fileIds, folderIds
   }
 
   if (status !== "complete") {
-    throw new Error("Bundle generation timed out. Please try again.");
+    throw new Error("Bundle generation timed out after 60 minutes. Please try again.");
   }
 
-  // Fetch the completed bundle blob
+  // Fetch the completed bundle's object-storage URL
   headers = await getAuthHeaders();
-  const downloadResponse = await http.get(`/tree/bundle/${bundle_id}/download`, {
-    headers,
-    responseType: "blob"
-  });
+  const downloadUrlResponse = await http.get(`/tree/bundle/${bundle_id}/download`, { headers });
+  const resultUrl = downloadUrlResponse.data?.result_url;
+  if (!resultUrl) {
+    throw new Error("Bundle generation completed but no download URL was returned.");
+  }
 
-  // Create a temporary link to download the blob
-  const blob = new Blob([downloadResponse.data], { type: "application/zip" });
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `${endpointName}_archive.zip`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  
-  // Clean up object URL after a brief delay to ensure download starts
-  setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+  // Use current-tab navigation because async polling can make new-tab clicks look like popups.
+  window.location.assign(resultUrl);
 };
 
 // Iterates through a selection of asset IDs and performs sequential delete requests.

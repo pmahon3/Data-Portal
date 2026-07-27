@@ -18,6 +18,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class BundleJobRetentionService {
     private final JpaBundleJobMetadataService bundleJobMetadataService;
+    private final BundleObjectStorageService bundleObjectStorageService;
 
     @Value("${bundler.job.retention-enabled:true}")
     private boolean retentionEnabled;
@@ -62,8 +63,16 @@ public class BundleJobRetentionService {
             return;
         }
 
+        if (!deleteObjectIfPresent(job)) {
+            return;
+        }
+
         bundleJobMetadataService.deleteById(bundleId);
         log.info("Bundle job metadata cleaned up by retention: bundleId={}", bundleId);
+    }
+
+    private boolean deleteObjectIfPresent(BundleJob job) {
+        return bundleObjectStorageService.deleteBundleObject(job.getId(), job.getResultObjectKey());
     }
 
     private boolean deleteArchiveIfPresent(BundleJob job) {

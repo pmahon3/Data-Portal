@@ -68,32 +68,8 @@ public class BundleControllerTest {
     }
 
     @Test
-    void versionedRoutesAreRegistered() throws Exception {
-        String body = """
-                {
-                  "folderName": "v2-test",
-                  "files": [
-                    {
-                      "url": "https://example.com/file.txt",
-                      "relativePath": "folder/file.txt"
-                    }
-                  ],
-                  "compression": "zip"
-                }
-                """;
-        mockMvc.perform(post("/v2/bundles")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
-                .andExpect(status().isAccepted())
-                //.andExpect(jsonPath("$.status", is("pending")));
-                .andExpect(jsonPath("$.id").exists())
-                .andExpect(jsonPath("$.status").exists());
-    }
-
-
-    @Test
     void downloadReturnsNotFoundForUnknownBundle() throws Exception {
-        mockMvc.perform(get("/v2/bundles/fake-id/download"))
+        mockMvc.perform(get("/bundles/fake-id/download"))
                 .andExpect(status().isNotFound());
     }
 

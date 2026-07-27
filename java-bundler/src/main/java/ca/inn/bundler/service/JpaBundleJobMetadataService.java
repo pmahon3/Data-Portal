@@ -61,8 +61,39 @@ public class JpaBundleJobMetadataService {
     }
 
     @Transactional
-    public boolean completeClaimedJob(String id, String instanceId, Path archivePath, Instant now) {
-        return repository.completeClaimedJob(id, instanceId, pathToString(archivePath), now) == 1;
+    public boolean refreshClaimLock(String id, String instanceId, Instant now, Instant lockExpiresAt) {
+        return repository.refreshClaimLock(id, instanceId, now, lockExpiresAt) == 1;
+    }
+
+    @Transactional
+    public boolean completeClaimedJob(
+            String id,
+            String instanceId,
+            Path archivePath,
+            String resultObjectKey,
+            Instant archiveStartedAt,
+            Instant archiveCompletedAt,
+            Instant uploadStartedAt,
+            Instant uploadCompletedAt,
+            Long archiveDurationMillis,
+            Long uploadDurationMillis,
+            Long totalDurationMillis,
+            Instant now
+    ) {
+        return repository.completeClaimedJob(
+                id,
+                instanceId,
+                pathToString(archivePath),
+                resultObjectKey,
+                archiveStartedAt,
+                archiveCompletedAt,
+                uploadStartedAt,
+                uploadCompletedAt,
+                archiveDurationMillis,
+                uploadDurationMillis,
+                totalDurationMillis,
+                now
+        ) == 1;
     }
 
     @Transactional
@@ -83,12 +114,19 @@ public class JpaBundleJobMetadataService {
                 .compression(job.getCompression())
                 .files(job.getFiles())
                 .archivePath(pathToString(job.getArchivePath()))
-                .resultUrl(job.getResultUrl())
+                .resultObjectKey(job.getResultObjectKey())
                 .errorMessage(job.getErrorMessage())
                 .createdAt(job.getCreatedAt())
                 .updatedAt(job.getUpdatedAt())
                 .startedAt(job.getStartedAt())
                 .completedAt(job.getCompletedAt())
+                .archiveStartedAt(job.getArchiveStartedAt())
+                .archiveCompletedAt(job.getArchiveCompletedAt())
+                .uploadStartedAt(job.getUploadStartedAt())
+                .uploadCompletedAt(job.getUploadCompletedAt())
+                .archiveDurationMillis(job.getArchiveDurationMillis())
+                .uploadDurationMillis(job.getUploadDurationMillis())
+                .totalDurationMillis(job.getTotalDurationMillis())
                 .lockedBy(job.getLockedBy())
                 .lockExpiresAt(job.getLockExpiresAt())
                 .attemptCount(job.getAttemptCount())
@@ -105,12 +143,19 @@ public class JpaBundleJobMetadataService {
                 .compression(entity.getCompression())
                 .files(entity.getFiles())
                 .archivePath(entity.getArchivePath() == null ? null : Path.of(entity.getArchivePath()))
-                .resultUrl(entity.getResultUrl())
+                .resultObjectKey(entity.getResultObjectKey())
                 .errorMessage(entity.getErrorMessage())
                 .createdAt(entity.getCreatedAt())
                 .updatedAt(entity.getUpdatedAt())
                 .startedAt(entity.getStartedAt())
                 .completedAt(entity.getCompletedAt())
+                .archiveStartedAt(entity.getArchiveStartedAt())
+                .archiveCompletedAt(entity.getArchiveCompletedAt())
+                .uploadStartedAt(entity.getUploadStartedAt())
+                .uploadCompletedAt(entity.getUploadCompletedAt())
+                .archiveDurationMillis(entity.getArchiveDurationMillis())
+                .uploadDurationMillis(entity.getUploadDurationMillis())
+                .totalDurationMillis(entity.getTotalDurationMillis())
                 .lockedBy(entity.getLockedBy())
                 .lockExpiresAt(entity.getLockExpiresAt())
                 .attemptCount(entity.getAttemptCount())

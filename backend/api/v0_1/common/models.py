@@ -34,6 +34,11 @@ class BundleCreateResponse(BaseModel):
     single_file_url: Union[str, None] = Field(default=None, description="Direct presigned URL if downloading a single file.")
 
 
+class BundleDownloadUrlResponse(BaseModel):
+    bundle_id: str = Field(..., description="The ID of the requested bundle.")
+    result_url: str = Field(..., description="Presigned URL for the completed bundle archive.")
+
+
 class PutAssetRequest(BaseModel):
     resource: str = Field(..., description="Target path/key to write to (e.g. 'folder/sub/file.txt').")
     instance_name: str = Field(..., description="Name of the storage access point.")
@@ -173,8 +178,7 @@ class UserFileTree(BaseModel):
     )
 
 
-# Used for UNUSED legacy endpoint /api/assets/dashboard which has been replaced
-# with /api/assets/dashboard/{instance}
+# Used by the older /api/assets/dashboard route, replaced by /api/assets/dashboard/{instance}.
 class AssetManagementData(BaseModel):
     assets: Dict[str, Dict[str, List[FileTreeNode]]] = Field(
         ..., description="File trees organized by instance UUID and access type."

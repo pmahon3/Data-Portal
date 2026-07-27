@@ -61,8 +61,32 @@ public interface BundleJobJpaRepository extends JpaRepository<BundleJobEntity, S
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(value = """
             update bundle_jobs
+            set lock_expires_at = :lockExpiresAt,
+                updated_at = :now
+            where id = :id
+              and status = 'processing'
+              and locked_by = :instanceId
+            """, nativeQuery = true)
+    int refreshClaimLock(
+            @Param("id") String id,
+            @Param("instanceId") String instanceId,
+            @Param("now") Instant now,
+            @Param("lockExpiresAt") Instant lockExpiresAt
+    );
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+            update bundle_jobs
             set status = 'complete',
                 archive_path = :archivePath,
+                result_object_key = :resultObjectKey,
+                archive_started_at = :archiveStartedAt,
+                archive_completed_at = :archiveCompletedAt,
+                upload_started_at = :uploadStartedAt,
+                upload_completed_at = :uploadCompletedAt,
+                archive_duration_millis = :archiveDurationMillis,
+                upload_duration_millis = :uploadDurationMillis,
+                total_duration_millis = :totalDurationMillis,
                 updated_at = :now,
                 completed_at = :now,
                 locked_by = null,
@@ -75,6 +99,14 @@ public interface BundleJobJpaRepository extends JpaRepository<BundleJobEntity, S
             @Param("id") String id,
             @Param("instanceId") String instanceId,
             @Param("archivePath") String archivePath,
+            @Param("resultObjectKey") String resultObjectKey,
+            @Param("archiveStartedAt") Instant archiveStartedAt,
+            @Param("archiveCompletedAt") Instant archiveCompletedAt,
+            @Param("uploadStartedAt") Instant uploadStartedAt,
+            @Param("uploadCompletedAt") Instant uploadCompletedAt,
+            @Param("archiveDurationMillis") Long archiveDurationMillis,
+            @Param("uploadDurationMillis") Long uploadDurationMillis,
+            @Param("totalDurationMillis") Long totalDurationMillis,
             @Param("now") Instant now
     );
 
