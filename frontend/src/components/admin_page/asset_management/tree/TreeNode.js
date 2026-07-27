@@ -105,8 +105,10 @@ export default function TreeNode({
       onClick={toggle}
       style={{ height: 40, display: "flex", alignItems: "center" }}
     >
-      {/* Indent spacer */}
-      <div style={{ width: depth * 20, flexShrink: 0 }} />
+      {/* Indent guide lines */}
+      {Array.from({ length: depth }, (_, i) => (
+        <div key={i} className="tree-indent-line" />
+      ))}
 
       {/* Expand/collapse chevron */}
       <div
