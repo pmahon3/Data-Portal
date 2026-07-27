@@ -37,6 +37,9 @@ public class BundleServiceTest {
     @Autowired
     private BundleJobJpaRepository bundleJobJpaRepository;
 
+    @Autowired
+    private BundleObjectStorageService bundleObjectStorageService;
+
     private ExecutorService executor;
     private ExecutorService downloadExecutor;
     private BundleService service;
@@ -52,7 +55,8 @@ public class BundleServiceTest {
                 newBatchArchiveService(downloadExecutor),
                 newStreamingArchiveService(),
                 newHybridArchiveService(downloadExecutor),
-                bundleJobMetadataService
+                bundleJobMetadataService,
+                bundleObjectStorageService
         );
     }
 
@@ -113,7 +117,8 @@ public class BundleServiceTest {
                 newBatchArchiveService(rejectingBatchDownloadExecutor),
                 newStreamingArchiveService(),
                 newHybridArchiveService(rejectingHybridDownloadExecutor),
-                bundleJobMetadataService
+                bundleJobMetadataService,
+                bundleObjectStorageService
         );
 
         try {
@@ -140,7 +145,8 @@ public class BundleServiceTest {
                 newBatchArchiveService(failingBatchDownloadExecutor),
                 newStreamingArchiveService(),
                 newHybridArchiveService(failingHybridDownloadExecutor),
-                bundleJobMetadataService
+                bundleJobMetadataService,
+                bundleObjectStorageService
         );
 
         try {
@@ -151,7 +157,7 @@ public class BundleServiceTest {
             BundleResponse status = failingService.getBundle(created.getId());
             assertEquals(BundleStatus.FAILED, status.getStatus());
             assertEquals("Simulated archive failure", status.getErrorMessage());
-            assertThrows(BundleFailedException.class, () -> failingService.getArchivePath(created.getId()));
+            assertThrows(BundleFailedException.class, () -> failingService.getBundleDownloadUrl(created.getId()));
         } finally {
             failingExecutor.shutdownNow();
             failingCurrentDownloadExecutor.shutdownNow();

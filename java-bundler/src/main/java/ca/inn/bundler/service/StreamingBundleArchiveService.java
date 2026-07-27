@@ -74,7 +74,7 @@ public class StreamingBundleArchiveService {
                     Path entryPath = prepareArchiveEntryPath(job.getFolderName(), sourceFile.getRelativePath());
                     long fileZipStartNanos = System.nanoTime();
                     streamFileToZip(sourceFile.getUrl(), zipOut, entryPath, sourceFile.getRelativePath(), job.getId());
-                    log.info(
+                    log.debug(
                             "Streaming bundle file zipped: bundleId={} relativePath={} zipElapsedMs={}",
                             job.getId(),
                             sourceFile.getRelativePath(),
@@ -134,7 +134,7 @@ public class StreamingBundleArchiveService {
 
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
-                log.info(
+                log.debug(
                         "Streaming bundle file download started: bundleId={} relativePath={} attempt={}/{}",
                         bundleId,
                         relativePath,
@@ -173,7 +173,7 @@ public class StreamingBundleArchiveService {
                     zipOut.closeEntry();
                 }
 
-                log.info(
+                log.debug(
                         "Streaming bundle file download completed: bundleId={} relativePath={} attempt={}/{}",
                         bundleId,
                         relativePath,

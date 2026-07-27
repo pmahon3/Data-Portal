@@ -9,14 +9,13 @@ import httpx
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # INN dependencies
 from api.v0_1.endpoints.auth import decode_token
-from api.v0_1.common.models import BundleCreateRequest, BundleCreateResponse
+from api.v0_1.common.models import BundleCreateRequest, BundleCreateResponse, BundleDownloadUrlResponse
 # DB models
 from core.db.postgres.session import get_session
 from core.services.injectors import get_instance_manager, get_policy_manager, get_user_manager
@@ -36,6 +35,7 @@ BUNDLER_PROVIDER = os.getenv("BUNDLER_PROVIDER", "java").strip().lower()
 BUNDLER_URL = os.getenv("BUNDLER_URL", "http://bundler:8082")
 PYTHON_BUNDLER_URL = os.getenv("PYTHON_BUNDLER_URL", BUNDLER_URL)
 JAVA_BUNDLER_URL = os.getenv("JAVA_BUNDLER_URL", "http://localhost:8888")
+BUNDLE_SOURCE_URL_EXPIRATION_SECONDS = int(os.getenv("BUNDLE_SOURCE_URL_EXPIRATION_SECONDS", "7200"))
 
 # Global async HTTP client for interacting with the bundler service
 bundler_client = httpx.AsyncClient(timeout=httpx.Timeout(60.0))
@@ -566,7 +566,7 @@ async def create_asset_bundle(
             url = agent.s3_client.generate_presigned_url(
                 ClientMethod="get_object",
                 Params={"Bucket": file.bucket, "Key": file.key},
-                ExpiresIn=600,
+                ExpiresIn=BUNDLE_SOURCE_URL_EXPIRATION_SECONDS,
             )
             all_presigned_urls.append(url)
             java_bundle_files.append({
@@ -626,6 +626,7 @@ async def create_asset_bundle(
     # Send bundle id and status back to client
     return BundleCreateResponse(bundle_id=bundle_id, status="processing", folder_name=folder_name)
 
+
 @router.get(
     "/bundle/{bundle_id}/status",
     summary="Check status of an asset bundle",
@@ -662,52 +663,31 @@ async def get_bundle_status(
 
 @router.get(
     "/bundle/{bundle_id}/download",
-    summary="Download an asset zip bundle",
-    description="Streams the completed zip archive from the bundler service."
+    response_model=BundleDownloadUrlResponse,
+    summary="Get asset zip bundle object-storage URL",
+    description="Returns a presigned object-storage URL for the completed zip archive."
 )
-async def download_bundle(
+async def get_bundle_download_url(
     bundle_id: str,
-    folder_name: str = "archive",
     user: dict = Depends(decode_token)
 ):
-    """
-    Download a completed asset zip bundle.
-    
-    Streams the zip archive from the bundler service to the client.
-    
-    Args:
-        bundle_id: The ID of the bundle to download.
-        folder_name: The name to use for the downloaded zip file (without .zip). Defaults to "archive".
-        
-    Returns:
-        StreamingResponse: Streaming response containing the zip archive.
-    """
+    # Bundles are downloaded from object storage; this endpoint returns a presigned URL, not ZIP bytes.
     try:
-        # Ensure we connect but leave the stream open.
         bundler_url = get_bundler_url(get_bundler_provider())
-        req = bundler_client.build_request('GET', f"{bundler_url}/bundles/{bundle_id}/download")
-        response = await bundler_client.send(req, stream=True)
+        url_res = await bundler_client.get(f"{bundler_url}/bundles/{bundle_id}/download", timeout=5.0)
     except httpx.RequestError as e:
-        logger.error(f"Stream connection failed: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Bundler connection error.")
+        logger.error(f"Bundler download URL request failed for bundle {bundle_id}: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Bundle download URL request failed.")
 
-    # Reject if the bundler throws an error.
-    if response.status_code != 200:
-        await response.aclose()
-        if response.status_code == 404:
-            raise HTTPException(status_code=404, detail="Bundle not found.")
-        logger.error(f"Failed to download bundle {bundle_id}, status {response.status_code}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Bundle download error.")
+    if url_res.status_code == 200:
+        result_url = url_res.json().get("resultUrl")
+        if not result_url:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Invalid bundle download URL response.")
+        return BundleDownloadUrlResponse(bundle_id=bundle_id, result_url=result_url)
+    if url_res.status_code == 202:
+        raise HTTPException(status_code=status.HTTP_202_ACCEPTED, detail="Bundle is not ready.")
+    if url_res.status_code == 404:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bundle not found.")
 
-    async def stream_zip():
-        try:
-            async for chunk in response.aiter_bytes(chunk_size=8192):
-                yield chunk
-        finally:
-            await response.aclose()
-
-    return StreamingResponse(
-        stream_zip(),
-        media_type="application/zip",
-        headers={"Content-Disposition": f"attachment; filename={folder_name}.zip"}
-    )
+    logger.error(f"Bundler download URL request returned status {url_res.status_code}")
+    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Bundle download URL error.")

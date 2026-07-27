@@ -37,6 +37,8 @@ import java.util.zip.ZipOutputStream;
 @Slf4j
 @Service
 public class BundleArchiveHybridService {
+    private static final int PROGRESS_LOG_INTERVAL_FILES = 25;
+
     private static final class PermanentDownloadFailureException extends IOException {
         PermanentDownloadFailureException(String message) {
             super(message);
@@ -138,6 +140,7 @@ public class BundleArchiveHybridService {
 
                     writeStagedFileToZip(zipOut, stagedDownload);
                     Files.deleteIfExists(stagedDownload.stagePath());
+                    logProgress(job.getId(), completedCount, downloadPlans.size(), buildStartNanos);
                 }
             }
 
@@ -255,7 +258,7 @@ public class BundleArchiveHybridService {
         } finally {
             zipOut.closeEntry();
         }
-        log.info(
+        log.debug(
                 "Hybrid bundle file zipped: relativePath={}",
                 stagedDownload.relativePath()
         );
@@ -291,7 +294,7 @@ public class BundleArchiveHybridService {
 
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
-                log.info(
+                log.debug(
                         "Hybrid bundle file download started: bundleId={} relativePath={} attempt={}/{}",
                         bundleId,
                         relativePath,
@@ -326,7 +329,7 @@ public class BundleArchiveHybridService {
                 try (InputStream inputStream = response.body()) {
                     Files.copy(inputStream, targetFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
                 }
-                log.info(
+                log.debug(
                         "Hybrid bundle file download completed: bundleId={} relativePath={} attempt={}/{}",
                         bundleId,
                         relativePath,
@@ -363,6 +366,18 @@ public class BundleArchiveHybridService {
                 "Hybrid download failed after " + maxAttempts + " attempts for relativePath=" + relativePath,
                 lastException
         );
+    }
+
+    private void logProgress(String bundleId, int completedCount, int totalCount, long startNanos) {
+        if (completedCount == totalCount || completedCount % PROGRESS_LOG_INTERVAL_FILES == 0) {
+            log.info(
+                    "Hybrid archive progress: bundleId={} zippedFiles={}/{} elapsedMs={}",
+                    bundleId,
+                    completedCount,
+                    totalCount,
+                    elapsedMillis(startNanos)
+            );
+        }
     }
 
     // Converts a System.nanoTime() start value into elapsed milliseconds for logs.

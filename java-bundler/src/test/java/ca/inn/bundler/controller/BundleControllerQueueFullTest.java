@@ -1,10 +1,7 @@
 package ca.inn.bundler.controller;
 
-import ca.inn.bundler.exception.BundleNotReadyException;
 import ca.inn.bundler.exception.BundleQueueFullException;
-import ca.inn.bundler.model.BundleStatus;
 import ca.inn.bundler.service.BundleService;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,13 +9,8 @@ import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.zip.ZipOutputStream;
-
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.hamcrest.Matchers.is;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -57,37 +49,5 @@ public class BundleControllerQueueFullTest {
                 .andExpect(jsonPath("$.status", is(503)))
                 .andExpect(jsonPath("$.message", is("Bundle worker queue is full")));
 
-    }
-
-    @Test
-    void downloadReturnsAcceptedWhenBundleIsNotComplete() throws Exception {
-        when(bundleService.getArchivePath("bundle-1"))
-                .thenThrow(new BundleNotReadyException("bundle-1"));
-
-        mockMvc.perform(get("/v2/bundles/bundle-1/download"))
-                .andExpect(status().isAccepted());
-    }
-
-    @Test
-    void downloadReturnsZipWhenBundleIsComplete() throws Exception {
-
-        Path archivePath = Files.createTempFile("test-bundle-", ".zip");
-
-
-        try (ZipOutputStream zipOut = new ZipOutputStream(Files.newOutputStream(archivePath))) {
-            // empty zip
-        }
-
-        when(bundleService.getBundleStatusValue("bundle-1"))
-                .thenReturn(BundleStatus.COMPLETE);
-        when(bundleService.getArchivePath("bundle-1"))
-                .thenReturn(archivePath);
-
-
-        mockMvc.perform(get("/v2/bundles/bundle-1/download"))
-                .andExpect(status().isOk())
-                .andExpect(header().string(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"bundle.zip\""));
-
-        Files.deleteIfExists(archivePath);
     }
 }

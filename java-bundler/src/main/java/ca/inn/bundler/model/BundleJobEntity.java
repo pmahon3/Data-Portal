@@ -42,10 +42,13 @@ public class BundleJobEntity {
     @OrderColumn(name = "file_order")
     private List<BundleSourceFile> files;
 
+    @Column(columnDefinition = "text")
     private String archivePath;
-    private String resultUrl;
 
-    @Column(length = 4096)
+    @Column(columnDefinition = "text")
+    private String resultObjectKey;
+
+    @Column(columnDefinition = "text")
     private String errorMessage;
 
     @Column(nullable = false)
@@ -56,6 +59,13 @@ public class BundleJobEntity {
 
     private Instant startedAt;
     private Instant completedAt;
+    private Instant archiveStartedAt;
+    private Instant archiveCompletedAt;
+    private Instant uploadStartedAt;
+    private Instant uploadCompletedAt;
+    private Long archiveDurationMillis;
+    private Long uploadDurationMillis;
+    private Long totalDurationMillis;
     private String lockedBy;
     private Instant lockExpiresAt;
 

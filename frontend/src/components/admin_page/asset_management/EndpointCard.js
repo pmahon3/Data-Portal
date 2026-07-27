@@ -615,7 +615,7 @@ export default function EndpointCard({
         <CircularProgress size={14} sx={{ color: "#fff" }} />
       )}
       {busy === "down" && busyID === endpointUuid
-        ? "Downloading..."
+        ? "Preparing download..."
         : "Download"}
     </button>
   );
