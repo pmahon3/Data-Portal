@@ -39,6 +39,7 @@ BUNDLE_SOURCE_URL_EXPIRATION_SECONDS = int(os.getenv("BUNDLE_SOURCE_URL_EXPIRATI
 
 # Global async HTTP client for interacting with the bundler service
 bundler_client = httpx.AsyncClient(timeout=httpx.Timeout(60.0))
+KNOWN_BUNDLER_ERROR_STATUSES = {400, 409, 413, 422, 501}
 
 #################################################################################### Pydantic models
 class TreeRootQuery(BaseModel):
@@ -489,7 +490,7 @@ async def create_asset_bundle(
     )
     
     if not request.file_ids and not request.folder_ids:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No files provided for bundling.")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No files provided for downloading.")
 
     user_uuid = user_manager.get_user_uuid(user['preferred_username'])
     instance_uuid, agent = get_instance_agent(instance_manager, request.instance_name)
@@ -612,16 +613,19 @@ async def create_asset_bundle(
         init_res = await bundler_client.post(f"{bundler_url}/bundles", json=init_payload, timeout=10.0)
     except httpx.RequestError as e:
         logger.error(f"Request error while communicating with Bundler: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Bundler service is unreachable.")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Something went wrong while preparing your download. Please try again.")
 
     if init_res.status_code != 202:
-        logger.error(f"Bundler service returned unexpected status {init_res.status_code} during initiation")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to initialize bundle generation.")
+        logger.error(f"Bundler service returned status {init_res.status_code} during initiation: {init_res.text}")
+        if init_res.status_code in KNOWN_BUNDLER_ERROR_STATUSES:
+            detail = init_res.json().get("detail", "We couldn't prepare your files for download.")
+            raise HTTPException(status_code=init_res.status_code, detail=detail)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="We couldn't prepare your files for download. Please try again.")
 
     bundle_data = init_res.json()
     bundle_id = bundle_data.get("id")
     if not bundle_id:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Invalid response from bundler.")
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Something went wrong while preparing your download. Please try again.")
 
     # Send bundle id and status back to client
     return BundleCreateResponse(bundle_id=bundle_id, status="processing", folder_name=folder_name)
@@ -651,15 +655,21 @@ async def get_bundle_status(
         poll_res = await bundler_client.get(f"{bundler_url}/bundles/{bundle_id}", timeout=5.0)
     except httpx.RequestError as e:
         logger.error(f"Bundler status check failed for bundle {bundle_id}: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Bundle status check failed.")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="We couldn't check whether the ZIP archive is ready. Please try again.",
+        )
         
     if poll_res.status_code == 202:
         return poll_res.json()
     elif poll_res.status_code == 404:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bundle not found.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="This download is no longer available.")
     else:
         logger.error(f"Bundler status check returned status {poll_res.status_code}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Bundle error.")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="We couldn't check whether the ZIP archive is ready. Please try again.",
+        )
 
 @router.get(
     "/bundle/{bundle_id}/download",
@@ -677,17 +687,17 @@ async def get_bundle_download_url(
         url_res = await bundler_client.get(f"{bundler_url}/bundles/{bundle_id}/download", timeout=5.0)
     except httpx.RequestError as e:
         logger.error(f"Bundler download URL request failed for bundle {bundle_id}: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Bundle download URL request failed.")
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="We couldn't create a secure download link for this ZIP archive. Please try again.")
 
     if url_res.status_code == 200:
         result_url = url_res.json().get("resultUrl")
         if not result_url:
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Invalid bundle download URL response.")
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="We couldn't create a secure download link for this ZIP archive. Please try again.")
         return BundleDownloadUrlResponse(bundle_id=bundle_id, result_url=result_url)
     if url_res.status_code == 202:
-        raise HTTPException(status_code=status.HTTP_202_ACCEPTED, detail="Bundle is not ready.")
+        raise HTTPException(status_code=status.HTTP_202_ACCEPTED, detail="The ZIP archive is still being prepared.")
     if url_res.status_code == 404:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bundle not found.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="This ZIP archive is not available.")
 
     logger.error(f"Bundler download URL request returned status {url_res.status_code}")
-    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Bundle download URL error.")
+    raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="We couldn't create a secure download link for this ZIP archive. Please try again.")
