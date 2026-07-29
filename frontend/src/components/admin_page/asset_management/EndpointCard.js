@@ -37,11 +37,27 @@ export default function EndpointCard({
   const [loadingAssets, setLoadingAssets] = useState(false);
   const [assetError, setAssetError] = useState(null);
   const [progress, setProgress] = useState({ mode: null, done: 0, total: 0 });
+  const [elapsedSec, setElapsedSec] = useState(0);
+  const startTimeRef = useRef(null);
   const selectedByAccessRef = useRef(selectedByAccess);
 
   useEffect(() => {
     selectedByAccessRef.current = selectedByAccess;
   }, [selectedByAccess]);
+
+  // Tick elapsed timer while any operation is busy
+  useEffect(() => {
+    if (!busy) {
+      setElapsedSec(0);
+      startTimeRef.current = null;
+      return;
+    }
+    startTimeRef.current = startTimeRef.current || Date.now();
+    const id = setInterval(() => {
+      setElapsedSec(Math.floor((Date.now() - startTimeRef.current) / 1000));
+    }, 200);
+    return () => clearInterval(id);
+  }, [busy]);
 
   // Returns the current mode for an access tab, defaulting to BROWSE
   const getTreeMode = (accessKey) => treeModesByAccess[accessKey] || TREE_MODES.BROWSE;
@@ -615,7 +631,7 @@ export default function EndpointCard({
         <CircularProgress size={14} sx={{ color: "#fff" }} />
       )}
       {busy === "down" && busyID === endpointUuid
-        ? "Preparing download..."
+        ? `Preparing download… ${formatTime(elapsedSec)}`
         : "Download"}
     </button>
   );
@@ -839,7 +855,7 @@ export default function EndpointCard({
                       }}
                     >
                       <span style={{ fontSize: 13, fontWeight: 600, color: "#065f46" }}>
-                        Uploading…
+                        Uploading… {formatTime(elapsedSec)}
                       </span>
                       <span style={{ fontSize: 12, color: "#047857", fontVariantNumeric: "tabular-nums" }}>
                         {progress.done} / {progress.total} ({Math.round(progressValue)}%)
@@ -909,7 +925,7 @@ export default function EndpointCard({
                       }}
                     >
                       <span style={{ fontSize: 13, fontWeight: 600, color: "#991b1b" }}>
-                        Deleting…
+                        Deleting… {formatTime(elapsedSec)}
                       </span>
                       <span style={{ fontSize: 12, color: "#b91c1c", fontVariantNumeric: "tabular-nums" }}>
                         {progress.done} / {progress.total}  —  {Math.round(progressValue)}%
@@ -951,6 +967,12 @@ export default function EndpointCard({
 }
 
 /* ---------------- helpers ---------------- */
+
+function formatTime(s) {
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
+}
 
 /**
  * Normalize tree data into { read, write, delete } arrays.
