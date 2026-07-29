@@ -12,6 +12,14 @@
   border-radius: 8px;
 }
 
+/* --- indent guide lines --- */
+.tree-indent-line {
+  width: 20px;
+  height: 40px;
+  flex-shrink: 0;
+  border-right: 1px solid #e5e7eb;
+}
+
 /* --- expand / collapse chevron --- */
 .tree-row-chevron {
   display: inline-flex;
