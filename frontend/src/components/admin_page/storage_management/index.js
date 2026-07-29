@@ -19,6 +19,7 @@ export default function StorageManagement() {
     loading,
     creating,
     syncingIds,
+    deletingIds,
     err,
     fetchInstances,
     createInstance,
@@ -27,6 +28,7 @@ export default function StorageManagement() {
     syncInstance
   } = useStorageInstances();
   const isSyncing = Object.keys(syncingIds).length > 0;
+  const isDeleting = Object.keys(deletingIds).length > 0;
 
   const handleSyncInstance = async (instanceId) => {
     setSyncMessage("");
@@ -55,24 +57,28 @@ export default function StorageManagement() {
   return (
     <div className="im-root">
       <Dialog
-        open={isSyncing || Boolean(syncMessage)}
-        disableEscapeKeyDown={isSyncing}
-        onClose={() => !isSyncing && setSyncMessage("")}
-        aria-labelledby="storage-sync-title"
-        aria-describedby="storage-sync-description"
+        open={isSyncing || isDeleting || Boolean(syncMessage)}
+        disableEscapeKeyDown={isSyncing || isDeleting}
+        onClose={() => !isSyncing && !isDeleting && setSyncMessage("")}
         PaperProps={{ className: "im-sync-modal" }}
         sx={{ zIndex: 4000 }}
       >
         {isSyncing ? (
           <>
             <CircularProgress size={36} />
-            <strong id="storage-sync-title">Syncing storage...</strong>
-            <span id="storage-sync-description">Please wait until the sync finishes.</span>
+            <strong>Syncing storage...</strong>
+            <span>Please wait until the sync finishes.</span>
+          </>
+        ) : isDeleting ? (
+          <>
+            <CircularProgress size={36} />
+            <strong>Deleting storage instance...</strong>
+            <span>Please wait until the instance is deleted.</span>
           </>
         ) : (
           <>
-            <strong id="storage-sync-title">Storage sync complete</strong>
-            <div className="im-success" id="storage-sync-description">{syncMessage}</div>
+            <strong>Storage sync complete</strong>
+            <div className="im-success">{syncMessage}</div>
             <button className="im-btn" onClick={() => setSyncMessage("")}>
               Close
             </button>
@@ -104,6 +110,7 @@ export default function StorageManagement() {
               onUpdate={updateInstance} 
               onSync={handleSyncInstance}
               syncing={Boolean(syncingIds[i.uuid])}
+              deleting={Boolean(deletingIds[i.uuid])}
             />
           ))
         )}

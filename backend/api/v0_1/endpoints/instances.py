@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 from api.v0_1.common.auth_dependencies import is_user_admin, require_admin, require_admin_or_manager
 from core.db.postgres.session import AsyncSessionMaker
 from core.services.filetree.object_storage_sync import sync_s3_agent_to_postgres
+from core.services.filetree.tree_service import TreeService
 from core.services.injectors import get_instance_manager, get_policy_manager, get_project_manager
 from core.services.instances import AbstractInstanceManager
 from core.services.policies import CasbinPolicyManager
@@ -436,6 +437,22 @@ async def delete_instance(
     except ValueError:
         logger.error(f"Instance not found for deletion: {instance_id}")
         raise HTTPException(status_code=404, detail="Instance not found")
+
+    # Remove database object tree records from database
+    try:
+        bucket_names = instance.agent.fetch_all_buckets() or []
+        async with AsyncSessionMaker() as session:
+            tree_svc = TreeService(session)
+            await tree_svc.delete_buckets(bucket_names)
+    except Exception as e:
+        logger.error(
+            f"Failed to clean up object tree metadata for instance '{instance.name}' ({instance_id}): {str(e)}",
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to remove the instance"
+        )
 
     # Delete the instance
     try:
