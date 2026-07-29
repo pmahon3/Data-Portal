@@ -211,6 +211,16 @@ class TreeService:
         )
         await self.session.commit()
 
+    async def delete_buckets(self, bucket_names: list[str]) -> None:
+        """Delete object-tree rows for the provided buckets."""
+        buckets = list(dict.fromkeys(bucket for bucket in bucket_names if bucket))
+        if not buckets:
+            return
+
+        await self.session.execute(delete(File).where(File.bucket.in_(buckets)))
+        await self.session.execute(delete(Folder).where(Folder.bucket.in_(buckets)))
+        await self.session.commit()
+
     async def build_key(self, bucket: str, folder_id: int, filename: str) -> tuple[Folder, str]:
         """Build an S3 object key for a file inside a given folder.
 

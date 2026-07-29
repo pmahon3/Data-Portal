@@ -521,7 +521,11 @@ async def create_asset_bundle(
 
     folder_ids = list(dict.fromkeys(request.folder_ids))
     if folder_ids:
-        allowed_buckets = set(agent.fetch_all_buckets()) if hasattr(agent, "fetch_all_buckets") else set()
+        try:
+            allowed_buckets = set(agent.fetch_all_buckets()) if hasattr(agent, "fetch_all_buckets") else set()
+        except Exception as e:
+            logger.error(f"Failed to fetch allowed buckets: {str(e)}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Unable to retrieve bucket information from storage. Please try again later.")
         
         # Get requested folders from db
         folders = list((await session.execute(

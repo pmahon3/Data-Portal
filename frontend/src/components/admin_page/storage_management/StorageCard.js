@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { formatError } from '../../../utils/errorUtils';
 
 // Subcomponent that displays a single storage instance 
-export default function StorageInstanceCard({ instance: i, onDelete, onUpdate, onSync, syncing }) {
+export default function StorageInstanceCard({ instance: i, onDelete, onUpdate, onSync, syncing, deleting }) {
   // isEditing toggles between the storage name and input field for changing name 
   const [isEditing, setIsEditing] = useState(false);
   // editingName keeps track of user input when editing instance name
@@ -99,7 +99,9 @@ export default function StorageInstanceCard({ instance: i, onDelete, onUpdate, o
               </button>
             )}
             {onDelete && (
-              <button className="im-btn im-btn-danger" onClick={() => onDelete(i)}>Delete</button>
+              <button className="im-btn im-btn-danger" disabled={deleting} onClick={() => onDelete(i)}>
+                {deleting ? "Deleting..." : "Delete"}
+              </button>
             )}
           </div>
         )}

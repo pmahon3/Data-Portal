@@ -13,6 +13,7 @@ export function useStorageInstances() {
   const [loading, setLoading] = useState(true);     // Global loading state for instances
   const [creating, setCreating] = useState(false);  // Submission state
   const [syncingIds, setSyncingIds] = useState({});  // Per-instance sync state
+  const [deletingIds, setDeletingIds] = useState({});  // Per-instance delete state
   const [err, setErr] = useState("");               // Error display message
 
   // Fetches the full list of instances from the server.
@@ -61,8 +62,9 @@ export function useStorageInstances() {
 
   // Delete a storage instance by ID
   const deleteInstance = async (instance) => {
-    if (!window.confirm(`Delete instance "${instance.name}" (${instance.uuid})?`)) return false;
+    if (!window.confirm(`Delete instance "${instance.name}"? Please note this process takes some time.`)) return false;
     setErr("");
+    setDeletingIds(prev => ({ ...prev, [instance.uuid]: true }));
     try {
       const headers = await getAuthHeaders();
       await http.delete(`${INSTANCES_BASE}/${encodeURIComponent(instance.uuid)}`, { headers });
@@ -71,6 +73,12 @@ export function useStorageInstances() {
     } catch (e) {
       setErr(formatError(e));
       return false;
+    } finally {
+      setDeletingIds(prev => {
+        const next = { ...prev };
+        delete next[instance.uuid];
+        return next;
+      });
     }
   };
 
@@ -113,6 +121,7 @@ export function useStorageInstances() {
     loading,
     creating,
     syncingIds,
+    deletingIds,
     err,
     setErr,
     fetchInstances,
