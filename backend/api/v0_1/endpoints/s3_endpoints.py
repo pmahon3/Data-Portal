@@ -10,7 +10,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import any_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # INN dependencies
@@ -531,7 +531,7 @@ async def create_asset_bundle(
         folders = list((await session.execute(
             select(Folder)
             .where(
-                Folder.id.in_(folder_ids),
+                Folder.id == any_(folder_ids),
                 Folder.bucket.in_(allowed_buckets),
                 Folder.status == "complete",
             )

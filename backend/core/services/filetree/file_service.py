@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import any_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.services.filetree.models.file import File
@@ -95,7 +95,7 @@ class FileService:
             List of completed ``File`` instances (may be empty).
         """
         return list((await self.session.execute(
-            select(File).where(File.id.in_(file_ids), File.status == "complete")
+            select(File).where(File.id == any_(file_ids), File.status == "complete")
         )).scalars().all())
 
     async def update_from_head(self, file: File, head: dict) -> None:
