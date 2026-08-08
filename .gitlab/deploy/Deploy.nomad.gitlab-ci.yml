@@ -96,6 +96,7 @@ review:
     # Verify Nomad helper scripts exist in the repository
     - |
       echo "===== Checking Nomad helper scripts under .gitlab/deploy/scripts ====="
+      echo ."$REVIEW_DISABLED". "$NOMAD_DEPLOY_ENABLED". "$DEPLOY_DISABLED". "$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH". "$CI_COMMIT_TAG || $CI_COMMIT_BRANCH".
       if [ ! -f "$CI_PROJECT_DIR/.gitlab/deploy/scripts/nomad_setup.sh" ] || \
          [ ! -f "$CI_PROJECT_DIR/.gitlab/deploy/scripts/nomad_routing.sh" ] || \
          [ ! -f "$CI_PROJECT_DIR/.gitlab/deploy/scripts/nomad_deploy.sh" ]; then
