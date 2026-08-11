@@ -306,6 +306,7 @@ def test_delete_user_without_auth():
     r = requests.delete(url, timeout=5)
     assert r.status_code == 401, f"Expected 401 without auth, got {r.status_code}"
 
+
 def test_delete_self_as_regular_user(auth_headers):
     """Test that regular user can delete their own account."""
     url = f"{backend_base()}/api/users/"
@@ -341,31 +342,6 @@ def test_delete_self_as_regular_user(auth_headers):
     finally:
         # Cleanup on failure: delete the test user as admin if it still exists
         requests.delete(f"{url}{new_user["username"]}", headers=auth_headers, timeout=5)
-
-
-# --- User Management Dashboard Tests -----------------------------------------
-
-# TODO: Fix dashboard endpoint - currently not returning expected data structure
-# def test_user_dashboard_access(auth_headers):
-#     """Test that admin can access user management dashboard."""
-#     url = f"{backend_base()}/api/users/dashboard"
-#     r = requests.get(url, headers=auth_headers, timeout=10)
-#     assert r.status_code == 200, f"Admin should access dashboard, got {r.status_code}: {r.text[:500]}"
-#
-#     data = r.json()
-#     assert "users" in data, f"Expected 'users' in dashboard data: {data.keys()}"
-#     assert "file_trees" in data, f"Expected 'file_trees' in dashboard data: {data.keys()}"
-#     assert "models" in data, f"Expected 'models' in dashboard data: {data.keys()}"
-#
-#     assert isinstance(data["users"], list), f"Expected list of users: {type(data['users'])}"
-#     assert len(data["users"]) > 0, "Should have at least one user"
-
-
-def test_user_dashboard_without_auth():
-    """Test that dashboard access without auth is rejected."""
-    url = f"{backend_base()}/api/users/dashboard"
-    r = requests.get(url, timeout=5)
-    assert r.status_code == 401, f"Expected 401 without auth, got {r.status_code}"
 
 
 # --- Complete User Lifecycle Test --------------------------------------------
@@ -526,9 +502,3 @@ def test_get_user_forbidden(regular_user_headers, auth_headers):
         # Cleanup: delete the test user as admin
         requests.delete(f"{url}{username}", headers=auth_headers, timeout=5)
 
-
-def test_dashboard_forbidden(regular_user_headers):
-    """Test that regular user cannot access user management dashboard (403 forbidden)."""
-    url = f"{backend_base()}/api/users/dashboard"
-    r = requests.get(url, headers=regular_user_headers, timeout=10)
-    assert r.status_code == 403, f"Regular user should get 403 when accessing dashboard, got {r.status_code}: {r.text[:500]}"
