@@ -290,10 +290,7 @@ async def upload_complete(
                                                                                                 file.key), action="write")
     policy_or_403(policy_manager, policy)
 
-    if not hasattr(agent, "s3_client"):
-        raise HTTPException(status_code=501, detail="Storage agent does not expose s3_client")
-
-    head = agent.s3_client.head_object(Bucket=file.bucket, Key=file.key)
+    head = agent.get_object_metadata(resource_for_key(file.bucket, file.key))
     await file_svc.update_from_head(file, head)
     # Mark ancestor folders status from pending to complete because upload finished
     tree_svc = TreeService(session)
@@ -324,15 +321,8 @@ async def download_url(
     policy = Policy(user_uuid=user_uuid, instance_uuid=instance_uuid, resource=resource_for_key(file.bucket, file.key), action="read")
     policy_or_403(policy_manager, policy)
 
-    if not hasattr(agent, "s3_client"):
-        raise HTTPException(status_code=501, detail="Storage agent does not expose s3_client")
-
-    url = agent.s3_client.generate_presigned_url(
-        ClientMethod="get_object",
-        Params={"Bucket": file.bucket, "Key": file.key},
-        ExpiresIn=900,
-    )
-    return {"url": url}
+    urls, _paths = agent.generate_access_link(resource_for_key(file.bucket, file.key), "read", 900)
+    return {"url": urls[0]}
 
 #################################################################################### It deletes the object from S3 and then deletes the DB row
 
@@ -357,9 +347,7 @@ async def delete_file(
     policy = Policy(user_uuid=user_uuid, instance_uuid=instance_uuid, resource=resource_for_key(file.bucket, file.key), action="delete")
     policy_or_403(policy_manager, policy)
 
-    if not hasattr(agent, "s3_client"):
-        raise HTTPException(status_code=501, detail="Storage agent does not expose s3_client")
-    agent.s3_client.delete_object(Bucket=file.bucket, Key=file.key)
+    agent.delete_object(resource_for_key(file.bucket, file.key))
 
     await file_svc.delete_file_row(file)
     return {"deleted": True, "file_id": file_id}
@@ -416,14 +404,10 @@ async def delete_folder(
         raise HTTPException(status_code=501, detail="Storage agent does not expose s3_client")
 
     prefix = normalize_folder_full_path(folder.full_path).lstrip("/")
+    # TODO: Move prefix listing behind the storage agent abstraction.
     keys = list_keys_under_prefix(agent.s3_client, bucket, prefix)
     if keys:
-        for i in range(0, len(keys), 1000):
-            batch = keys[i:i + 1000]
-            agent.s3_client.delete_objects(
-                Bucket=bucket,
-                Delete={"Objects": [{"Key": k} for k in batch], "Quiet": True},
-            )
+        agent.delete_objects([resource_for_key(bucket, key) for key in keys])
 
     tree_svc = TreeService(session)
     await tree_svc.delete_folder_subtree(bucket, folder_id)
@@ -495,9 +479,6 @@ async def create_asset_bundle(
     user_uuid = user_manager.get_user_uuid(user['preferred_username'])
     instance_uuid, agent = get_instance_agent(instance_manager, request.instance_name)
 
-    if not hasattr(agent, "s3_client"):
-        raise HTTPException(status_code=501, detail="Storage agent does not expose s3_client")
-
     file_svc = FileService(session)
     all_presigned_urls = []
     java_bundle_files = []
@@ -568,11 +549,12 @@ async def create_asset_bundle(
             continue
 
         try:
-            url = agent.s3_client.generate_presigned_url(
-                ClientMethod="get_object",
-                Params={"Bucket": file.bucket, "Key": file.key},
-                ExpiresIn=BUNDLE_SOURCE_URL_EXPIRATION_SECONDS,
+            urls, _paths = agent.generate_access_link(
+                resource_for_key(file.bucket, file.key),
+                "read",
+                BUNDLE_SOURCE_URL_EXPIRATION_SECONDS,
             )
+            url = urls[0]
             all_presigned_urls.append(url)
             java_bundle_files.append({
                 "url": url,

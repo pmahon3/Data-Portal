@@ -212,6 +212,7 @@ async def iter_s3_object_batches(
     This keeps S3 pagination separate from folder path computation and database
     writes so callers can test object fetching in isolation.
     """
+    # TODO: Move object pagination behind the storage agent abstraction.
     paginator = agent.s3_client.get_paginator("list_objects_v2")
     objects_batch: list[dict[str, Any]] = []
 

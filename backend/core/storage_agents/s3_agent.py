@@ -1,10 +1,7 @@
 import logging
-import re
-from pathlib import Path
 from typing import List, Optional, Tuple
 
 import boto3
-import treelib
 from botocore.config import Config
 from botocore.exceptions import EndpointConnectionError
 
@@ -89,83 +86,74 @@ class S3StorageAgent(AbstractStorageAgent):
         finally:
             self.clear_secrets()
         
-        # Attempt to build the in-memory file tree
-        self.file_tree = treelib.Tree()
-        self._load_file_tree()
-        
         # enable CORS the first time any agent is created
         # if not S3StorageAgent._cors_enabled:
         #     self._enable_cors()
         #     S3StorageAgent._cors_enabled = True
 
-    def _load_file_tree(self):
-        self.file_tree.create_node('root', 'root')
-        for bucket in self.fetch_all_buckets():
-            self._add_file_to_tree(bucket)
-            for obj in self.fetch_all_bucket_keys(bucket):
-                # Use forward slash for S3 paths
-                self._add_file_to_tree((Path(bucket) / obj).as_posix())
-
     def fetch_all_buckets(self) -> List[str]:
         resp = self.s3_client.list_buckets()
         return [b['Name'] for b in resp.get('Buckets', [])]
 
-    def fetch_all_bucket_keys(self, bucket: str) -> List[str]:
-        resp = self.s3_client.list_objects_v2(Bucket=bucket)
-        return [o['Key'] for o in resp.get('Contents', [])]
-
     def generate_access_link(
         self, resource: str, method: str, ttl: int
     ) -> Tuple[List[str], List[str]]:
-        # map to boto3 operation
-        if method == "read":
-            verb = "get_object"
-        elif method == "write":
-            verb = "put_object"
-        elif method == "delete":
-            verb = "delete_object"
-        else:
-            raise ValueError(f"Unsupported method {method!r}")
+        """Generate a presigned upload or download URL for an object."""
+        client_method_by_access = {
+            "write": "put_object",
+            "read": "get_object",
+        }
+        client_method = client_method_by_access.get(method)
+        if client_method is None:
+            raise ValueError(f"Unsupported access method {method!r}")
 
-        # WRITE/DELETE: single presigned URL for exact resource
-        if verb in ("put_object", "delete_object"):
+        try:
+            bucket, key = resource.split("/", 1)
+        except ValueError:
+            raise ValueError(f"Bad S3 path: {resource!r}")
+
+        url = self.s3_client.generate_presigned_url(
+            ClientMethod=client_method,
+            Params={"Bucket": bucket, "Key": key},
+            ExpiresIn=ttl
+        )
+        logger.info(f"generate_access_link ({method}): URL for {resource}")
+        return [url], [resource]
+
+    def delete_object(self, resource: str):
+        """Delete an object identified by ``bucket/key``."""
+        try:
+            bucket, key = resource.split("/", 1)
+        except ValueError:
+            raise ValueError(f"Bad S3 path: {resource!r}")
+
+        return self.s3_client.delete_object(Bucket=bucket, Key=key)
+
+    def delete_objects(self, resources: List[str]):
+        """Delete objects identified by ``bucket/key`` resource paths."""
+        objects_by_bucket = {}
+        for resource in resources:
             try:
                 bucket, key = resource.split("/", 1)
             except ValueError:
                 raise ValueError(f"Bad S3 path: {resource!r}")
-            url = self.s3_client.generate_presigned_url(
-                ClientMethod=verb,
-                Params={"Bucket": bucket, "Key": key},
-                ExpiresIn=ttl
-            )
-            logger.info(f"generate_access_link ({method}): URL for {resource}")
-            return [url], [resource]
+            objects_by_bucket.setdefault(bucket, []).append({"Key": key})
 
-        # READ: treat resource as regex, full‐match
-        # Normalize backslashes to forward slashes for portability
-        resource = Path(resource).as_posix()
-        pattern = re.compile(resource)
-        all_paths = [
-            n.identifier
-            for n in self.file_tree.all_nodes()
-            if n.identifier != 'root'
-        ]
-        matched = [p for p in all_paths if pattern.fullmatch(p)]
-        if not matched:
-            logger.info(f"No objects match regex: {resource}")
-            return [], []
+        for bucket, objects in objects_by_bucket.items():
+            for i in range(0, len(objects), 1000):
+                self.s3_client.delete_objects(
+                    Bucket=bucket,
+                    Delete={"Objects": objects[i:i + 1000], "Quiet": True},
+                )
 
-        urls = []
-        for path in matched:
-            bucket, key = path.split("/", 1)
-            urls.append(self.s3_client.generate_presigned_url(
-                ClientMethod=verb,
-                Params={"Bucket": bucket, "Key": key},
-                ExpiresIn=ttl
-            ))
+    def get_object_metadata(self, resource: str):
+        """Return metadata for an object identified by ``bucket/key``."""
+        try:
+            bucket, key = resource.split("/", 1)
+        except ValueError:
+            raise ValueError(f"Bad S3 path: {resource!r}")
 
-        logger.info(f"generate_access_link (read): matched {len(matched)} for {resource}")
-        return urls, matched
+        return self.s3_client.head_object(Bucket=bucket, Key=key)
 
     def _enable_cors(self):
         """
@@ -204,58 +192,5 @@ class S3StorageAgent(AbstractStorageAgent):
         if hasattr(self, "s3_client"):
             self.s3_client.close()
 
-    def smart_refresh_file_tree(self):
-        """
-        Efficiently refresh the S3 file tree using differential updates.
-
-        Compares current S3 state with cached tree and handles both additions and deletions.
-        This is much faster than rebuilding the entire tree for large buckets.
-        """
-        logger.info("Starting smart refresh of S3 file tree")
-
-        # Get current files from S3
-        current_files = set()
-        for bucket in self.fetch_all_buckets():
-            current_files.add(bucket)
-            for obj in self.fetch_all_bucket_keys(bucket):
-                # Use forward slash for S3 paths
-                current_files.add((Path(bucket) / obj).as_posix())
-
-        # Get cached files from tree
-        cached_files = set(
-            n.identifier
-            for n in self.file_tree.all_nodes()
-            if n.identifier != 'root'
-        )
-
-        # Find new files (additions)
-        new_files = current_files - cached_files
-
-        # Find deleted files (removals)
-        deleted_files = cached_files - current_files
-
-        # Add new files to tree
-        for file_path in new_files:
-            self._add_file_to_tree(file_path)
-            logger.debug(f"Added new file to tree: {file_path}")
-
-        # Remove deleted files from tree
-        for file_path in deleted_files:
-            self._remove_file_from_tree(file_path)
-            logger.debug(f"Removed deleted file from tree: {file_path}")
-
-        # Log summary
-        changes = []
-        if new_files:
-            changes.append(f"added {len(new_files)}")
-        if deleted_files:
-            changes.append(f"removed {len(deleted_files)}")
-
-        if changes:
-            logger.info(f"Smart refresh complete: {', '.join(changes)} files")
-        else:
-            logger.info("Smart refresh complete: no changes")
-
     def __str__(self):
         return f"S3StorageAgent(instance_url={self.instance_url})"
-    
