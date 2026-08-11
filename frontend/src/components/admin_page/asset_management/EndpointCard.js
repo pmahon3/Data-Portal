@@ -580,11 +580,15 @@ export default function EndpointCard({
       return alert("No valid items selected for deletion.");
     }
 
-    const numFilesToDelete = Array.from(selectedByAccess.delete).filter(
-      id => String(id).startsWith("file-") && deleteIndex.has(String(id))
+    // TODO: Fetch number of files from backend to display accurately
+    const numFilesToDelete = deleteTopSelected.filter(
+      id => String(id).startsWith("file-")
     ).length;
+    const numFoldersToDelete = deleteTopSelected.length - numFilesToDelete;
 
-    if (!window.confirm(`Delete ${numFilesToDelete} file(s)? This cannot be undone.`)) return;
+    if (!window.confirm(
+      `Delete ${numFoldersToDelete} folder(s) and ${numFilesToDelete} file(s)? This cannot be undone.`
+    )) return;
 
     setBusy("del");
     setBusyID(endpointUuid)
