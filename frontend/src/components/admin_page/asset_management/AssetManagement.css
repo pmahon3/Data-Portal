@@ -1,0 +1,42 @@
+/* Asset Management — Endpoint Card styles (ec- prefix) */
+
+.ec-card { border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+
+.ec-header { display: flex; justify-content: space-between; align-items: center; padding: 12px; cursor: pointer; background: #f9fafb; }
+.ec-header-toggle { font-size: 14px; color: #6b7280; }
+
+.ec-body { padding: 12px; }
+.ec-body-grid { display: grid; gap: 16px; }
+
+.ec-loading { display: flex; align-items: center; gap: 8px; color: #6b7280; }
+.ec-error { color: #ef4444; }
+.ec-empty { color: #6b7280; }
+
+/* Tree section */
+.ec-tree-header { display: flex; align-items: center; margin-bottom: 6px; }
+.ec-tree-header-between { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.ec-tree-header-label { font-weight: 600; }
+
+/* Progress bar */
+.ec-progress { margin-bottom: 12px; padding: 10px 14px; border-radius: 10px; }
+.ec-progress-upload { background: #f0fdf4; border: 1px solid #bbf7d0; }
+.ec-progress-delete { background: #fef2f2; border: 1px solid #fecaca; }
+
+.ec-progress-stats { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+
+.ec-progress-label { font-size: 13px; font-weight: 600; }
+.ec-progress-label-upload { color: #065f46; }
+.ec-progress-label-delete { color: #991b1b; }
+
+.ec-progress-numbers { font-size: 12px; font-variant-numeric: tabular-nums; }
+.ec-progress-numbers-upload { color: #047857; }
+.ec-progress-numbers-delete { color: #b91c1c; }
+
+/* Action buttons */
+.ec-btn { color: #fff; border: 0; border-radius: 8px; padding: 6px 10px; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; cursor: pointer; }
+.ec-btn:disabled { background: #9ca3af; cursor: not-allowed; }
+
+.ec-btn-download { background: #3b82f6; }
+.ec-btn-upload { background: #10b981; }
+.ec-btn-upload-folder { background: #059669; }
+.ec-btn-delete { background: #ef4444; }
