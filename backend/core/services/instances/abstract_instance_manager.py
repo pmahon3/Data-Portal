@@ -1,7 +1,17 @@
 from abc import abstractmethod, ABC
+from typing import Any, Protocol
 from uuid import UUID
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from .models import Instance
+
+
+class InstanceConfig(Protocol):
+    flavour: str
+    instance_name: str
+
+    def dict(self, *, exclude: set[str]) -> dict[str, Any]: ...
 
 
 class AbstractInstanceManager(ABC):
@@ -12,7 +22,9 @@ class AbstractInstanceManager(ABC):
         """Return all instances."""
 
     @abstractmethod
-    def get_instances(self, instance_names: set = None) -> dict[str, Instance]:
+    def get_instances(
+        self, instance_names: set[str] | None = None
+    ) -> dict[str, Instance]:
         """
         Get instances filtered by instance names.
 
@@ -21,13 +33,21 @@ class AbstractInstanceManager(ABC):
         """
 
     @abstractmethod
-    def save_instance(self, config) -> UUID:
+    async def save_instance(
+        self, config: InstanceConfig, session: AsyncSession
+    ) -> UUID:
         """
-        Create and save an instance configuration.
-
-        :param config: The instance configuration model (InstanceCreate).
+        Fetch known buckets, validate, and save an instance configuration.
         :return: The created Instance's UUID.
         """
+
+    @abstractmethod
+    def _save_instance(
+        self,
+        config: InstanceConfig,
+        existing_buckets: set[str] | None = None,
+    ) -> UUID:
+        """Create and save an instance using a pre-fetched bucket set."""
 
     @abstractmethod
     def update_instance(self, instance_id: UUID, new_instance_name: str) -> bool:

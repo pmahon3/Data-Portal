@@ -5,7 +5,7 @@ from casbin import Enforcer
 from casbin_pymongo_adapter import Adapter
 import casbin.util
 
-from core.db import get_mongo_client
+from core.db import get_mongo_database
 from core.services.policies.models import Policy, Agreement
 
 
@@ -31,16 +31,16 @@ class CasbinPolicyManager:
         """
 
         # Create Casbin MongoDB adapter using an existing client
-        db_name = os.getenv('MONGO_DB', 'inn-mongo')
-        adapter = Adapter(client=get_mongo_client(), db_name=db_name)
+        database = get_mongo_database()
+        adapter = Adapter(client=database.client, db_name=database.name)
 
         # Pass the adapter to the Enforcer so it owns policy persistence
-        self.enforcer = Enforcer(os.getenv('ENFORCER_MODEL'), adapter, enable_log=False)
+        self.enforcer = Enforcer(os.environ['ENFORCER_MODEL'], adapter, enable_log=False)
         self.enforcer.enable_auto_save(True)
         self._actions = ['read', 'write', 'share']
 
     @property
-    def actions(self):
+    def actions(self) -> list[str]:
         return self._actions
 
     def get_user_policies(self, user_uuid: UUID) -> list[Policy]:
@@ -94,7 +94,7 @@ class CasbinPolicyManager:
 
         """
 
-        def convert_to_str(value):
+        def convert_to_str(value: object | None) -> str:
             return value.__str__() if value is not None else ""
 
         filter_ = tuple(map(convert_to_str, filter_.dict().values()))
@@ -199,7 +199,13 @@ class CasbinPolicyManager:
 
         return self.enforcer.enforce(user_uuid, instance_uuid, resource, action)
 
-    def get_allowed_actions(self, user_uuid: UUID, instance_uuid: UUID, resource: str, actions_to_check: list[str] = None) -> list[str]:
+    def get_allowed_actions(
+        self,
+        user_uuid: UUID,
+        instance_uuid: UUID,
+        resource: str,
+        actions_to_check: list[str] | None = None,
+    ) -> list[str]:
         """
         Given this user and resource, return what actions they are allowed
         """
