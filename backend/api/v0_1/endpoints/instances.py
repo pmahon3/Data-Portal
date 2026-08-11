@@ -9,13 +9,14 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status, Body
 from fastapi.responses import JSONResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.v0_1.common.auth_dependencies import is_user_admin, require_admin, require_admin_or_manager
-from core.db.postgres.session import AsyncSessionMaker
+from core.db.postgres.session import get_session
 from core.services.filetree.object_storage_sync import sync_s3_agent_to_postgres
 from core.services.filetree.tree_service import TreeService
 from core.services.injectors import get_instance_manager, get_policy_manager, get_project_manager
-from core.services.instances import AbstractInstanceManager
+from core.services.instances import AbstractInstanceManager, BucketNameConflictError
 from core.services.policies import CasbinPolicyManager
 from core.services.policies import Policy
 from core.services.projects import AbstractProjectManager, ProjectNotFoundError
@@ -158,7 +159,8 @@ async def create_instance(
     current_user: dict = Depends(require_admin_or_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
-    project_manager: AbstractProjectManager = Depends(get_project_manager)
+    project_manager: AbstractProjectManager = Depends(get_project_manager),
+    session: AsyncSession = Depends(get_session),
 ) -> JSONResponse:
     """
     Create a new storage instance.
@@ -212,7 +214,10 @@ async def create_instance(
     
     # Save the instance directly to database
     try:
-        instance_uuid = instance_manager.save_instance(config)
+        instance_uuid = await instance_manager.save_instance(config, session)
+    except BucketNameConflictError as e:
+        logger.error(f"Bucket name conflict when saving instance '{name_value}': {str(e)}")
+        raise HTTPException(status_code=409, detail=str(e))
     except ValueError as e:
         error_msg = str(e)
         logger.error(f"Error when saving instance '{name_value}': {error_msg}")
@@ -226,6 +231,9 @@ async def create_instance(
             raise HTTPException(status_code=400, detail="Failed to connect to the requested storage service. Please check your credentials and URL.")
         else:
             raise HTTPException(status_code=422, detail="Invalid instance configuration provided.")
+    except RuntimeError as e:
+        logger.error(f"Storage service unreachable when saving instance '{name_value}': {str(e)}")
+        raise HTTPException(status_code=502, detail=str(e))
     except Exception as e:
         logger.error(f"Failed to save configuration for instance '{name_value}': {str(e)}")
         raise HTTPException(
@@ -294,6 +302,7 @@ async def sync_instance(
     current_user: dict = Depends(require_admin_or_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
     project_manager: AbstractProjectManager = Depends(get_project_manager),
+    session: AsyncSession = Depends(get_session),
 ) -> JSONResponse:
     try:
         instance_uuid = UUID(instance_id)
@@ -321,8 +330,7 @@ async def sync_instance(
         )
 
     try:
-        async with AsyncSessionMaker() as session:
-            sync_summary = await sync_s3_agent_to_postgres(instance.agent, session)
+        sync_summary = await sync_s3_agent_to_postgres(instance.agent, session)
     except Exception as e:
         logger.error(f"Failed to sync object storage metadata for instance '{instance.name}': {str(e)}", exc_info=True)
         raise HTTPException(
@@ -403,7 +411,8 @@ async def delete_instance(
     admin_user: dict = Depends(require_admin),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
-    project_manager: AbstractProjectManager = Depends(get_project_manager)
+    project_manager: AbstractProjectManager = Depends(get_project_manager),
+    session: AsyncSession = Depends(get_session),
 ) -> JSONResponse:
     """
     Remove a storage instance and cleanup associated policies (admin only).
@@ -441,9 +450,8 @@ async def delete_instance(
     # Remove database object tree records from database
     try:
         bucket_names = instance.agent.fetch_all_buckets() or []
-        async with AsyncSessionMaker() as session:
-            tree_svc = TreeService(session)
-            await tree_svc.delete_buckets(bucket_names)
+        tree_svc = TreeService(session)
+        await tree_svc.delete_buckets(bucket_names)
     except Exception as e:
         logger.error(
             f"Failed to clean up object tree metadata for instance '{instance.name}' ({instance_id}): {str(e)}",
