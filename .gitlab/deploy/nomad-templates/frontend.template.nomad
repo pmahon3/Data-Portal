@@ -25,6 +25,11 @@ job "${__SERVICE__}-${__ENVIRONMENT__}" {
     value     = "nfs-server"
   }
 
+  constraint {
+  attribute = "${meta.node_class}"
+  value     = "prod"
+  }
+
   # Ensure tasks run on different hosts
   constraint {
     distinct_hosts = true

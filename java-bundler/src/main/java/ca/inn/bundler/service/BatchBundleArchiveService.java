@@ -215,7 +215,7 @@ public class BatchBundleArchiveService {
 
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
-                log.info(
+                log.debug(
                         "Old-version bundle file download started: bundleId={} relativePath={} attempt={}/{}",
                         bundleId,
                         relativePath,
@@ -248,7 +248,7 @@ public class BatchBundleArchiveService {
                 try (InputStream inputStream = response.body()) {
                     Files.copy(inputStream, targetFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
                 }
-                log.info(
+                log.debug(
                         "Old-version bundle file download completed: bundleId={} relativePath={} attempt={}/{}",
                         bundleId,
                         relativePath,

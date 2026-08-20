@@ -1,4 +1,4 @@
-from typing import Dict, Type, List, Any, Literal, Union, Annotated, Optional
+from typing import Dict, Type, Literal, Union, Annotated, Optional
 
 from pydantic import BaseModel, Field, create_model
 
@@ -7,17 +7,6 @@ from core.storage_agents.s3_agent import S3StorageAgent
 from core.storage_agents.dummy_agent import DummyStorageAgent
 from core.services.policies import Policy
 from core.services.users.models import User
-
-
-class GetAssetRequest(BaseModel):
-    resource: str = Field(..., description="The resource to be accessed.")
-    instance_name: str = Field(..., description="The name of the access point.")
-    action: str = Field(..., description="The action to be performed on the resource.")
-
-
-class GetAssetResponse(BaseModel):
-    presigned_urls: list[str] = Field(..., description="The presigned URLs for the asset.")
-    file_paths: list[str] = Field(..., description="The file paths for the asset.")
 
 
 class BundleCreateRequest(BaseModel):
@@ -34,24 +23,9 @@ class BundleCreateResponse(BaseModel):
     single_file_url: Union[str, None] = Field(default=None, description="Direct presigned URL if downloading a single file.")
 
 
-class PutAssetRequest(BaseModel):
-    resource: str = Field(..., description="Target path/key to write to (e.g. 'folder/sub/file.txt').")
-    instance_name: str = Field(..., description="Name of the storage access point.")
-
-
-class PutAssetResponse(BaseModel):
-    presigned_urls: list[str] = Field(..., description="List of presigned PUT URLs (one per file).")
-    file_paths: list[str] = Field(..., description="List of file paths these URLs correspond to.")
-
-
-class DeleteAssetRequest(BaseModel):
-    resource: str = Field(..., description="Path/key to delete (e.g. 'folder/sub/file.txt').")
-    instance_name: str = Field(..., description="Name of the storage access point.")
-
-
-class DeleteAssetResponse(BaseModel):
-    presigned_urls: list[str] = Field(..., description="List of presigned DELETE URLs.")
-    file_paths: list[str] = Field(..., description="List of file paths these URLs correspond to.")
+class BundleDownloadUrlResponse(BaseModel):
+    bundle_id: str = Field(..., description="The ID of the requested bundle.")
+    result_url: str = Field(..., description="Presigned URL for the completed bundle archive.")
 
 
 class AddUserRequest(BaseModel):
@@ -148,52 +122,6 @@ register_model("AddPolicyRequest", AddPolicyRequest, "/admin/policy/")
 register_model("RemovePolicyRequest", RemovePolicyRequest, "/admin/policy/")
 register_model("RemovePolicyResponse", RemovePolicyResponse, "/admin/policy/")
 register_model("GetPolicyResponse", GetPolicyResponse, "/admin/policy/")
-
-
-# Dashboard Data Models
-
-class FileTreeNode(BaseModel):
-    id: str = Field(..., description="The node identifier.")
-    parent: str = Field(..., description="The parent node identifier or '#' for root.")
-    text: str = Field(..., description="The display text for the node.")
-    li_attr: Dict[str, str] = Field(..., description="Additional attributes for the node.")
-
-
-class InstanceFileTree(BaseModel):
-    instance_name: str = Field(..., description="Name of the instance.")
-    instance_uuid: str = Field(..., description="UUID of the instance.")
-    file_tree: List[FileTreeNode] = Field(..., description="The file tree nodes.")
-
-
-class UserFileTree(BaseModel):
-    user_uuid: str = Field(..., description="UUID of the user.")
-    username: str = Field(..., description="Username.")
-    instances: Dict[str, Dict[str, List[FileTreeNode]]] = Field(
-        ..., description="File trees organized by instance and access type."
-    )
-
-
-# Used for UNUSED legacy endpoint /api/assets/dashboard which has been replaced
-# with /api/assets/dashboard/{instance}
-class AssetManagementData(BaseModel):
-    assets: Dict[str, Dict[str, List[FileTreeNode]]] = Field(
-        ..., description="File trees organized by instance UUID and access type."
-    )
-    instances: Dict[str, str] = Field(..., description="Instance name to UUID mapping.")
-
-
-class UserHomeData(BaseModel):
-    assets: Dict[str, List[FileTreeNode]] = Field(
-        ..., description="User's accessible file trees by instance."
-    )
-    instances: Dict[str, Any] = Field(..., description="Accessible instances information.")
-
-
-class UserAssetsData(BaseModel):
-    assets: Dict[str, List[FileTreeNode]] = Field(
-        ..., description="User's file trees organized by instance UUID."
-    )
-    instances: Dict[str, str] = Field(..., description="Instance name to UUID mapping.")
 
 
 class UserInstancesList(BaseModel):

@@ -20,6 +20,20 @@ public class BundleJob {
     private String compression;
     private List<BundleSourceFile> files;
     private Path archivePath;
-    private String resultUrl;
+    private String resultObjectKey;
     private String errorMessage;
+    private Instant startedAt;
+    private Instant completedAt;
+    private Instant archiveStartedAt;
+    private Instant archiveCompletedAt;
+    private Instant uploadStartedAt;
+    private Instant uploadCompletedAt;
+    private Long archiveDurationMillis;
+    private Long uploadDurationMillis;
+    private Long totalDurationMillis;
+    private String lockedBy;
+    private Instant lockExpiresAt;
+    private int attemptCount;
+    private String bundleFingerprint;
+    private String fingerprintAlgorithm;
 }

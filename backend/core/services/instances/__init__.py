@@ -1,3 +1,3 @@
-from .InstanceManager import InstanceManager
+from .InstanceManager import BucketNameConflictError, InstanceManager
 from .abstract_instance_manager import AbstractInstanceManager
 

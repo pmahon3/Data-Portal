@@ -1,5 +1,6 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { useKeycloak } from "@react-keycloak/web";
+import { CircularProgress, Dialog } from "@mui/material";
 import { useStorageInstances } from "./useStorageInstances";
 import StorageInstanceForm from "./StorageForm";
 import StorageInstanceCard from "./StorageCard";
@@ -9,6 +10,7 @@ export default function StorageManagement() {
   const { keycloak, initialized } = useKeycloak();
   const roles = keycloak?.tokenParsed?.realm_access?.roles || [];
   const isAdmin = roles.includes("admin");
+  const [syncMessage, setSyncMessage] = useState("");
 
   // Pulls everything from useStorageInstances hook to keep
   // this component purely focused on layout
@@ -16,12 +18,34 @@ export default function StorageManagement() {
     instances,
     loading,
     creating,
+    syncingIds,
+    deletingIds,
     err,
     fetchInstances,
     createInstance,
     deleteInstance,
-    updateInstance
+    updateInstance,
+    syncInstance
   } = useStorageInstances();
+  const isSyncing = Object.keys(syncingIds).length > 0;
+  const isDeleting = Object.keys(deletingIds).length > 0;
+
+  const handleSyncInstance = async (instanceId) => {
+    setSyncMessage("");
+    try {
+      const data = await syncInstance(instanceId);
+      const sync = data?.sync;
+      setSyncMessage(
+        sync
+          ? `Synced ${sync.file_count} files across ${sync.bucket_count} buckets.`
+          : "Sync completed."
+      );
+      return data;
+    } catch (error) {
+      setSyncMessage("");
+      throw error;
+    }
+  };
 
   // We wait for Keycloak to be ready, then trigger the fetch.
   // fetchInstance uses useCallback so it won't trigger an infinite loop
@@ -32,6 +56,36 @@ export default function StorageManagement() {
 
   return (
     <div className="im-root">
+      <Dialog
+        open={isSyncing || isDeleting || Boolean(syncMessage)}
+        disableEscapeKeyDown={isSyncing || isDeleting}
+        onClose={() => !isSyncing && !isDeleting && setSyncMessage("")}
+        PaperProps={{ className: "im-sync-modal" }}
+        sx={{ zIndex: 4000 }}
+      >
+        {isSyncing ? (
+          <>
+            <CircularProgress size={36} />
+            <strong>Syncing storage...</strong>
+            <span>Please wait until the sync finishes.</span>
+          </>
+        ) : isDeleting ? (
+          <>
+            <CircularProgress size={36} />
+            <strong>Deleting storage instance...</strong>
+            <span>Please wait until the instance is deleted.</span>
+          </>
+        ) : (
+          <>
+            <strong>Storage sync complete</strong>
+            <div className="im-success">{syncMessage}</div>
+            <button className="im-btn" onClick={() => setSyncMessage("")}>
+              Close
+            </button>
+          </>
+        )}
+      </Dialog>
+
       <h1>Storage Instances</h1>
 
       <StorageInstanceForm onCreate={createInstance} creating={creating} initialized={initialized} />
@@ -54,6 +108,9 @@ export default function StorageManagement() {
               instance={i} 
               onDelete={isAdmin ? deleteInstance : null}
               onUpdate={updateInstance} 
+              onSync={handleSyncInstance}
+              syncing={Boolean(syncingIds[i.uuid])}
+              deleting={Boolean(deletingIds[i.uuid])}
             />
           ))
         )}

@@ -7,6 +7,7 @@ read-only endpoints require standard authentication.
 """
 
 import logging
+import re
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -177,6 +178,11 @@ async def create_policy(
         HTTPException: 404 if user or instance not found
         HTTPException: 400 if policy creation fails
     """
+    try:
+        re.compile(new_policy.resource)
+    except re.error:
+        raise HTTPException(status_code=400, detail="Invalid regular expression syntax.")
+
     # Get user and instance UUIDs
     try:
         user_uuid = user_manager.get_user_uuid(new_policy.username)

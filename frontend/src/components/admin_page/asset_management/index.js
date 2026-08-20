@@ -5,6 +5,7 @@ import { CircularProgress } from "@mui/material";
 import EndpointCard from "./EndpointCard.js";
 import { formatError } from "../../../utils/errorUtils";
 import { getAuthHeaders } from '../../../utils/authUtils';
+import "./AssetManagement.css";
 
 // const http = axios.create({ baseURL: "http://localhost:8000" });
 const http = axios.create({ baseURL: "/api" });

@@ -9,14 +9,13 @@ import httpx
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import any_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # INN dependencies
 from api.v0_1.endpoints.auth import decode_token
-from api.v0_1.common.models import BundleCreateRequest, BundleCreateResponse
+from api.v0_1.common.models import BundleCreateRequest, BundleCreateResponse, BundleDownloadUrlResponse
 # DB models
 from core.db.postgres.session import get_session
 from core.services.injectors import get_instance_manager, get_policy_manager, get_user_manager
@@ -36,9 +35,11 @@ BUNDLER_PROVIDER = os.getenv("BUNDLER_PROVIDER", "java").strip().lower()
 BUNDLER_URL = os.getenv("BUNDLER_URL", "http://bundler:8082")
 PYTHON_BUNDLER_URL = os.getenv("PYTHON_BUNDLER_URL", BUNDLER_URL)
 JAVA_BUNDLER_URL = os.getenv("JAVA_BUNDLER_URL", "http://localhost:8888")
+BUNDLE_SOURCE_URL_EXPIRATION_SECONDS = int(os.getenv("BUNDLE_SOURCE_URL_EXPIRATION_SECONDS", "7200"))
 
 # Global async HTTP client for interacting with the bundler service
 bundler_client = httpx.AsyncClient(timeout=httpx.Timeout(60.0))
+KNOWN_BUNDLER_ERROR_STATUSES = {400, 409, 413, 422, 501}
 
 #################################################################################### Pydantic models
 class TreeRootQuery(BaseModel):
@@ -289,10 +290,7 @@ async def upload_complete(
                                                                                                 file.key), action="write")
     policy_or_403(policy_manager, policy)
 
-    if not hasattr(agent, "s3_client"):
-        raise HTTPException(status_code=501, detail="Storage agent does not expose s3_client")
-
-    head = agent.s3_client.head_object(Bucket=file.bucket, Key=file.key)
+    head = agent.get_object_metadata(resource_for_key(file.bucket, file.key))
     await file_svc.update_from_head(file, head)
     # Mark ancestor folders status from pending to complete because upload finished
     tree_svc = TreeService(session)
@@ -323,15 +321,8 @@ async def download_url(
     policy = Policy(user_uuid=user_uuid, instance_uuid=instance_uuid, resource=resource_for_key(file.bucket, file.key), action="read")
     policy_or_403(policy_manager, policy)
 
-    if not hasattr(agent, "s3_client"):
-        raise HTTPException(status_code=501, detail="Storage agent does not expose s3_client")
-
-    url = agent.s3_client.generate_presigned_url(
-        ClientMethod="get_object",
-        Params={"Bucket": file.bucket, "Key": file.key},
-        ExpiresIn=900,
-    )
-    return {"url": url}
+    urls, _paths = agent.generate_access_link(resource_for_key(file.bucket, file.key), "read", 900)
+    return {"url": urls[0]}
 
 #################################################################################### It deletes the object from S3 and then deletes the DB row
 
@@ -356,9 +347,7 @@ async def delete_file(
     policy = Policy(user_uuid=user_uuid, instance_uuid=instance_uuid, resource=resource_for_key(file.bucket, file.key), action="delete")
     policy_or_403(policy_manager, policy)
 
-    if not hasattr(agent, "s3_client"):
-        raise HTTPException(status_code=501, detail="Storage agent does not expose s3_client")
-    agent.s3_client.delete_object(Bucket=file.bucket, Key=file.key)
+    agent.delete_object(resource_for_key(file.bucket, file.key))
 
     await file_svc.delete_file_row(file)
     return {"deleted": True, "file_id": file_id}
@@ -415,14 +404,10 @@ async def delete_folder(
         raise HTTPException(status_code=501, detail="Storage agent does not expose s3_client")
 
     prefix = normalize_folder_full_path(folder.full_path).lstrip("/")
+    # TODO: Move prefix listing behind the storage agent abstraction.
     keys = list_keys_under_prefix(agent.s3_client, bucket, prefix)
     if keys:
-        for i in range(0, len(keys), 1000):
-            batch = keys[i:i + 1000]
-            agent.s3_client.delete_objects(
-                Bucket=bucket,
-                Delete={"Objects": [{"Key": k} for k in batch], "Quiet": True},
-            )
+        agent.delete_objects([resource_for_key(bucket, key) for key in keys])
 
     tree_svc = TreeService(session)
     await tree_svc.delete_folder_subtree(bucket, folder_id)
@@ -489,13 +474,10 @@ async def create_asset_bundle(
     )
     
     if not request.file_ids and not request.folder_ids:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No files provided for bundling.")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No files provided for downloading.")
 
     user_uuid = user_manager.get_user_uuid(user['preferred_username'])
     instance_uuid, agent = get_instance_agent(instance_manager, request.instance_name)
-
-    if not hasattr(agent, "s3_client"):
-        raise HTTPException(status_code=501, detail="Storage agent does not expose s3_client")
 
     file_svc = FileService(session)
     all_presigned_urls = []
@@ -520,13 +502,17 @@ async def create_asset_bundle(
 
     folder_ids = list(dict.fromkeys(request.folder_ids))
     if folder_ids:
-        allowed_buckets = set(agent.fetch_all_buckets()) if hasattr(agent, "fetch_all_buckets") else set()
+        try:
+            allowed_buckets = set(agent.fetch_all_buckets()) if hasattr(agent, "fetch_all_buckets") else set()
+        except Exception as e:
+            logger.error(f"Failed to fetch allowed buckets: {str(e)}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Unable to retrieve bucket information from storage. Please try again later.")
         
         # Get requested folders from db
         folders = list((await session.execute(
             select(Folder)
             .where(
-                Folder.id.in_(folder_ids),
+                Folder.id == any_(folder_ids),
                 Folder.bucket.in_(allowed_buckets),
                 Folder.status == "complete",
             )
@@ -563,11 +549,12 @@ async def create_asset_bundle(
             continue
 
         try:
-            url = agent.s3_client.generate_presigned_url(
-                ClientMethod="get_object",
-                Params={"Bucket": file.bucket, "Key": file.key},
-                ExpiresIn=600,
+            urls, _paths = agent.generate_access_link(
+                resource_for_key(file.bucket, file.key),
+                "read",
+                BUNDLE_SOURCE_URL_EXPIRATION_SECONDS,
             )
+            url = urls[0]
             all_presigned_urls.append(url)
             java_bundle_files.append({
                 "url": url,
@@ -612,19 +599,23 @@ async def create_asset_bundle(
         init_res = await bundler_client.post(f"{bundler_url}/bundles", json=init_payload, timeout=10.0)
     except httpx.RequestError as e:
         logger.error(f"Request error while communicating with Bundler: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Bundler service is unreachable.")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Something went wrong while preparing your download. Please try again.")
 
     if init_res.status_code != 202:
-        logger.error(f"Bundler service returned unexpected status {init_res.status_code} during initiation")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to initialize bundle generation.")
+        logger.error(f"Bundler service returned status {init_res.status_code} during initiation: {init_res.text}")
+        if init_res.status_code in KNOWN_BUNDLER_ERROR_STATUSES:
+            detail = init_res.json().get("detail", "We couldn't prepare your files for download.")
+            raise HTTPException(status_code=init_res.status_code, detail=detail)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="We couldn't prepare your files for download. Please try again.")
 
     bundle_data = init_res.json()
     bundle_id = bundle_data.get("id")
     if not bundle_id:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Invalid response from bundler.")
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Something went wrong while preparing your download. Please try again.")
 
     # Send bundle id and status back to client
     return BundleCreateResponse(bundle_id=bundle_id, status="processing", folder_name=folder_name)
+
 
 @router.get(
     "/bundle/{bundle_id}/status",
@@ -650,64 +641,49 @@ async def get_bundle_status(
         poll_res = await bundler_client.get(f"{bundler_url}/bundles/{bundle_id}", timeout=5.0)
     except httpx.RequestError as e:
         logger.error(f"Bundler status check failed for bundle {bundle_id}: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Bundle status check failed.")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="We couldn't check whether the ZIP archive is ready. Please try again.",
+        )
         
     if poll_res.status_code == 202:
         return poll_res.json()
     elif poll_res.status_code == 404:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bundle not found.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="This download is no longer available.")
     else:
         logger.error(f"Bundler status check returned status {poll_res.status_code}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Bundle error.")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="We couldn't check whether the ZIP archive is ready. Please try again.",
+        )
 
 @router.get(
     "/bundle/{bundle_id}/download",
-    summary="Download an asset zip bundle",
-    description="Streams the completed zip archive from the bundler service."
+    response_model=BundleDownloadUrlResponse,
+    summary="Get asset zip bundle object-storage URL",
+    description="Returns a presigned object-storage URL for the completed zip archive."
 )
-async def download_bundle(
+async def get_bundle_download_url(
     bundle_id: str,
-    folder_name: str = "archive",
     user: dict = Depends(decode_token)
 ):
-    """
-    Download a completed asset zip bundle.
-    
-    Streams the zip archive from the bundler service to the client.
-    
-    Args:
-        bundle_id: The ID of the bundle to download.
-        folder_name: The name to use for the downloaded zip file (without .zip). Defaults to "archive".
-        
-    Returns:
-        StreamingResponse: Streaming response containing the zip archive.
-    """
+    # Bundles are downloaded from object storage; this endpoint returns a presigned URL, not ZIP bytes.
     try:
-        # Ensure we connect but leave the stream open.
         bundler_url = get_bundler_url(get_bundler_provider())
-        req = bundler_client.build_request('GET', f"{bundler_url}/bundles/{bundle_id}/download")
-        response = await bundler_client.send(req, stream=True)
+        url_res = await bundler_client.get(f"{bundler_url}/bundles/{bundle_id}/download", timeout=5.0)
     except httpx.RequestError as e:
-        logger.error(f"Stream connection failed: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Bundler connection error.")
+        logger.error(f"Bundler download URL request failed for bundle {bundle_id}: {e}")
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="We couldn't create a secure download link for this ZIP archive. Please try again.")
 
-    # Reject if the bundler throws an error.
-    if response.status_code != 200:
-        await response.aclose()
-        if response.status_code == 404:
-            raise HTTPException(status_code=404, detail="Bundle not found.")
-        logger.error(f"Failed to download bundle {bundle_id}, status {response.status_code}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Bundle download error.")
+    if url_res.status_code == 200:
+        result_url = url_res.json().get("resultUrl")
+        if not result_url:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="We couldn't create a secure download link for this ZIP archive. Please try again.")
+        return BundleDownloadUrlResponse(bundle_id=bundle_id, result_url=result_url)
+    if url_res.status_code == 202:
+        raise HTTPException(status_code=status.HTTP_202_ACCEPTED, detail="The ZIP archive is still being prepared.")
+    if url_res.status_code == 404:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="This ZIP archive is not available.")
 
-    async def stream_zip():
-        try:
-            async for chunk in response.aiter_bytes(chunk_size=8192):
-                yield chunk
-        finally:
-            await response.aclose()
-
-    return StreamingResponse(
-        stream_zip(),
-        media_type="application/zip",
-        headers={"Content-Disposition": f"attachment; filename={folder_name}.zip"}
-    )
+    logger.error(f"Bundler download URL request returned status {url_res.status_code}")
+    raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="We couldn't create a secure download link for this ZIP archive. Please try again.")

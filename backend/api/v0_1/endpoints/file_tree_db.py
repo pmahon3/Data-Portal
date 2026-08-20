@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Literal
 from uuid import UUID
 
@@ -18,6 +19,8 @@ from core.services.users import AbstractUserManager
 from core.services.filetree.models.file import File
 from core.services.filetree.models.folder import Folder
 from core.utils.paths import normalize_folder_full_path
+
+logger = logging.getLogger("api.endpoints")
 
 router = APIRouter(prefix="/tree", tags=["Tree-DB"])
 
@@ -92,7 +95,11 @@ async def dashboard_db(
     agent = instance.agent
 
     # Identify buckets associated with the instance agent
-    allowed_buckets = set(agent.fetch_all_buckets()) if hasattr(agent, "fetch_all_buckets") else set()
+    try:
+        allowed_buckets = set(agent.fetch_all_buckets()) if hasattr(agent, "fetch_all_buckets") else set()
+    except Exception as e:
+        logger.error(f"Failed to fetch allowed buckets: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Unable to retrieve bucket information from storage. Please try again later.")
 
     access_types = [access]
     assets: list[dict] = []
@@ -233,7 +240,11 @@ async def dashboard_children_db(
     instance_uuid_obj = UUID(instance_uuid)
     instance = instance_manager.get_instance_by_uuid(instance_uuid_obj)
     agent = instance.agent
-    allowed_buckets = set(agent.fetch_all_buckets()) if hasattr(agent, "fetch_all_buckets") else set()
+    try:
+        allowed_buckets = set(agent.fetch_all_buckets()) if hasattr(agent, "fetch_all_buckets") else set()
+    except Exception as e:
+        logger.error(f"Failed to fetch allowed buckets: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Unable to retrieve bucket information from storage. Please try again later.")
     access_types = [access]
     assets: list[dict] = []
 

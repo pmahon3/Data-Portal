@@ -7,13 +7,32 @@
 __ENVIRONMENT_SANITIZED__=$(echo "$__ENVIRONMENT__" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
 export __ENVIRONMENT_SANITIZED__="${__ENVIRONMENT_SANITIZED__:-default}"
 
+# Review public host id (shared by Traefik Host and frontend API_GATEWAY).
+# Mirrors Auto DevOps: $CI_PROJECT_ID-$CI_ENVIRONMENT_SLUG.$KUBE_INGRESS_BASE_DOMAIN
+# where CI_ENVIRONMENT_SLUG is the DNS-safe slug of environment name review/<ref>
+# (typically review-<branch>[-<unique>], truncated to 24 chars by GitLab).
+# SERVICE_NAME is inserted so frontend/backend review apps in this monorepo
+# do not share one Traefik Host (Auto DevOps assumes one app per project).
+if [ "$NOMAD_ENVIRONMENT" = "review" ]; then
+  if [ -n "${CI_ENVIRONMENT_SLUG}" ]; then
+    __REVIEW_HOST_ID__="${CI_PROJECT_ID}-${SERVICE_NAME}-${CI_ENVIRONMENT_SLUG}"
+  else
+    # Fallback if environment: is missing (should not happen on the review job)
+    __REVIEW_HOST_ID__="${CI_PROJECT_ID}-${SERVICE_NAME}-review-${CI_COMMIT_REF_SLUG}"
+  fi
+fi
+
 # Always inject runtime env (independent of Traefik / external access)
 if [ "$SERVICE_NAME" = "frontend" ]; then
   SERVICE_TYPE="frontend"
   export __RUNTIME_ENV__="${__RUNTIME_ENV_FRONTEND__}"
   # Frontend proxies /api/ to API_GATEWAY; it must match the backend's Traefik host or Traefik returns 418 (no route).
   if [ "$NOMAD_ENVIRONMENT" = "review" ]; then
-    export __API_GATEWAY__="http://backend-${CI_COMMIT_REF_SLUG}.${NOMAD_DOMAIN:-example.com}"
+    if [ -n "${CI_ENVIRONMENT_SLUG}" ]; then
+      export __API_GATEWAY__="http://${CI_PROJECT_ID}-backend-${CI_ENVIRONMENT_SLUG}.${NOMAD_DOMAIN:-example.com}"
+    else
+      export __API_GATEWAY__="http://${CI_PROJECT_ID}-backend-review-${CI_COMMIT_REF_SLUG}.${NOMAD_DOMAIN:-example.com}"
+    fi
   else
     export __API_GATEWAY__="http://backend-${NOMAD_ENVIRONMENT}.${NOMAD_DOMAIN:-example.com}"
   fi
@@ -39,9 +58,8 @@ fi
 
 if [ "$NEEDS_EXTERNAL_ACCESS" = "true" ]; then
   # Generate hostname based on environment
-  # For review, use branch name (CI_COMMIT_REF_SLUG) for hostname
   if [ "$NOMAD_ENVIRONMENT" = "review" ]; then
-    export __HOSTNAME__="${SERVICE_NAME}-${CI_COMMIT_REF_SLUG}.${NOMAD_DOMAIN:-example.com}"
+    export __HOSTNAME__="${__REVIEW_HOST_ID__}.${NOMAD_DOMAIN:-example.com}"
   else
     export __HOSTNAME__="${SERVICE_NAME}-${NOMAD_ENVIRONMENT}.${NOMAD_DOMAIN:-example.com}"
   fi

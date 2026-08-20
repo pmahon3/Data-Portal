@@ -1,16 +1,34 @@
 import logging
+from typing import Any
 from uuid import UUID
-from pymongo.errors import DuplicateKeyError
 
-from .abstract_instance_manager import AbstractInstanceManager
+from pymongo.errors import DuplicateKeyError
+from pymongo.collection import Collection
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from .abstract_instance_manager import AbstractInstanceManager, InstanceConfig
 from .models import Instance
+from core.storage_agents import AbstractStorageAgent
 from core.utils.encryption import decrypt_secret, encrypt_secret
 
 logger = logging.getLogger("instance-manager")
 
+
+class BucketNameConflictError(ValueError):
+    def __init__(self, bucket_names: list[str]) -> None:
+        self.bucket_names = bucket_names
+        super().__init__(
+            f"Bucket name(s) already used by another storage instance: {', '.join(bucket_names)}"
+        )
+
+
 class InstanceManager(AbstractInstanceManager):
 
-    def __init__(self, collection=None, encryption_key: str = ""):
+    def __init__(
+        self,
+        collection: Collection[dict[str, Any]] | None = None,
+        encryption_key: str = "",
+    ) -> None:
         self._collection = collection
         self._encryption_key = encryption_key
         # Dictionary of instance uuid to agent object
@@ -31,7 +49,9 @@ class InstanceManager(AbstractInstanceManager):
                 except Exception as e:
                     logger.error(f"Failed to initialize instance '{instance_label}': {e}. Skipping agent.")
 
-    def _encrypt_instance_doc(self, doc: dict, agent) -> dict:
+    def _encrypt_instance_doc(
+        self, doc: dict[str, Any], agent: AbstractStorageAgent
+    ) -> dict[str, Any]:
         """
         Encrypt the fields the storage agent declares as secrets.
         """
@@ -46,7 +66,9 @@ class InstanceManager(AbstractInstanceManager):
             agent_config[field] = encrypt_secret(value, self._encryption_key)
         return doc
 
-    def _decrypt_agent_secrets(self, agent):
+    def _decrypt_agent_secrets(
+        self, agent: AbstractStorageAgent
+    ) -> AbstractStorageAgent:
         """
         Decrypt persisted secret values on an instantiated storage agent.
         """
@@ -59,6 +81,62 @@ class InstanceManager(AbstractInstanceManager):
             # The agent will clear this value after it connects
             setattr(agent, field, decrypt_secret(value, self._encryption_key))
         return agent
+
+    @staticmethod
+    async def get_existing_bucket_names(session: AsyncSession) -> set[str]:
+        """
+        Query PostgreSQL for all distinct bucket names currently tracked in the
+        folder tree.  This is the authoritative source for bucket uniqueness
+        enforcement. It does not depend on any storage instance being reachable.
+        """
+        from sqlalchemy import select
+        from core.services.filetree.models.folder import Folder
+
+        result = await session.execute(select(Folder.bucket).distinct())
+        return set(result.scalars())
+
+    def _validate_unique_bucket_names(
+        self,
+        new_agent: AbstractStorageAgent,
+        existing_buckets: set[str] | None = None,
+    ) -> None:
+        """
+        Reject bucket-backed instances that expose buckets already used elsewhere.
+        """
+        if not hasattr(new_agent, "fetch_all_buckets"):
+            return
+
+        try:
+            new_buckets = set(new_agent.fetch_all_buckets())
+        except Exception as e:
+            logger.error(f"Could not fetch buckets from new agent: {e}.")
+            raise RuntimeError(
+                "Unable to verify bucket names for the new storage instance. "
+                "The storage service may be unreachable. Please try again later."
+            ) from e
+
+        if not new_buckets:
+            return
+
+        # Resolve the set of already-known bucket names.
+        if existing_buckets is None:
+            # Legacy path — requires every existing agent to be online.
+            existing_buckets = set()
+            for existing_agent in self._agents.values():
+                if hasattr(existing_agent, "fetch_all_buckets"):
+                    try:
+                        existing_buckets.update(existing_agent.fetch_all_buckets())
+                    except Exception as e:
+                        logger.error(f"Could not fetch buckets from agent: {e}.")
+                        raise RuntimeError(
+                            "Unable to verify bucket names against existing "
+                            "storage instances. The storage service "
+                            "may be unreachable."
+                        ) from e
+
+        conflicts = sorted(new_buckets & existing_buckets)
+        if conflicts:
+            raise BucketNameConflictError(conflicts)
 
     @property
     def instances(self) -> list[Instance]:
@@ -78,7 +156,9 @@ class InstanceManager(AbstractInstanceManager):
                 ))
         return all_instances
 
-    def get_instances(self, instance_names: set = None) -> dict[str, Instance]:
+    def get_instances(
+        self, instance_names: set[str] | None = None
+    ) -> dict[str, Instance]:
         """
         Get instances filtered by instance names.
 
@@ -102,12 +182,27 @@ class InstanceManager(AbstractInstanceManager):
                 result[instance.name] = instance
         return result
 
-    def save_instance(self, config) -> UUID:
+    async def save_instance(
+        self, config: InstanceConfig, session: AsyncSession
+    ) -> UUID:
+        """Fetch known buckets, then create the instance with validation."""
+        existing_buckets = await self.get_existing_bucket_names(session)
+        return self._save_instance(config, existing_buckets=existing_buckets)
+
+    def _save_instance(
+        self,
+        config: InstanceConfig,
+        existing_buckets: set[str] | None = None,
+    ) -> UUID:
         """
         Create and save an instance configuration to the MongoDB database.
         Raises an error if the instance already exists.
 
         :param config: The instance configuration model (InstanceCreate).
+        :param existing_buckets: Pre-fetched set of bucket names already
+            tracked in the database (used for bucket-uniqueness validation).
+            When *None*, the validation falls back to querying every live
+            storage agent — which requires all instances to be reachable.
         :return: The created Instance's UUID.
         """
         from uuid import uuid4
@@ -134,15 +229,24 @@ class InstanceManager(AbstractInstanceManager):
             agent=agent
         )
         # Save instance to MongoDB
+        connected = False
         try:
             db_config = self._encrypt_instance_doc(instance.config(secrets=True), agent)
             agent.connect()
+            connected = True
+            self._validate_unique_bucket_names(agent, existing_buckets=existing_buckets)
             self._collection.insert_one(db_config)
             
             self._agents[str(instance.uuid)] = instance.agent
             
             return instance.uuid
         except DuplicateKeyError as e:
+            if connected and str(instance.uuid) not in self._agents and hasattr(agent, "close"):
+                try:
+                    agent.close()
+                except Exception as close_error:
+                    logger.warning(f"Error closing unsaved agent for instance '{name_value}': {close_error}")
+
             if "name" in str(e):
                 raise ValueError(f"Instance with name '{name_value}' already exists")
             else:
@@ -152,6 +256,13 @@ class InstanceManager(AbstractInstanceManager):
                     raise ValueError(f"Instance with URL '{instance_url}' and the provided access key already exists")
                 else:
                     raise ValueError(f"Instance with URL '{instance_url}' already exists")
+        except Exception:
+            if connected and str(instance.uuid) not in self._agents and hasattr(agent, "close"):
+                try:
+                    agent.close()
+                except Exception as e:
+                    logger.warning(f"Error closing unsaved agent for instance '{name_value}': {e}")
+            raise
 
     def update_instance(self, instance_id: UUID, new_instance_name: str) -> bool:
         """
@@ -251,7 +362,7 @@ class InstanceManager(AbstractInstanceManager):
 
         return True
 
-    def teardown(self):
+    def teardown(self) -> None:
         """
         Clean up all active agent connections.
         """

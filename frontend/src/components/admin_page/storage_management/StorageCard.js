@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { formatError } from '../../../utils/errorUtils';
 
 // Subcomponent that displays a single storage instance 
-export default function StorageInstanceCard({ instance: i, onDelete, onUpdate }) {
+export default function StorageInstanceCard({ instance: i, onDelete, onUpdate, onSync, syncing, deleting }) {
   // isEditing toggles between the storage name and input field for changing name 
   const [isEditing, setIsEditing] = useState(false);
   // editingName keeps track of user input when editing instance name
@@ -24,6 +24,19 @@ export default function StorageInstanceCard({ instance: i, onDelete, onUpdate })
       setIsEditing(false);
     } catch (err) {
       setLocalErr(formatError(err));
+    }
+  }
+
+  async function handleSync() {
+    if (!onSync) return;
+    if (!window.confirm(`Sync storage instance "${i.name}"? Please note this process takes some time.`)) return;
+
+    setLocalErr("");
+    try {
+      await onSync(i.uuid);
+    } catch (err) {
+      const message = formatError(err);
+      setLocalErr(message);
     }
   }
 
@@ -78,9 +91,18 @@ export default function StorageInstanceCard({ instance: i, onDelete, onUpdate })
           )}
           <span className="im-chip">{i.flavour}</span>
         </div>
-        {onDelete && (
+        {((onSync && i.flavour === "s3") || onDelete) && (
           <div className="im-actions-right">
-            <button className="im-btn im-btn-danger" onClick={() => onDelete(i)}>Delete</button>
+            {onSync && i.flavour === "s3" && (
+              <button className="im-btn" disabled={syncing} onClick={handleSync}>
+                {syncing ? "Syncing..." : "Sync"}
+              </button>
+            )}
+            {onDelete && (
+              <button className="im-btn im-btn-danger" disabled={deleting} onClick={() => onDelete(i)}>
+                {deleting ? "Deleting..." : "Delete"}
+              </button>
+            )}
           </div>
         )}
       </div>

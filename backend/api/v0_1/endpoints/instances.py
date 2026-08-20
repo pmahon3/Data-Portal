@@ -9,10 +9,14 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status, Body
 from fastapi.responses import JSONResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.v0_1.common.auth_dependencies import is_user_admin, require_admin, require_admin_or_manager
+from core.db.postgres.session import get_session
+from core.services.filetree.object_storage_sync import sync_s3_agent_to_postgres
+from core.services.filetree.tree_service import TreeService
 from core.services.injectors import get_instance_manager, get_policy_manager, get_project_manager
-from core.services.instances import AbstractInstanceManager
+from core.services.instances import AbstractInstanceManager, BucketNameConflictError
 from core.services.policies import CasbinPolicyManager
 from core.services.policies import Policy
 from core.services.projects import AbstractProjectManager, ProjectNotFoundError
@@ -30,6 +34,19 @@ def _managed_project_names(current_user: dict) -> set[str]:
         if clean_path.endswith("/managers"):
             managed_projects.add(clean_path.split("/")[0])
     return managed_projects
+
+
+def _can_access_instance(current_user: dict, instance_name: str, project_manager: AbstractProjectManager) -> bool:
+    if is_user_admin(current_user):
+        return True
+
+    for project_name in _managed_project_names(current_user):
+        try:
+            if instance_name in project_manager.get_project_storage_instances(project_name):
+                return True
+        except ProjectNotFoundError:
+            continue
+    return False
 
 
 @instances_router.get(
@@ -142,7 +159,8 @@ async def create_instance(
     current_user: dict = Depends(require_admin_or_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
-    project_manager: AbstractProjectManager = Depends(get_project_manager)
+    project_manager: AbstractProjectManager = Depends(get_project_manager),
+    session: AsyncSession = Depends(get_session),
 ) -> JSONResponse:
     """
     Create a new storage instance.
@@ -196,7 +214,10 @@ async def create_instance(
     
     # Save the instance directly to database
     try:
-        instance_uuid = instance_manager.save_instance(config)
+        instance_uuid = await instance_manager.save_instance(config, session)
+    except BucketNameConflictError as e:
+        logger.error(f"Bucket name conflict when saving instance '{name_value}': {str(e)}")
+        raise HTTPException(status_code=409, detail=str(e))
     except ValueError as e:
         error_msg = str(e)
         logger.error(f"Error when saving instance '{name_value}': {error_msg}")
@@ -210,6 +231,9 @@ async def create_instance(
             raise HTTPException(status_code=400, detail="Failed to connect to the requested storage service. Please check your credentials and URL.")
         else:
             raise HTTPException(status_code=422, detail="Invalid instance configuration provided.")
+    except RuntimeError as e:
+        logger.error(f"Storage service unreachable when saving instance '{name_value}': {str(e)}")
+        raise HTTPException(status_code=502, detail=str(e))
     except Exception as e:
         logger.error(f"Failed to save configuration for instance '{name_value}': {str(e)}")
         raise HTTPException(
@@ -266,6 +290,68 @@ async def create_instance(
             }
         }
     )
+
+
+@instances_router.post(
+    "/{instance_id}/sync",
+    summary="Sync storage instance metadata",
+    description="Synchronize an S3 storage instance's object storage contents into PostgreSQL."
+)
+async def sync_instance(
+    instance_id: str,
+    current_user: dict = Depends(require_admin_or_manager),
+    instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
+    project_manager: AbstractProjectManager = Depends(get_project_manager),
+    session: AsyncSession = Depends(get_session),
+) -> JSONResponse:
+    try:
+        instance_uuid = UUID(instance_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid instance ID format. Must be a valid UUID."
+        )
+
+    try:
+        instance = instance_manager.get_instance_by_uuid(instance_uuid)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Instance not found")
+
+    if not _can_access_instance(current_user, instance.name, project_manager):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: not a project manager or admin"
+        )
+
+    if instance.flavour != "s3":
+        raise HTTPException(
+            status_code=400,
+            detail="Sync is only supported for S3 storage instances"
+        )
+
+    try:
+        sync_summary = await sync_s3_agent_to_postgres(instance.agent, session)
+    except Exception as e:
+        logger.error(f"Failed to sync object storage metadata for instance '{instance.name}': {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to synchronize object storage metadata for the instance"
+        )
+
+    logger.info(
+        "Synced object storage metadata for instance '%s' (UUID: %s): %s",
+        instance.name,
+        instance_uuid,
+        sync_summary.to_dict(),
+    )
+    return JSONResponse(
+        status_code=200,
+        content={
+            "message": f"Instance '{instance.name}' synchronized successfully",
+            "sync": sync_summary.to_dict(),
+        }
+    )
+
 
 @instances_router.patch(
     "/{instance_id}",
@@ -325,7 +411,8 @@ async def delete_instance(
     admin_user: dict = Depends(require_admin),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
-    project_manager: AbstractProjectManager = Depends(get_project_manager)
+    project_manager: AbstractProjectManager = Depends(get_project_manager),
+    session: AsyncSession = Depends(get_session),
 ) -> JSONResponse:
     """
     Remove a storage instance and cleanup associated policies (admin only).
@@ -359,6 +446,21 @@ async def delete_instance(
     except ValueError:
         logger.error(f"Instance not found for deletion: {instance_id}")
         raise HTTPException(status_code=404, detail="Instance not found")
+
+    # Remove database object tree records from database
+    try:
+        bucket_names = instance.agent.fetch_all_buckets() or []
+        tree_svc = TreeService(session)
+        await tree_svc.delete_buckets(bucket_names)
+    except Exception as e:
+        logger.error(
+            f"Failed to clean up object tree metadata for instance '{instance.name}' ({instance_id}): {str(e)}",
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to remove the instance"
+        )
 
     # Delete the instance
     try:

@@ -11,6 +11,9 @@
 /backend/*.policies
 /backend/core/settings/managers/instances/configs/*.json
 
+# Java bundler - local Spring profile overrides
+/java-bundler/src/main/resources/application-dev.properties
+
 # Backend - Legacy authentication data
 /backend/core/authentication/user_data/
 /backend/core/authentication/uuids.json
