@@ -161,6 +161,25 @@ export function indexNodes(nodes) {
   return { nodeMap, childrenMap };
 }
 
+/**
+ * Returns the IDs of every parent folder containing a selected item.
+ * Used for the exploration badge that highlights all parent folders of 
+ * selected items
+ */
+export function getSelectedAncestorIds(nodes, selected) {
+  const { nodeMap } = indexNodes(nodes);
+  const ancestorIds = new Set();
+
+  for (const selectedId of selected) {
+    const parentId = nodeMap.get(String(selectedId))?.parent;
+    if (parentId && parentId !== "#") {
+      includeWithAncestors(String(parentId), ancestorIds, nodeMap);
+    }
+  }
+
+  return ancestorIds;
+}
+
 /** Builds a matcher for the current search mode. */
 export function createPathMatcher(input, mode = SEARCH_MODES.GLOB) {
   return mode === SEARCH_MODES.REGEX
