@@ -175,6 +175,15 @@
   white-space: nowrap;
 }
 
+.tree-node-decoration-badge {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 9px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: #f97316;
+}
+
 .tree-node-loading-text {
   flex-shrink: 0;
   margin-left: 4px;

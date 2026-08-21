@@ -9,6 +9,7 @@ import {
   createPathMatcher,
   filterNodes,
   flattenVisibleTree,
+  getSelectedAncestorIds,
   isValidSearchPattern,
   trimFilterText,
 } from "./TreeUtils.js";
@@ -151,6 +152,13 @@ export default function Tree({
 
   const tree = useMemo(() => buildTreeFromFlat(filteredNodes), [filteredNodes]);
 
+  // Mark every ancestor of a selected item so collapsed branches still show
+  // where the current selection lives.
+  const selectedAncestorIds = useMemo(
+    () => getSelectedAncestorIds(nodes, selected),
+    [nodes, selected],
+  );
+
   // Collapse when filter is cleared.
   useEffect(() => {
     if (!filterState.hasActiveFilter && !filterState.hasSearchText) {
@@ -255,6 +263,9 @@ export default function Tree({
                     disableCascade={disableCascade}
                     onToggleExpand={toggleExpand}
                     isLoading={loadingNodeIds.has(String(node.id))}
+                    hasSelectedDescendant={selectedAncestorIds.has(
+                      String(node.id),
+                    )}
                   />
                 </div>
               );
