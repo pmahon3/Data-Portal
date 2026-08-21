@@ -558,7 +558,7 @@ async def create_asset_bundle(
             all_presigned_urls.append(url)
             java_bundle_files.append({
                 "url": url,
-                "relativePath": file.key,
+                "relativePath": f"{file.bucket}/{file.key}",
             })
         except Exception as e:
             logger.error(f"Unable to generate presigned URL for file_id {file.id}: {str(e)}")
@@ -574,12 +574,14 @@ async def create_asset_bundle(
         return BundleCreateResponse(
             bundle_id="single-file",
             status="completed",
-            folder_name=request.folder_name or "archive",
+            folder_name=request.folder_name or "",
             single_file_url=all_presigned_urls[0]
         )
 
     # POST to Bundler service's create archive endpoint
-    folder_name = request.folder_name or "archive"
+    # Top level archive structure is bucket_{uuid}/{folder_name}/
+    # Empty string removes the folder_name level
+    folder_name = request.folder_name or ""
     provider = get_bundler_provider()
     bundler_url = get_bundler_url(provider)
     
