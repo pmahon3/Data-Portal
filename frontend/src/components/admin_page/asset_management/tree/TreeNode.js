@@ -54,6 +54,7 @@ export default function TreeNode({
   disableCascade,
   onToggleExpand,
   isLoading = false,
+  hasSelectedDescendant = false,
 }) {
   const id = String(node.id);
   const hasChildren = Array.isArray(node.children) && node.children.length > 0;
@@ -143,6 +144,13 @@ export default function TreeNode({
       <span className="tree-node-text" title={node.text}>
         {node.text}
       </span>
+      {hasSelectedDescendant && (
+        <span
+          className="tree-node-decoration-badge"
+          title="Contains a selected item"
+          aria-label="Contains a selected item"
+        />
+      )}
     </div>
   );
 }

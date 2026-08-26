@@ -13,7 +13,7 @@ class BundleCreateRequest(BaseModel):
     instance_name: str = Field(..., description="The name of the access point.")
     file_ids: list[int] = Field(default_factory=list, description="List of file IDs to bundle.")
     folder_ids: list[int] = Field(default_factory=list, description="List of folder IDs to bundle.")
-    folder_name: Union[str, None] = Field(default="archive", description="Optional folder name for the bundle.")
+    folder_name: Union[str, None] = Field(default="", description="Optional folder name for the bundle.")
 
 
 class BundleCreateResponse(BaseModel):
