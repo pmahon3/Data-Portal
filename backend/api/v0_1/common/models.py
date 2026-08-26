@@ -1,4 +1,5 @@
-from typing import Dict, Type, Literal, Union, Annotated, Optional
+from typing import Any, Dict, Type, Literal, Union, Annotated, Optional
+from uuid import UUID
 
 from pydantic import BaseModel, Field, create_model
 
@@ -162,3 +163,53 @@ InstanceCreate = Annotated[
 
 class InstanceUpdate(BaseModel):
     instance_name: str | None = None
+
+
+class InstanceOut(BaseModel):
+    uuid: UUID
+    name: str
+    flavour: str
+    config: dict[str, Any]
+
+
+class InstanceListOut(BaseModel):
+    instances: list[InstanceOut]
+
+
+class CreatedInstanceOut(BaseModel):
+    uuid: UUID
+    name: str
+    flavour: str
+    project_names: list[str]
+
+
+class CreateInstanceOut(BaseModel):
+    message: str
+    instance: CreatedInstanceOut
+
+
+class BucketSyncOut(BaseModel):
+    bucket: str
+    files_synced: int
+    folders_synced: int
+
+
+class SyncSummaryOut(BaseModel):
+    bucket_count: int
+    file_count: int
+    folder_count: int
+    buckets: list[BucketSyncOut]
+
+
+class SyncInstanceOut(BaseModel):
+    message: str
+    sync: SyncSummaryOut
+
+
+class UpdateInstanceOut(BaseModel):
+    message: str
+    uuid: UUID
+
+
+class DeleteInstanceOut(BaseModel):
+    message: str
