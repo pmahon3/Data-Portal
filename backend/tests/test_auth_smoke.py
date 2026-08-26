@@ -204,7 +204,7 @@ def test_protected_endpoint_with_valid_token():
     # Get a valid admin token
     token = get_user_password_token("admin", "admin123")
 
-    # Access users list with token (admin-only endpoint)
+    # Access users list with an admin token (endpoint also allows project managers)
     url = f"{backend_base()}/api/users/"
     r = requests.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=10)
     assert r.status_code == 200, f"Expected 200 with valid admin token, got {r.status_code}: {r.text[:500]}"
@@ -214,13 +214,13 @@ def test_protected_endpoint_with_valid_token():
     assert isinstance(data, list), f"Expected list of users, got: {type(data)}"
 
 
-def test_admin_only_endpoint_enforcement():
-    """Test that admin-only endpoints properly enforce admin role requirement."""
-    # This test verifies admin-only enforcement by testing with admin user
+def test_management_endpoint_accepts_admin():
+    """Test that an admin can access an admin-or-manager endpoint."""
+    # This verifies the admin path for an endpoint shared with project managers
     # (we don't have a non-admin user in the realm export yet)
     admin_token = get_user_password_token("admin", "admin123")
 
-    # Admin should be able to access admin-only endpoint
+    # Admin should be able to access the management endpoint
     url = f"{backend_base()}/api/users/"
     r = requests.get(url, headers={"Authorization": f"Bearer {admin_token}"}, timeout=10)
     assert r.status_code == 200, f"Admin should access /api/users/, got {r.status_code}: {r.text[:500]}"

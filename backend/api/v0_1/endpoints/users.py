@@ -2,7 +2,7 @@
 User Management API Endpoints
 
 Handles user CRUD operations using FastAPI dependency injection for authorization.
-Supports admin-only, authenticated, and owner-or-admin access patterns.
+Supports admin, project-manager, authenticated, and owner-or-admin access patterns.
 """
 
 import logging
