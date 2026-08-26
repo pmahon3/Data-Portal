@@ -4,6 +4,22 @@ from uuid import UUID
 from core.services.users.models import User, UserCreate
 
 
+class UserCreationError(ValueError):
+    """Base class for expected user creation failures."""
+
+
+class InvalidUserEmailError(UserCreationError):
+    """Raised when a user's email address is invalid."""
+
+
+class UsernameRequiredError(UserCreationError):
+    """Raised when a username is not provided."""
+
+
+class UserAlreadyExistsError(UserCreationError):
+    """Raised when attempting to create a user that already exists."""
+
+
 class AbstractUserManager(ABC):
     @abstractmethod
     def create_user(self, user_details: UserCreate) -> User:

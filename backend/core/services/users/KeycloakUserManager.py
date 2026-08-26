@@ -1,9 +1,16 @@
 import logging
 from uuid import UUID
 
+from email_validator import EmailNotValidError, validate_email
+from keycloak.exceptions import KeycloakPostError
 from keycloak.keycloak_admin import KeycloakAdmin
 
-from core.services.users import AbstractUserManager
+from core.services.users.abstract_user_manager import (
+    AbstractUserManager,
+    InvalidUserEmailError,
+    UserAlreadyExistsError,
+    UsernameRequiredError,
+)
 from core.services.users.models import User, UserCreate
 
 logger = logging.getLogger("user-manager")
@@ -34,6 +41,17 @@ class KeycloakUserManager(AbstractUserManager):
             raise
 
     def create_user(self, user_details: UserCreate) -> User:
+        if not user_details.username.strip():
+            raise UsernameRequiredError("Username is required")
+
+        try:
+            validate_email(user_details.email, check_deliverability=False)
+        except EmailNotValidError as e:
+            raise InvalidUserEmailError("Invalid email format") from e
+
+        if self.user_exists(user_details.username):
+            raise UserAlreadyExistsError(user_details.username)
+
         # Create user in Keycloak
         user_payload = {
             "username": user_details.username,
@@ -48,7 +66,12 @@ class KeycloakUserManager(AbstractUserManager):
             ]
         }
 
-        user_uuid = self.identity_manager.create_user(user_payload)
+        try:
+            user_uuid = self.identity_manager.create_user(user_payload)
+        except KeycloakPostError as e:
+            if e.response_code == 409:
+                raise UserAlreadyExistsError(user_details.username) from e
+            raise
 
         if user_uuid is None:
             logger.error(f"Failed to create user in Keycloak: {user_details.username}")

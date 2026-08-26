@@ -22,6 +22,14 @@ class BucketNameConflictError(ValueError):
         )
 
 
+class InstanceNameConflictError(ValueError):
+    """Raised when an instance name is already in use."""
+
+
+class InstanceConnectionConflictError(ValueError):
+    """Raised when an instance connection configuration is already in use."""
+
+
 class InstanceManager(AbstractInstanceManager):
 
     def __init__(
@@ -247,15 +255,20 @@ class InstanceManager(AbstractInstanceManager):
                 except Exception as close_error:
                     logger.warning(f"Error closing unsaved agent for instance '{name_value}': {close_error}")
 
-            if "name" in str(e):
-                raise ValueError(f"Instance with name '{name_value}' already exists")
+            # MongoDB's keyPattern identifies the fields in the unique index that was violated.
+            duplicate_key = (e.details or {}).get("keyPattern", {})
+            if "name" in duplicate_key:
+                raise InstanceNameConflictError(
+                    f"Instance with name '{name_value}' already exists"
+                ) from e
+
+            instance_url = getattr(config, "instance_url", None)
+            aws_access_key_id = getattr(config, "aws_access_key_id", None)
+            if aws_access_key_id:
+                message = f"Instance with URL '{instance_url}' and the provided access key already exists"
             else:
-                instance_url = getattr(config, "instance_url", None)
-                aws_access_key_id = getattr(config, "aws_access_key_id", None)
-                if aws_access_key_id:
-                    raise ValueError(f"Instance with URL '{instance_url}' and the provided access key already exists")
-                else:
-                    raise ValueError(f"Instance with URL '{instance_url}' already exists")
+                message = f"Instance with URL '{instance_url}' already exists"
+            raise InstanceConnectionConflictError(message) from e
         except Exception:
             if connected and str(instance.uuid) not in self._agents and hasattr(agent, "close"):
                 try:
@@ -281,8 +294,10 @@ class InstanceManager(AbstractInstanceManager):
                 {"$set": {"name": new_instance_name}} 
             )
             return result.modified_count > 0 or result.matched_count > 0
-        except DuplicateKeyError:
-            raise ValueError(f"Instance with name '{new_instance_name}' already exists")
+        except DuplicateKeyError as e:
+            raise InstanceNameConflictError(
+                f"Instance with name '{new_instance_name}' already exists"
+            ) from e
 
     def get_instances_by_uuid(self, uuids: list[UUID]) -> list[Instance]:
         """

@@ -16,7 +16,12 @@ from core.db.postgres.session import get_session
 from core.services.filetree.object_storage_sync import sync_s3_agent_to_postgres
 from core.services.filetree.tree_service import TreeService
 from core.services.injectors import get_instance_manager, get_policy_manager, get_project_manager
-from core.services.instances import AbstractInstanceManager, BucketNameConflictError
+from core.services.instances import (
+    AbstractInstanceManager,
+    BucketNameConflictError,
+    InstanceConnectionConflictError,
+    InstanceNameConflictError,
+)
 from core.services.policies import CasbinPolicyManager
 from core.services.policies import Policy
 from core.services.projects import AbstractProjectManager, ProjectNotFoundError
@@ -218,19 +223,15 @@ async def create_instance(
     except BucketNameConflictError as e:
         logger.error(f"Bucket name conflict when saving instance '{name_value}': {str(e)}")
         raise HTTPException(status_code=409, detail=str(e))
+    except InstanceNameConflictError as e:
+        logger.error(f"Instance name conflict when saving instance '{name_value}': {e}")
+        raise HTTPException(status_code=409, detail=f"An instance with the name '{name_value}' already exists. Please choose a different name.")
+    except InstanceConnectionConflictError as e:
+        logger.error(f"Instance connection conflict when saving instance '{name_value}': {e}")
+        raise HTTPException(status_code=409, detail="An instance with this URL and access key combination already exists.")
     except ValueError as e:
-        error_msg = str(e)
-        logger.error(f"Error when saving instance '{name_value}': {error_msg}")
-        if "already exists" in error_msg:
-            # Differentiate between name colllision and URL+key collision for friendliness
-            if "name" in error_msg:
-                raise HTTPException(status_code=409, detail=f"An instance with the name '{name_value}' already exists. Please choose a different name.")
-            else:
-                raise HTTPException(status_code=409, detail="An instance with this URL and access key combination already exists.")
-        elif "failed to create storage agent" in error_msg.lower():
-            raise HTTPException(status_code=400, detail="Failed to connect to the requested storage service. Please check your credentials and URL.")
-        else:
-            raise HTTPException(status_code=422, detail="Invalid instance configuration provided.")
+        logger.error(f"Error when saving instance '{name_value}': {e}")
+        raise HTTPException(status_code=422, detail="Invalid instance configuration provided.")
     except RuntimeError as e:
         logger.error(f"Storage service unreachable when saving instance '{name_value}': {str(e)}")
         raise HTTPException(status_code=502, detail=str(e))
@@ -385,9 +386,9 @@ async def update_instance(
         updated = instance_manager.update_instance(instance_uuid, config.instance_name)
         if not updated:
             raise HTTPException(status_code=422, detail="No changes were detected or the update failed.")
-    except ValueError as e:
-        if "already exists" in str(e):
-            raise HTTPException(status_code=409, detail=f"An instance with the name '{config.instance_name}' already exists. Please choose a different name.")
+    except InstanceNameConflictError:
+        raise HTTPException(status_code=409, detail=f"An instance with the name '{config.instance_name}' already exists. Please choose a different name.")
+    except ValueError:
         raise HTTPException(status_code=422, detail="Invalid instance configuration provided.")
     except Exception as e:
         logger.error(f"Failed to update instance '{instance.name}': {str(e)}")
