@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { useKeycloak } from '@react-keycloak/web';
 import { CircularProgress } from '@mui/material';
@@ -8,6 +8,11 @@ import { formatError } from '../../../utils/errorUtils';
 import { getAuthHeaders } from '../../../utils/authUtils';
 
 const http = axios.create({ baseURL: "/api" });
+
+const apiDeleteUser = async (uname) => {
+  const headers = await getAuthHeaders();
+  await http.delete(`/users/${encodeURIComponent(uname)}`, { headers });
+};
 
 export default function UserManagement() {
   const { keycloak, initialized } = useKeycloak();
@@ -38,11 +43,6 @@ export default function UserManagement() {
     const res= await http.post('/users/', payload, { headers });
     console.log("This is user created: ");
     console.dir(res.data)
-  };
-
-  const apiDeleteUser = async (uname) => {
-    const headers = await getAuthHeaders();
-    await http.delete(`/users/${encodeURIComponent(uname)}`, { headers });
   };
 
   useEffect(() => {
@@ -97,7 +97,7 @@ export default function UserManagement() {
     }
   }
 
-  async function handleDelete(u) {
+  const handleDelete = useCallback(async (u) => {
     if (!window.confirm(`Delete user "${u.username}"?`)) return;
     setErr('');
     try {
@@ -107,7 +107,7 @@ export default function UserManagement() {
     } catch (e) {
       setErr(formatError(e));
     }
-  }
+  }, []);
 
   // Creates a saved list of users with a unique id for MUI data grid
   const userRows = useMemo(
@@ -145,7 +145,7 @@ export default function UserManagement() {
       });
     }
     return cols;
-  }, [isAdmin]);
+  }, [isAdmin, handleDelete]);
 
   return (
     <div className="um-root">

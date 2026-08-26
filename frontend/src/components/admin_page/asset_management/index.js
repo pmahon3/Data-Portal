@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { useKeycloak } from "@react-keycloak/web";
-import { CircularProgress } from "@mui/material";
 import EndpointCard from "./EndpointCard.js";
 import { formatError } from "../../../utils/errorUtils";
 import { getAuthHeaders } from '../../../utils/authUtils';
@@ -31,6 +30,7 @@ function ErrorNote({ children }) {
 
 export default function AssetManagement({ bootstrap, title = "Storage Endpoints" }) {
   const { keycloak, initialized } = useKeycloak();
+  const username = keycloak?.tokenParsed?.preferred_username;
 
   const [boot, setBoot] = useState(bootstrap || null);
   const [loading, setLoading] = useState(!bootstrap);
@@ -49,31 +49,30 @@ export default function AssetManagement({ bootstrap, title = "Storage Endpoints"
     };
   };
 
-  // Fetch dashboard; set refresh=1 only when we want the backend to rebuild trees
-  const reloadDashboard = async (forceRefresh = false) => {
-    try {
-      setLoading(true);
-      setError(null);
-      const headers = await getAuthHeaders();
-      // Get username from keycloak token
-      const username = keycloak?.tokenParsed?.preferred_username;
-      if (!username) {
-        throw new Error("Username not found in token");
+  // Fetch the current user's storage endpoint dashboard
+  useEffect(() => {
+    const loadStorageEndpoints = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const headers = await getAuthHeaders();
+        if (!username) {
+          throw new Error("Username not found in token");
+        }
+        const { data } = await http.get(`users/${encodeURIComponent(username)}/instances`, {
+          headers,
+          params: { _t: Date.now() },
+        });
+        setBoot(data);
+      } catch (e) {
+        setError(formatError(e));
+      } finally {
+        setLoading(false);
       }
-      const { data } = await http.get(`users/${encodeURIComponent(username)}/instances`, {
-        headers,
-        params: { _t: Date.now() },
-      });
-      setBoot(data);
-    } catch (e) {
-      setError(formatError(e));
-    } finally {
-      setLoading(false);
-    }
-  };
+    };
 
-  // Initial load
-  useEffect(() => { if (!boot) reloadDashboard(false); }, [boot]);
+    if (!boot) loadStorageEndpoints();
+  }, [boot, username]);
 
   if (loading) return <Spinner />;
   if (error) return <ErrorNote>{String(error)}</ErrorNote>;
