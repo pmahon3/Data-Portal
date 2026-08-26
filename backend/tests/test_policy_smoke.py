@@ -78,8 +78,8 @@ def auth_headers(admin_token):
 
 # --- Policy API Tests --------------------------------------------------------
 
-def test_list_policies_requires_admin(auth_headers):
-    """Test that listing policies requires admin privileges."""
+def test_list_policies_accepts_admin(auth_headers):
+    """Test the admin path for policy listing, which also allows project managers."""
     url = f"{backend_base()}/api/policies/"
     r = requests.get(url, headers=auth_headers, timeout=10)
     assert r.status_code == 200, f"Admin should be able to list policies, got {r.status_code}: {r.text[:500]}"

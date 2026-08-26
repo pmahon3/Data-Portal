@@ -1,6 +1,5 @@
 # backend/tests/conftest.py
 """Pytest configuration for smoke tests."""
-import sys
 import pytest
 
 

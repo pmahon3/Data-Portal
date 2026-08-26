@@ -120,8 +120,8 @@ def regular_user_headers(regular_user_token):
 
 # --- User CRUD Tests ---------------------------------------------------------
 
-def test_list_users_requires_admin(auth_headers):
-    """Test that listing users requires admin privileges."""
+def test_admin_can_list_users(auth_headers):
+    """Test that an admin can list users."""
     url = f"{backend_base()}/api/users/"
     r = requests.get(url, headers=auth_headers, timeout=10)
     assert r.status_code == 200, f"Admin should be able to list users, got {r.status_code}: {r.text[:500]}"
@@ -146,6 +146,7 @@ def test_create_user(auth_headers):
     new_user = {
         "username": username,
         "email": "testuser1@example.com",
+        "password": "default_password",
         "roles": ["user"]
     }
 
@@ -174,6 +175,7 @@ def test_create_duplicate_user(auth_headers):
     new_user = {
         "username": username,
         "email": "testuser2@example.com",
+        "password": "default_password",
         "roles": ["user"]
     }
 
@@ -183,7 +185,7 @@ def test_create_duplicate_user(auth_headers):
 
         # Try to create duplicate
         r2 = requests.post(url, json=new_user, headers=auth_headers, timeout=10)
-        assert r2.status_code == 400, f"Expected 400 for duplicate user, got {r2.status_code}: {r2.text[:500]}"
+        assert r2.status_code == 409, f"Expected 409 for duplicate user, got {r2.status_code}: {r2.text[:500]}"
 
         data = r2.json()
         assert "already exists" in data.get("detail", "").lower(), f"Expected 'already exists' error: {data}"
@@ -199,6 +201,7 @@ def test_create_user_without_auth():
     new_user = {
         "username": "unauthorized_user",
         "email": "unauthorized@example.com",
+        "password": "default_password",
         "roles": ["user"]
     }
 
@@ -214,6 +217,7 @@ def test_get_user_by_username(auth_headers):
     new_user = {
         "username": username,
         "email": "testuser3@example.com",
+        "password": "default_password",
         "roles": ["user"]
     }
 
@@ -272,6 +276,7 @@ def test_delete_user(auth_headers):
     new_user = {
         "username": "testuser_delete",
         "email": "testuser_delete@example.com",
+        "password": "default_password",
         "roles": ["user"]
     }
 
@@ -355,6 +360,7 @@ def test_complete_user_lifecycle(auth_headers):
     new_user = {
         "username": username,
         "email": f"{username}@example.com",
+        "password": "default_password",
         "roles": ["user"]
     }
     r_create = requests.post(base_url, json=new_user, headers=auth_headers, timeout=10)
@@ -396,20 +402,19 @@ def test_create_user_invalid_email(auth_headers):
     new_user = {
         "username": "testuser_invalid_email",
         "email": "not_an_email",  # Invalid email format
+        "password": "default_password",
         "roles": ["user"]
     }
 
     r = requests.post(url, json=new_user, headers=auth_headers, timeout=10)
-    # Should either reject (422) or accept depending on validation rules
-    # This test documents current behavior
-    assert r.status_code in [201, 400, 422], f"Unexpected status for invalid email: {r.status_code}"
+    assert r.status_code == 400, f"Expected 400 for invalid email, got {r.status_code}: {r.text[:500]}"
 
 
 def test_create_user_missing_fields(auth_headers):
     """Test that creating user with missing required fields is rejected."""
     url = f"{backend_base()}/api/users/"
 
-    # Missing email and roles
+    # Missing email, password, and roles
     incomplete_user = {
         "username": "incomplete_user"
     }
@@ -425,11 +430,12 @@ def test_create_user_empty_username(auth_headers):
     new_user = {
         "username": "",
         "email": "empty@example.com",
+        "password": "default_password",
         "roles": ["user"]
     }
 
     r = requests.post(url, json=new_user, headers=auth_headers, timeout=10)
-    assert r.status_code in [400, 422], f"Expected 400/422 for empty username, got {r.status_code}"
+    assert r.status_code == 400, f"Expected 400 for empty username, got {r.status_code}: {r.text[:500]}"
 
 
 # --- 403 Forbidden Tests -----------------------------------------------------
@@ -448,6 +454,7 @@ def test_create_user_forbidden(regular_user_headers):
     new_user = {
         "username": "forbidden_user",
         "email": "forbidden@example.com",
+        "password": "default_password",
         "roles": ["user"]
     }
 
@@ -463,6 +470,7 @@ def test_delete_user_forbidden(regular_user_headers, auth_headers):
     new_user = {
         "username": username,
         "email": "testuser_forbidden_delete@example.com",
+        "password": "default_password",
         "roles": ["user"]
     }
 
@@ -487,6 +495,7 @@ def test_get_user_forbidden(regular_user_headers, auth_headers):
     new_user = {
         "username": username,
         "email": "testuser_forbidden_get@example.com",
+        "password": "default_password",
         "roles": ["user"]
     }
 

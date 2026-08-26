@@ -45,6 +45,10 @@ class DummyStorageAgent(AbstractStorageAgent):
         """Dummy implementation - not used in policy tests."""
         return []
 
+    def fetch_all_buckets(self):
+        """Return no buckets because the dummy agent has no backing storage."""
+        return []
+
     def connect(self):
         """Dummy implementation - no connection to establish."""
         self.clear_secrets()

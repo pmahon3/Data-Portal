@@ -77,9 +77,16 @@ def auth_headers(admin_token):
 def create_test_user(auth_headers, username):
     """Create a test user for policy testing."""
     url = f"{backend_base()}/api/users/"
-    payload = {"username": username, "email": f"{username}@test.local", "roles": ["user"]}
+    payload = {
+        "username": username,
+        "email": f"{username}@test.local",
+        "password": "default_password",
+        "roles": ["user"],
+    }
     r = requests.post(url, json=payload, headers=auth_headers, timeout=10)
-    return r.json()["details"] if r.status_code == 201 else None
+    assert r.status_code == 201, \
+        f"Failed to create test user '{username}': {r.status_code}: {r.text[:500]}"
+    return r.json()["details"]
 
 def delete_test_user(auth_headers, username):
     """Delete a test user."""
@@ -98,8 +105,8 @@ def create_test_instance(auth_headers, instance_name):
         "instance_url": f"dummy://test/{instance_name}"
     }
     r = requests.post(url, json=payload, headers=auth_headers, timeout=10)
-    if r.status_code != 201:
-        return None
+    assert r.status_code == 201, \
+        f"Failed to create test instance '{instance_name}': {r.status_code}: {r.text[:500]}"
     return r.json().get("instance")
 
 def delete_test_instance(auth_headers, instance_name):
