@@ -1,11 +1,5 @@
 import asyncio
-import os
 from types import SimpleNamespace
-
-# Importing object_storage_sync imports SQLAlchemy models. Those models import
-# core.db, whose session module reads DATABASE_URL immediately at import time.
-# These tests patch out all DB work, so the value only needs to exist.
-os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/test")
 
 from core.services.filetree import object_storage_sync as sync
 

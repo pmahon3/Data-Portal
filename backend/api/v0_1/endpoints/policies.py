@@ -76,11 +76,11 @@ async def get_policies(
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ) -> GetPolicyResponse:
     """
-    Retrieve policies based on filter criteria (admin only).
+    Retrieve policies based on filter criteria (admin or project manager).
     
     Args:
         policy_filter: Policy filter criteria from query parameters
-        admin_user: Current user (must have admin privileges)
+        current_user: Current user (must be an admin or project manager)
         policy_manager: Policy manager dependency
         
     Returns:
@@ -257,11 +257,11 @@ async def delete_policy(
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager)
 ) -> RemovePolicyResponse:
     """
-    Remove an existing policy (admin only).
+    Remove an existing policy (admin or project manager).
     
     Args:
         old_policy: Policy removal request data
-        admin_user: Current user (must have admin privileges)
+        current_user: Current user (must be an admin or project manager)
         user_manager: User manager dependency
         policy_manager: Policy manager dependency
         instance_manager: Instance manager dependency

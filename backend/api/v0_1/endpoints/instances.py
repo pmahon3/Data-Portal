@@ -8,7 +8,6 @@ import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status, Body
-from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.v0_1.common.auth_dependencies import is_user_admin, require_admin, require_admin_or_manager
@@ -16,11 +15,27 @@ from core.db.postgres.session import get_session
 from core.services.filetree.object_storage_sync import sync_s3_agent_to_postgres
 from core.services.filetree.tree_service import TreeService
 from core.services.injectors import get_instance_manager, get_policy_manager, get_project_manager
-from core.services.instances import AbstractInstanceManager, BucketNameConflictError
+from core.services.instances import (
+    AbstractInstanceManager,
+    BucketNameConflictError,
+    InstanceConnectionConflictError,
+    InstanceNameConflictError,
+)
 from core.services.policies import CasbinPolicyManager
 from core.services.policies import Policy
 from core.services.projects import AbstractProjectManager, ProjectNotFoundError
-from api.v0_1.common.models import InstanceCreate, InstanceUpdate
+from api.v0_1.common.models import (
+    CreateInstanceOut,
+    CreatedInstanceOut,
+    DeleteInstanceOut,
+    InstanceCreate,
+    InstanceListOut,
+    InstanceOut,
+    InstanceUpdate,
+    SyncInstanceOut,
+    SyncSummaryOut,
+    UpdateInstanceOut,
+)
 
 instances_router = APIRouter(prefix='/instances', tags=["Storage Instance Management"])
 logger = logging.getLogger("api.endpoints")
@@ -51,6 +66,7 @@ def _can_access_instance(current_user: dict, instance_name: str, project_manager
 
 @instances_router.get(
     "/",
+    response_model=InstanceListOut,
     summary="List all storage instances",
     description="Retrieve list of all configured storage instances with their details."
 )
@@ -58,7 +74,7 @@ async def list_instances(
     current_user: dict = Depends(require_admin_or_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
     project_manager: AbstractProjectManager = Depends(get_project_manager)
-) -> JSONResponse:
+) -> InstanceListOut:
     """
     Get list of all storage instances.
     
@@ -67,7 +83,7 @@ async def list_instances(
         instance_manager: Instance manager dependency
         
     Returns:
-        JSONResponse: List of instances with their configurations
+        InstanceListOut: List of instances with their configurations
     """
     if is_user_admin(current_user):
         # If admin get all instances
@@ -92,13 +108,11 @@ async def list_instances(
         }
         instance_list.append(instance_data)
     
-    return JSONResponse(
-        status_code=200,
-        content={"instances": instance_list}
-    )
+    return InstanceListOut(instances=instance_list)
 
 @instances_router.get(
     "/{instance_id}",
+    response_model=InstanceOut,
     summary="Get storage instance details",
     description="Retrieve detailed information about a specific storage instance."
 )
@@ -106,7 +120,7 @@ async def get_instance(
     instance_id: str,
     admin_user: dict = Depends(require_admin),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager)
-) -> JSONResponse:
+) -> InstanceOut:
     """
     Get details for a specific storage instance (admin only).
     
@@ -116,7 +130,7 @@ async def get_instance(
         instance_manager: Instance manager dependency
         
     Returns:
-        JSONResponse: Instance details and configuration
+        InstanceOut: Instance details and configuration
         
     Raises:
         HTTPException: 404 if instance not found
@@ -137,19 +151,17 @@ async def get_instance(
         logger.error(f"Instance not found: {instance_id}")
         raise HTTPException(status_code=404, detail="Instance not found")
     
-    return JSONResponse(
-        status_code=200,
-        content={
-            "uuid": str(instance.uuid),
-            "name": instance.name,
-            "flavour": instance.flavour,
-            "config": instance.config(secrets=False)
-        }
+    return InstanceOut(
+        uuid=instance.uuid,
+        name=instance.name,
+        flavour=instance.flavour,
+        config=instance.config(secrets=False),
     )
 
 
 @instances_router.post(
     "/",
+    response_model=CreateInstanceOut,
     summary="Create a new storage instance",
     description="Add a new storage instance configuration and automatically grant admin access to creator.",
     status_code=status.HTTP_201_CREATED
@@ -161,7 +173,7 @@ async def create_instance(
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     project_manager: AbstractProjectManager = Depends(get_project_manager),
     session: AsyncSession = Depends(get_session),
-) -> JSONResponse:
+) -> CreateInstanceOut:
     """
     Create a new storage instance.
     
@@ -175,7 +187,7 @@ async def create_instance(
         policy_manager: Policy manager dependency
         
     Returns:
-        JSONResponse: Success message with created instance details
+        CreateInstanceOut: Success message with created instance details
         
     Raises:
         HTTPException: 400 if configuration invalid
@@ -218,19 +230,15 @@ async def create_instance(
     except BucketNameConflictError as e:
         logger.error(f"Bucket name conflict when saving instance '{name_value}': {str(e)}")
         raise HTTPException(status_code=409, detail=str(e))
+    except InstanceNameConflictError as e:
+        logger.error(f"Instance name conflict when saving instance '{name_value}': {e}")
+        raise HTTPException(status_code=409, detail=f"An instance with the name '{name_value}' already exists. Please choose a different name.")
+    except InstanceConnectionConflictError as e:
+        logger.error(f"Instance connection conflict when saving instance '{name_value}': {e}")
+        raise HTTPException(status_code=409, detail="An instance with this URL and access key combination already exists.")
     except ValueError as e:
-        error_msg = str(e)
-        logger.error(f"Error when saving instance '{name_value}': {error_msg}")
-        if "already exists" in error_msg:
-            # Differentiate between name colllision and URL+key collision for friendliness
-            if "name" in error_msg:
-                raise HTTPException(status_code=409, detail=f"An instance with the name '{name_value}' already exists. Please choose a different name.")
-            else:
-                raise HTTPException(status_code=409, detail="An instance with this URL and access key combination already exists.")
-        elif "failed to create storage agent" in error_msg.lower():
-            raise HTTPException(status_code=400, detail="Failed to connect to the requested storage service. Please check your credentials and URL.")
-        else:
-            raise HTTPException(status_code=422, detail="Invalid instance configuration provided.")
+        logger.error(f"Error when saving instance '{name_value}': {e}")
+        raise HTTPException(status_code=422, detail="Invalid instance configuration provided.")
     except RuntimeError as e:
         logger.error(f"Storage service unreachable when saving instance '{name_value}': {str(e)}")
         raise HTTPException(status_code=502, detail=str(e))
@@ -278,22 +286,20 @@ async def create_instance(
         )
 
     logger.info(f"Created instance '{name_value}' (UUID: {instance_uuid}) by user '{current_user.get('preferred_username')}'")
-    return JSONResponse(
-        status_code=201,
-        content={
-            "message": f"Instance '{name_value}' created successfully",
-            "instance": {
-                "uuid": str(instance_uuid),
-                "name": name_value,
-                "flavour": config.flavour,
-                "project_names": project_names
-            }
-        }
+    return CreateInstanceOut(
+        message=f"Instance '{name_value}' created successfully",
+        instance=CreatedInstanceOut(
+            uuid=instance_uuid,
+            name=name_value,
+            flavour=config.flavour,
+            project_names=project_names,
+        ),
     )
 
 
 @instances_router.post(
     "/{instance_id}/sync",
+    response_model=SyncInstanceOut,
     summary="Sync storage instance metadata",
     description="Synchronize an S3 storage instance's object storage contents into PostgreSQL."
 )
@@ -303,7 +309,7 @@ async def sync_instance(
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
     project_manager: AbstractProjectManager = Depends(get_project_manager),
     session: AsyncSession = Depends(get_session),
-) -> JSONResponse:
+) -> SyncInstanceOut:
     try:
         instance_uuid = UUID(instance_id)
     except ValueError:
@@ -344,17 +350,15 @@ async def sync_instance(
         instance_uuid,
         sync_summary.to_dict(),
     )
-    return JSONResponse(
-        status_code=200,
-        content={
-            "message": f"Instance '{instance.name}' synchronized successfully",
-            "sync": sync_summary.to_dict(),
-        }
+    return SyncInstanceOut(
+        message=f"Instance '{instance.name}' synchronized successfully",
+        sync=SyncSummaryOut.model_validate(sync_summary.to_dict()),
     )
 
 
 @instances_router.patch(
     "/{instance_id}",
+    response_model=UpdateInstanceOut,
     summary="Update a storage instance",
     description="Update an existing storage instance."
 )
@@ -363,7 +367,7 @@ async def update_instance(
     admin_user: dict = Depends(require_admin),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
     config: InstanceUpdate = Body(...)
-):
+) -> UpdateInstanceOut:
     # Format the instance id to be update to UUID
     try:
         instance_uuid = UUID(instance_id)
@@ -385,24 +389,22 @@ async def update_instance(
         updated = instance_manager.update_instance(instance_uuid, config.instance_name)
         if not updated:
             raise HTTPException(status_code=422, detail="No changes were detected or the update failed.")
-    except ValueError as e:
-        if "already exists" in str(e):
-            raise HTTPException(status_code=409, detail=f"An instance with the name '{config.instance_name}' already exists. Please choose a different name.")
+    except InstanceNameConflictError:
+        raise HTTPException(status_code=409, detail=f"An instance with the name '{config.instance_name}' already exists. Please choose a different name.")
+    except ValueError:
         raise HTTPException(status_code=422, detail="Invalid instance configuration provided.")
     except Exception as e:
         logger.error(f"Failed to update instance '{instance.name}': {str(e)}")
         raise HTTPException(status_code=422, detail="An unexpected error occurred while updating the instance.")
     
-    return JSONResponse(
-        status_code=200,
-        content={
-            "message": f"Instance updated successfully",
-            "uuid": str(instance_uuid)
-        }
+    return UpdateInstanceOut(
+        message="Instance updated successfully",
+        uuid=instance_uuid,
     )
 
 @instances_router.delete(
     "/{instance_id}",
+    response_model=DeleteInstanceOut,
     summary="Remove a storage instance",
     description="Remove a storage instance and all its associated policies."
 )
@@ -413,7 +415,7 @@ async def delete_instance(
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     project_manager: AbstractProjectManager = Depends(get_project_manager),
     session: AsyncSession = Depends(get_session),
-) -> JSONResponse:
+) -> DeleteInstanceOut:
     """
     Remove a storage instance and cleanup associated policies (admin only).
     
@@ -424,7 +426,7 @@ async def delete_instance(
         policy_manager: Policy manager dependency
         
     Returns:
-        JSONResponse: Success message
+        DeleteInstanceOut: Success message
         
     Raises:
         HTTPException: 400 if invalid UUID format
@@ -492,7 +494,6 @@ async def delete_instance(
 
     logger.info(f"Deleted instance '{instance.name}' (UUID: {instance_id}) by user '{admin_user.get('preferred_username')}'")
 
-    return JSONResponse(
-        status_code=200,
-        content={"message": f"Instance '{instance_id}' removed successfully"}
+    return DeleteInstanceOut(
+        message=f"Instance '{instance_id}' removed successfully"
     )

@@ -2,7 +2,7 @@
 User Management API Endpoints
 
 Handles user CRUD operations using FastAPI dependency injection for authorization.
-Supports admin-only, authenticated, and owner-or-admin access patterns.
+Supports admin, project-manager, authenticated, and owner-or-admin access patterns.
 """
 
 import logging
@@ -19,7 +19,12 @@ from api.v0_1.common.auth_dependencies import (
 from core.services.injectors import get_user_manager, get_policy_manager, get_instance_manager
 from core.services.instances import AbstractInstanceManager
 from core.services.policies import CasbinPolicyManager
-from core.services.users import AbstractUserManager
+from core.services.users import (
+    AbstractUserManager,
+    InvalidUserEmailError,
+    UserAlreadyExistsError,
+    UsernameRequiredError,
+)
 from core.services.users.models import UserCreate
 from api.v0_1.common.models import (
     User, AddUserRequest, AddUserResponse, RemoveUserResponse, UserInstancesList
@@ -168,21 +173,18 @@ async def create_user(
     try:
         user_manager.create_user(user_create)
         uuid = user_manager.get_user_uuid(user_data.username)
+    except InvalidUserEmailError as e:
+        logger.error(f"Invalid email format for user '{user_data.username}' and email '{user_data.email}': {e}")
+        raise HTTPException(status_code=400, detail="Invalid email format")
+    except UsernameRequiredError as e:
+        logger.error(f"Username is required for user creation: {e}")
+        raise HTTPException(status_code=400, detail="Username is required")
+    except UserAlreadyExistsError as e:
+        logger.error(f"User '{user_data.username}' already exists: {e}")
+        raise HTTPException(status_code=409, detail="User already exists")
     except Exception as e:
-        # Catch Keycloak validation errors (invalid email, missing fields, etc.)
-        error_msg = str(e)
-        if "error-invalid-email" in error_msg:
-            logger.error(f"Invalid email format for user '{user_data.username}' and email '{user_data.email}': {error_msg}")
-            raise HTTPException(status_code=400, detail="Invalid email format")
-        elif "User name is missing" in error_msg or "username" in error_msg.lower():
-            logger.error(f"Username is required for user creation: {error_msg}")
-            raise HTTPException(status_code=400, detail="Username is required")
-        elif "already exists" in error_msg.lower():
-            logger.error(f"User '{user_data.username}' already exists: {error_msg}")
-            raise HTTPException(status_code=400, detail="User already exists")
-        else:
-            logger.error(f"Failed to create user '{user_data.username}': {error_msg}")
-            raise HTTPException(status_code=400, detail=f"Failed to create user: {error_msg}")
+        logger.error(f"Failed to create user '{user_data.username}': {e}")
+        raise HTTPException(status_code=400, detail=f"Failed to create user: {e}")
 
     user_details = user_manager.get_user(uuid)
     logger.info(f"Created user '{user_data.username}'")

@@ -27,8 +27,8 @@ job "${__SERVICE__}-${__ENVIRONMENT__}" {
   }
 
   constraint {
-  attribute = "${meta.node_class}"
-  value     = "prod"
+    attribute = "${meta.node_class}"
+    value     = "prod"
   }
 
   # Ensure tasks run on different hosts

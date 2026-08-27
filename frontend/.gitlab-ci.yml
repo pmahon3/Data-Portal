@@ -48,6 +48,8 @@ variables:
     --tag ${CI_REGISTRY_IMAGE}/frontend:ci
     --build-arg BUILDKIT_INLINE_CACHE=1
     --build-arg REACT_APP_KEYCLOAK_URL=${REACT_APP_KEYCLOAK_URL}
+    --build-arg REACT_APP_KEYCLOAK_REALM=${KEYCLOAK_REALM}
+    --build-arg REACT_APP_KEYCLOAK_CLIENT_ID=${KEYCLOAK_CLIENT_ID}
     --label org.opencontainers.image.version=${PIPELINE_TIMESTAMP}
     --label org.opencontainers.image.created=${CI_COMMIT_TIMESTAMP}
     --label org.opencontainers.image.revision=${CI_COMMIT_SHA}

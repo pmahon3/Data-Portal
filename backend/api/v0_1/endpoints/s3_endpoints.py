@@ -7,9 +7,10 @@ file download (presigned URL), file/folder deletion, and asset bundling.
 import os
 import httpx
 import logging
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import any_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -81,6 +82,55 @@ class UploadCompleteIn(BaseModel):
     instance_name: str
     file_id: int
 
+
+class FolderOut(BaseModel):
+    id: int
+    name: str
+    full_path: str
+
+
+class FileOut(BaseModel):
+    id: int
+    name: str
+    key: str
+    size: int | None
+    last_modified: datetime | None
+    content_type: str | None
+
+
+class ListChildrenOut(BaseModel):
+    folder_id: int
+    folders: list[FolderOut]
+    files: list[FileOut]
+
+
+class UploadCompleteOut(BaseModel):
+    status: str
+
+
+class DownloadUrlOut(BaseModel):
+    url: str
+
+
+class DeleteFileOut(BaseModel):
+    deleted: bool
+    file_id: int
+
+
+class DeleteFolderOut(BaseModel):
+    deleted: bool
+    folder_id: int
+
+
+class BundleStatusOut(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    id: str
+    status: str
+    created_at: datetime | None = Field(default=None, alias="createdAt")
+    updated_at: datetime | None = Field(default=None, alias="updatedAt")
+    result_url: str | None = Field(default=None, alias="resultUrl")
+
 #################################################################################### helper functions
 def policy_or_403(policy_manager: CasbinPolicyManager, policy: Policy) -> None:
     """Validate a policy and raise 403 if denied."""
@@ -109,7 +159,7 @@ def resource_for_key(bucket: str, key: str) -> str:
 ########################################  ENDPOINTS ################################
 ####################################################################################
 
-@router.get("/root")
+@router.get("/root", response_model=FolderOut)
 async def get_root(
     q: TreeRootQuery = Depends(),
     user: dict = Depends(decode_token),
@@ -117,7 +167,7 @@ async def get_root(
     user_manager: AbstractUserManager = Depends(get_user_manager),
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
-):
+) -> FolderOut:
     """Return the root folder for a bucket (creating it if needed)."""
     user_uuid = user_manager.get_user_uuid(user["preferred_username"])
     instance_uuid, _agent = get_instance_agent(instance_manager, q.instance_name)
@@ -129,7 +179,7 @@ async def get_root(
     return {"id": root.id, "name": root.name, "full_path": root.full_path}
 
 ####################################################################################
-@router.get("/{folder_id}")
+@router.get("/{folder_id}", response_model=ListChildrenOut)
 async def list_children(
     folder_id: int,
     q: TreeRootQuery = Depends(),
@@ -138,7 +188,7 @@ async def list_children(
     user_manager: AbstractUserManager = Depends(get_user_manager),
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
-):
+) -> ListChildrenOut:
     """List immediate child folders and files of a folder (non-recursive)."""
     user_uuid = user_manager.get_user_uuid(user["preferred_username"])
     instance_uuid, _agent = get_instance_agent(instance_manager, q.instance_name)
@@ -170,7 +220,7 @@ async def list_children(
     }
 ####################################################################################
 
-@router.post("/folders")
+@router.post("/folders", response_model=FolderOut)
 async def create_folder(
     payload: CreateFolderIn,
     user: dict = Depends(decode_token),
@@ -178,7 +228,7 @@ async def create_folder(
     user_manager: AbstractUserManager = Depends(get_user_manager),
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
-):
+) -> FolderOut:
     """Create a new subfolder under an existing parent folder."""
     user_uuid = user_manager.get_user_uuid(user["preferred_username"])
     instance_uuid, _agent = get_instance_agent(instance_manager, payload.instance_name)
@@ -195,7 +245,7 @@ async def create_folder(
     return {"id": folder.id, "name": folder.name, "full_path": folder.full_path}
 
 ####################################################################################
-@router.post("/folders/ensure-path")
+@router.post("/folders/ensure-path", response_model=FolderOut)
 async def ensure_folder_path(
     payload: EnsureFolderPathIn,
     user: dict = Depends(decode_token),
@@ -203,7 +253,7 @@ async def ensure_folder_path(
     user_manager: AbstractUserManager = Depends(get_user_manager),
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
-):
+) -> FolderOut:
     """Ensure a nested folder path exists under a parent (idempotent)."""
     user_uuid = user_manager.get_user_uuid(user["preferred_username"])
     instance_uuid, _agent = get_instance_agent(instance_manager, payload.instance_name)
@@ -268,7 +318,7 @@ async def upload_init(
 
 #################################################################################### it verifies the upload succeeded and syncs metadata into the DB.
 
-@router.post("/files/upload/complete")
+@router.post("/files/upload/complete", response_model=UploadCompleteOut)
 async def upload_complete(
     payload: UploadCompleteIn,
     user: dict = Depends(decode_token),
@@ -276,7 +326,7 @@ async def upload_complete(
     user_manager: AbstractUserManager = Depends(get_user_manager),
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
-):
+) -> UploadCompleteOut:
     """Complete an upload — verify the S3 object exists, sync metadata, and mark ancestors complete."""
     user_uuid = user_manager.get_user_uuid(user["preferred_username"])
     instance_uuid, agent = get_instance_agent(instance_manager, payload.instance_name)
@@ -299,7 +349,7 @@ async def upload_complete(
 
 #################################################################################### Generate a presigned download URL for a file
 
-@router.get("/files/{file_id}/download-url")
+@router.get("/files/{file_id}/download-url", response_model=DownloadUrlOut)
 async def download_url(
     file_id: int,
     instance_name: str,
@@ -308,7 +358,7 @@ async def download_url(
     user_manager: AbstractUserManager = Depends(get_user_manager),
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
-):
+) -> DownloadUrlOut:
     """Generate a presigned download URL for a file."""
     user_uuid = user_manager.get_user_uuid(user["preferred_username"])
     instance_uuid, agent = get_instance_agent(instance_manager, instance_name)
@@ -326,7 +376,7 @@ async def download_url(
 
 #################################################################################### It deletes the object from S3 and then deletes the DB row
 
-@router.delete("/files/{file_id}")
+@router.delete("/files/{file_id}", response_model=DeleteFileOut)
 async def delete_file(
     file_id: int,
     instance_name: str,
@@ -335,7 +385,7 @@ async def delete_file(
     user_manager: AbstractUserManager = Depends(get_user_manager),
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
-):
+) -> DeleteFileOut:
     """Delete a file from S3 and its DB row."""
     user_uuid = user_manager.get_user_uuid(user["preferred_username"])
     instance_uuid, agent = get_instance_agent(instance_manager, instance_name)
@@ -375,7 +425,7 @@ def list_keys_under_prefix(s3, bucket: str, prefix: str) -> list[str]:
             break
     return keys
 
-@router.delete("/folders/{folder_id}")
+@router.delete("/folders/{folder_id}", response_model=DeleteFolderOut)
 async def delete_folder(
     folder_id: int,
     instance_name: str,
@@ -385,7 +435,7 @@ async def delete_folder(
     user_manager: AbstractUserManager = Depends(get_user_manager),
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
-):
+) -> DeleteFolderOut:
     """Delete a folder subtree — remove all S3 objects under the prefix, then delete DB rows."""
     user_uuid = user_manager.get_user_uuid(user["preferred_username"])
     instance_uuid, agent = get_instance_agent(instance_manager, instance_name)
@@ -621,13 +671,15 @@ async def create_asset_bundle(
 
 @router.get(
     "/bundle/{bundle_id}/status",
+    response_model=BundleStatusOut,
+    response_model_exclude_unset=True,
     summary="Check status of an asset bundle",
     description="Check the processing status of a previously requested bundle."
 )
 async def get_bundle_status(
     bundle_id: str,
     user: dict = Depends(decode_token)
-):
+) -> BundleStatusOut:
     """
     Check the processing status of a previously requested bundle.
     
