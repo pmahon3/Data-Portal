@@ -7,9 +7,9 @@ services:
       dockerfile: Dockerfile.dev
     environment:
       # React dev server config - use separate domains
-      REACT_APP_KeyCloakServerUrl: http://keycloak.local:8080
-      REACT_APP_KeyCloakRealm: ams-portal
-      REACT_APP_KeyCloakClientId: ams-portal-ui
+      REACT_APP_KeycloakServerUrl: http://keycloak.local:8080
+      REACT_APP_KeycloakRealm: ams-portal
+      REACT_APP_KeycloakClientId: ams-portal-ui
       # Backend API URL
       REACT_APP_API_BASE_URL: http://backend.local:8000
       # Avoid browser auto-open and enable polling for hot reload
