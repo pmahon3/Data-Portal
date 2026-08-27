@@ -126,7 +126,7 @@ export default function UserManagement() {
       { field: "roles", headerName: "Roles", flex: 1, minWidth: 180, renderCell: (params) => {
           // Safely formats an array of roles into a comma-separated string and filter out invalid entries
           const roles = Array.isArray(params.value)
-            ? params.value.filter(Boolean).map(r => String(r).trim()).filter(r => r.toLowerCase() !== 'default-roles-ams-portal')
+            ? params.value.filter(Boolean).map(r => String(r).trim()).filter(r => !r.toLowerCase().startsWith('default-roles'))
             : [];
           return roles.join(", ");
         }

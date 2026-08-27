@@ -10,13 +10,13 @@ COPY . .
 
 # Provided by the frontend CI/CD pipeline (or local Docker Compose build args)
 ARG REACT_APP_KEYCLOAK_URL
-ARG REACT_APP_KEYCLOAK_REALM=ams-portal
+ARG REACT_APP_KEYCLOAK_REALM
 ARG REACT_APP_KEYCLOAK_CLIENT_ID=ams-portal-ui
 
 # Convert build args to env vars for React build process
-ENV REACT_APP_KeyCloakServerUrl=$REACT_APP_KEYCLOAK_URL
-ENV REACT_APP_KeyCloakRealm=$REACT_APP_KEYCLOAK_REALM
-ENV REACT_APP_KeyCloakClientId=$REACT_APP_KEYCLOAK_CLIENT_ID
+ENV REACT_APP_KeycloakServerUrl=$REACT_APP_KEYCLOAK_URL
+ENV REACT_APP_KeycloakRealm=$REACT_APP_KEYCLOAK_REALM
+ENV REACT_APP_KeycloakClientId=$REACT_APP_KEYCLOAK_CLIENT_ID
 
 # Build the app
 RUN npm run build
