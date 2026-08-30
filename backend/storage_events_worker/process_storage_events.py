@@ -12,10 +12,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import posixpath
 from datetime import datetime, timezone
 from typing import Any
 
+import boto3
+from botocore.config import Config
+from botocore.exceptions import ClientError
 from loguru import logger
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
@@ -24,6 +28,22 @@ from sqlalchemy_utils import Ltree
 
 from core.utils.paths import build_ltree_path, normalize_folder_full_path, split_segments
 from storage_events_worker.db import AsyncSessionMaker, files, folders, storage_events
+
+
+OBJECT_STORAGE_ENDPOINT_URL = os.environ["OBJECT_STORAGE_ENDPOINT_URL"]
+OBJECT_STORAGE_ACCESS_KEY_ID = os.environ["OBJECT_STORAGE_ACCESS_KEY_ID"]
+OBJECT_STORAGE_SECRET_ACCESS_KEY = os.environ["OBJECT_STORAGE_SECRET_ACCESS_KEY"]
+OBJECT_STORAGE_REGION = os.getenv("OBJECT_STORAGE_REGION") or None
+
+
+s3_client = boto3.client(
+    "s3",
+    endpoint_url=OBJECT_STORAGE_ENDPOINT_URL,
+    aws_access_key_id=OBJECT_STORAGE_ACCESS_KEY_ID,
+    aws_secret_access_key=OBJECT_STORAGE_SECRET_ACCESS_KEY,
+    region_name=OBJECT_STORAGE_REGION,
+    config=Config(signature_version="s3v4"),
+)
 
 
 def is_folder_key(key: str) -> bool:
@@ -49,6 +69,21 @@ def file_parts_from_key(key: str) -> tuple[str, str]:
     if not filename:
         raise ValueError(f"Object key does not contain a file name: {key!r}")
     return normalize_folder_full_path("/" + folder_part), filename
+
+
+def head_object(bucket: str, key: str) -> dict[str, Any] | None:
+    """Return current object metadata, or None if the object no longer exists."""
+    try:
+        return s3_client.head_object(Bucket=bucket, Key=key)
+    except ClientError as exc:
+        error_code = exc.response.get("Error", {}).get("Code")
+        if error_code in {"404", "NoSuchKey", "NotFound"}:
+            return None
+        raise
+
+
+def clean_etag(value: str | None) -> str | None:
+    return value.strip('"') if value else value
 
 
 class StorageEventProcessor:
@@ -111,10 +146,22 @@ class StorageEventProcessor:
         logger.error("Failed event id={}: {}", event_id, exc)
 
     async def apply_created(self, event: dict[str, Any]) -> None:
+        head = head_object(event["bucket"], event["object_key"])
+        if head is None:
+            logger.info(
+                "Skipping stale create event id={} bucket={} key={} because object no longer exists",
+                event["id"],
+                event["bucket"],
+                event["object_key"],
+            )
+            return
+
         if is_folder_key(event["object_key"]):
             folder = await self.ensure_folder(event["bucket"], folder_path_from_key(event["object_key"]))
             await self.session.execute(
-                update(folders).where(folders.c.id == folder["id"]).values(marker_key=event["object_key"])
+                update(folders)
+                .where(folders.c.id == folder["id"])
+                .values(marker_key=event["object_key"], status="complete")
             )
             return
 
@@ -125,9 +172,11 @@ class StorageEventProcessor:
             "folder_id": folder["id"],
             "name": filename,
             "key": event["object_key"],
-            "size": event["size"],
-            "etag": event["etag"],
-            "last_modified": event["event_time"],
+            "size": head.get("ContentLength", event["size"]),
+            "etag": clean_etag(head.get("ETag")) or event["etag"],
+            "last_modified": head.get("LastModified", event["event_time"]),
+            "content_type": head.get("ContentType"),
+            "status": "complete",
         }
         stmt = insert(files).values(values)
         stmt = stmt.on_conflict_do_update(
@@ -138,6 +187,8 @@ class StorageEventProcessor:
                 "size": stmt.excluded.size,
                 "etag": stmt.excluded.etag,
                 "last_modified": stmt.excluded.last_modified,
+                "content_type": stmt.excluded.content_type,
+                "status": stmt.excluded.status,
             },
         )
         await self.session.execute(stmt)
@@ -161,12 +212,17 @@ class StorageEventProcessor:
         full_path = normalize_folder_full_path(full_path)
         existing = await self.get_folder(bucket, full_path)
         if existing is not None:
+            if existing["status"] != "complete":
+                await self.session.execute(
+                    update(folders).where(folders.c.id == existing["id"]).values(status="complete")
+                )
+                existing["status"] = "complete"
             return existing
 
         if full_path == "/":
             result = await self.session.execute(
                 folders.insert()
-                .values(bucket=bucket, parent_id=None, name="/", path=Ltree("root"), full_path="/")
+                .values(bucket=bucket, parent_id=None, name="/", path=Ltree("root"), full_path="/", status="complete")
                 .returning(folders)
             )
             return dict(result.mappings().one())
@@ -184,6 +240,7 @@ class StorageEventProcessor:
                 name=segments[-1],
                 path=Ltree(build_ltree_path(segments)),
                 full_path=full_path,
+                status="complete",
             )
             .returning(folders)
         )

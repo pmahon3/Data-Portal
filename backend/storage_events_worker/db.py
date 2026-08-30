@@ -28,6 +28,7 @@ folders = Table(
     Column("path", LtreeType, nullable=False),
     Column("full_path", Text, nullable=False),
     Column("marker_key", String, nullable=True),
+    Column("status", Text, nullable=False, server_default="complete"),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
 
@@ -43,6 +44,7 @@ files = Table(
     Column("etag", Text, nullable=True),
     Column("last_modified", DateTime(timezone=True), nullable=True),
     Column("content_type", Text, nullable=True),
+    Column("status", Text, nullable=False, server_default="pending"),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
 
