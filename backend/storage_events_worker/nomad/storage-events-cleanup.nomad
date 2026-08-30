@@ -28,7 +28,13 @@ variable "registry_server" {
 
 job "storage-events-cleanup" {
   datacenters = ["rmcintos-cedar-cloud"]
+  namespace   = "apps"
   type        = "batch"
+
+  constraint {
+    attribute = "${meta.node_class}"
+    value     = "prod"
+  }
 
   periodic {
     crons            = ["30 2 * * *"]

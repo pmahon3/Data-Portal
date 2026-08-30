@@ -22,6 +22,25 @@ Then it:
 - deletes folders/files for `removed` events
 - marks each event as `processed` or `failed`
 
+## Create Event Verification
+
+Before applying an `ObjectCreated` event, the worker sends an S3 `HeadObject`
+request for the event bucket/key. `HeadObject` is a metadata-only request: it
+checks whether the object exists right now and returns metadata such as size,
+ETag, last modified time, and content type without downloading the file body.
+
+This guards against stale create events. For example:
+
+1. A file is uploaded and Ceph emits `ObjectCreated`.
+2. The same file is deleted soon after and Ceph emits `ObjectRemoved`.
+3. The worker is delayed or receives the events out of order.
+4. The old `ObjectCreated` event is processed after the object has already
+   been deleted.
+
+Without the `HeadObject` check, the worker could recreate a `files` row for an
+object that no longer exists. With the check, Ceph returns not found and the
+worker skips the stale create event.
+
 ## Required Environment
 
 Both scripts need the Postgres async database URL:
@@ -29,6 +48,19 @@ Both scripts need the Postgres async database URL:
 ```bash
 DATABASE_URL=postgresql+asyncpg://user:password@host:5432/database
 ```
+
+The event processing worker also needs S3-compatible object storage access so
+it can verify `ObjectCreated` events before creating file rows:
+
+```bash
+OBJECT_STORAGE_ENDPOINT_URL=https://object-storage.example.ca
+OBJECT_STORAGE_ACCESS_KEY_ID=access-key
+OBJECT_STORAGE_SECRET_ACCESS_KEY=secret-key
+OBJECT_STORAGE_REGION=region-name
+```
+
+`OBJECT_STORAGE_REGION` can be omitted when the storage endpoint does not
+require one.
 
 ## Run Once
 
@@ -89,6 +121,9 @@ Run worker once:
 ```bash
 docker run --rm \
   -e DATABASE_URL="postgresql+asyncpg://user:password@host:5432/database" \
+  -e OBJECT_STORAGE_ENDPOINT_URL="https://object-storage.example.ca" \
+  -e OBJECT_STORAGE_ACCESS_KEY_ID="access-key" \
+  -e OBJECT_STORAGE_SECRET_ACCESS_KEY="secret-key" \
   inn-storage-events-worker
 ```
 
@@ -97,6 +132,9 @@ Run worker in watch mode:
 ```bash
 docker run --rm \
   -e DATABASE_URL="postgresql+asyncpg://user:password@host:5432/database" \
+  -e OBJECT_STORAGE_ENDPOINT_URL="https://object-storage.example.ca" \
+  -e OBJECT_STORAGE_ACCESS_KEY_ID="access-key" \
+  -e OBJECT_STORAGE_SECRET_ACCESS_KEY="secret-key" \
   inn-storage-events-worker --watch --batch-size 1000 --interval 5
 ```
 
@@ -125,6 +163,9 @@ Run the worker job:
 ```bash
 nomad job run \
   -var database_url="postgresql+asyncpg://user:password@host:5432/database" \
+  -var object_storage_endpoint_url="https://object-storage.example.ca" \
+  -var object_storage_access_key_id="access-key" \
+  -var object_storage_secret_access_key="secret-key" \
   -var registry_password="YOUR_REGISTRY_TOKEN" \
   backend/storage_events_worker/nomad/storage-events-worker.nomad
 ```
@@ -137,4 +178,3 @@ nomad job run \
   -var registry_password="YOUR_REGISTRY_TOKEN" \
   backend/storage_events_worker/nomad/storage-events-cleanup.nomad
 ```
-
