@@ -689,6 +689,22 @@
         "jsonType.label" : "String"
       }
     }, {
+      "id" : "d4b16a6f-dd06-4846-b973-2d6379b5c974",
+      "name" : "Projects",
+      "protocol" : "openid-connect",
+      "protocolMapper" : "oidc-group-membership-mapper",
+      "consentRequired" : false,
+      "config" : {
+        "full.path" : "true",
+        "introspection.token.claim" : "true",
+        "userinfo.token.claim" : "true",
+        "multivalued" : "true",
+        "id.token.claim" : "true",
+        "lightweight.claim" : "false",
+        "access.token.claim" : "true",
+        "claim.name" : "projects"
+      }
+    }, {
       "id" : "realm-roles-mapper",
       "name" : "realm roles",
       "protocol" : "openid-connect",

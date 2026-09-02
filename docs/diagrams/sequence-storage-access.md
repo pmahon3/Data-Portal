@@ -1,118 +1,55 @@
-# Storage Access Sequence Diagrams
+# Storage Access Diagrams
 
 ## File Download Flow (S3)
 
-Complete flow for downloading a file from S3-compatible storage.
+The asset UI uses the bundle endpoint for every selection. A single resolved file
+is downloaded directly; multiple files are assembled asynchronously into a ZIP.
 
 ```mermaid
-sequenceDiagram
-    actor User
-    participant Frontend
-    participant Backend
-    participant Casbin
-    participant S3Agent
-    participant S3Storage
+flowchart TD
+    A["User selects files or folders"] --> B["Frontend<br/>POST /api/tree/bundle/zip"]
+    B --> C["Backend authenticates user<br/>and resolves files from PostgreSQL"]
+    C --> D["Casbin authorizes read access<br/>for each file"]
+    D -->|Denied| E["Return an access error"]
+    D -->|Allowed| F["S3 Agent creates presigned<br/>source-file URLs"]
+    F --> G{"One authorized file?"}
 
-    User->>Frontend: Click Download File
-    Frontend->>Backend: GET /api/asset/download<br/>Bearer {token}<br/>instance_name={name}&resource=data/file.txt
+    G -->|Yes| H["Return single_file_url"]
+    H --> I["Browser downloads file<br/>from source S3 storage"]
 
-    Backend->>Backend: Validate JWT Token
-    Backend->>Backend: Extract User Claims<br/>(user_id, roles)
-
-    Backend->>Casbin: enforce(user_id, instance_uuid, read)
-    Note over Casbin: Check Policy Rules:<br/>p, user_id, instance_uuid, .*, read
-
-    alt Access Allowed
-        Casbin->>Backend: true (ALLOW)
-
-        Backend->>S3Agent: generate_access_link()<br/>(instance_uuid, path, "read")
-
-        S3Agent->>S3Agent: Load Instance Config<br/>(bucket, credentials, region)
-        S3Agent->>S3Agent: Validate Path<br/>(no directory traversal)
-
-        S3Agent->>S3Agent: Generate Presigned URL<br/>boto3.generate_presigned_url()<br/>TTL=3600s
-
-        S3Agent->>Backend: {url, expires_in: 3600}
-
-        Backend->>Frontend: 200 OK<br/>{download_url, expires_at}
-
-        Frontend->>User: Trigger Download<br/>(window.location or fetch)
-
-        User->>S3Storage: GET {presigned_url}
-
-        S3Storage->>S3Storage: Validate Signature<br/>(AWS SDK verification)
-        S3Storage->>S3Storage: Check Expiration
-
-        S3Storage->>User: File Stream<br/>(Content-Type, Content-Length)
-
-    else Access Denied
-        Casbin->>Backend: false (DENY)
-        Backend->>Frontend: 403 Forbidden<br/>Access denied
-        Frontend->>User: Show Error Message
-    end
+    G -->|No| J["Backend submits URLs to Bundler<br/>and returns bundle_id"]
+    J --> K["Bundler downloads source files<br/>and creates a ZIP"]
+    K --> L["Bundler uploads ZIP<br/>to bundle S3 storage"]
+    J --> M["Frontend polls bundle status"]
+    L --> M
+    M --> N["Backend requests a <br/>presigned archive URL"]
+    N --> O["Browser downloads ZIP<br/>from bundle S3 storage"]
 ```
 
-## File Upload Flow (S3)
+## File/Folder Upload Flow (S3)
 
-Complete flow for uploading a file to S3-compatible storage.
+Files are uploaded directly from the browser to S3 using a short-lived
+presigned PUT URL. The backend manages authorization and file metadata.
 
 ```mermaid
-sequenceDiagram
-    actor User
-    participant Frontend
-    participant Backend
-    participant Casbin
-    participant S3Agent
-    participant S3Storage
+flowchart TD
+    A["User selects files or a folder"] --> B{"Folder upload?"}
+    B -->|Yes| C["Frontend ensures relative folder paths<br/>POST /api/tree/folders/ensure-path"]
+    B -->|No| D["Process next file"]
+    C --> D
 
-    User->>Frontend: Select File to Upload
-    Frontend->>Backend: PUT /api/asset/upload<br/>Bearer {token}<br/>instance_name={name}&resource=data/newfile.txt
-
-    Backend->>Backend: Validate JWT Token
-    Backend->>Casbin: enforce(user_id, instance_uuid, write)
-
-    alt Write Allowed
-        Casbin->>Backend: true (ALLOW)
-
-        Backend->>S3Agent: generate_upload_link()<br/>(instance_uuid, path, "write")
-
-        S3Agent->>S3Agent: Load Instance Config
-        S3Agent->>S3Agent: Validate Destination Path
-
-        S3Agent->>S3Agent: Generate Presigned POST<br/>boto3.generate_presigned_post()<br/>TTL=900s<br/>max_size=100MB
-
-        S3Agent->>Backend: {upload_url, fields, conditions}
-
-        Backend->>Frontend: 200 OK<br/>{upload_url, fields}
-
-        Frontend->>Frontend: Prepare FormData<br/>(file + fields)
-
-        Frontend->>S3Storage: POST {upload_url}<br/>multipart/form-data
-
-        S3Storage->>S3Storage: Validate Signature<br/>Check Conditions<br/>(size, content-type)
-
-        alt Upload Valid
-            S3Storage->>S3Storage: Store File
-            S3Storage->>Frontend: 204 No Content<br/>ETag: {file_hash}
-
-            Frontend->>Backend: POST /api/asset/upload/confirm<br/>{instance_uuid, path, etag}
-
-            Backend->>Backend: Log Upload<br/>(audit trail)
-
-            Backend->>Frontend: 200 OK<br/>Upload confirmed
-
-            Frontend->>User: Upload Complete<br/>Success Message
-
-        else Upload Invalid
-            S3Storage->>Frontend: 400 Bad Request<br/>Invalid conditions
-            Frontend->>User: Upload Failed
-        end
-
-    else Write Denied
-        Casbin->>Backend: false (DENY)
-        Backend->>Frontend: 403 Forbidden
-        Frontend->>User: Access Denied
-    end
+    D --> E["Frontend initializes upload<br/>POST /api/tree/files/upload/init"]
+    E --> F["Backend authenticates user<br/>and builds the S3 object key"]
+    F --> G["Casbin authorizes write access"]
+    G -->|Denied| H["Return an access error"]
+    G -->|Allowed| I["Create pending file row<br/>and presigned PUT URL with 900 second TTL"]
+    I --> J["Browser uploads file bytes<br/>directly to S3 storage"]
+    J --> K["Frontend confirms upload<br/>POST /api/tree/files/upload/complete"]
+    K --> L["Backend reauthorizes and checks<br/>the S3 object with HEAD"]
+    L --> M["Update file metadata and mark<br/>file and ancestor folders complete"]
+    M --> N{"More files?"}
+    N -->|Yes| D
+    N -->|No| O["Upload complete"]
 ```
 
 ## File Tree Loading

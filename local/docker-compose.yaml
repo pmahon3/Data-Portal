@@ -6,5 +6,6 @@ include:
   - minio/docker-compose.yaml
   - mongodb/docker-compose.yaml
   - postgres/docker-compose.yaml
-  # - ../backend/docker-compose.backend.yml
-  # - ../frontend/docker-compose.frontend-prod.yml
+  - ../backend/docker-compose.backend.yml
+  - ../frontend/docker-compose.frontend-prod.yml
+  - ../java-bundler/docker-compose.java-bundler.yml

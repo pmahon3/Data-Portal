@@ -17,7 +17,13 @@ For detailed information, see the [project wiki](https://github.com/INN-SFU/Data
 
 ## Documentation
 
-📐 **Architecture Diagrams:**
+- [Quickstart](./docs/quickstart.md) - Local setup and development
+- [API Reference](./docs/api-reference.md) - Backend endpoint reference
+- [File Tree Loading](./docs/file-tree-loading/) - PostgreSQL tree model, browse/search modes, and lazy loading
+- [Java Bundler](./java-bundler/README.md) - ZIP bundle service configuration
+
+**Architecture diagrams:**
+
 - [Component Architecture](./docs/diagrams/component-architecture.md) - System structure and relationships
 - [Authentication Sequences](./docs/diagrams/sequence-authentication.md) - Login, token validation, admin operations
 - [Storage Access Sequences](./docs/diagrams/sequence-storage-access.md) - File operations and access control
@@ -40,55 +46,24 @@ For detailed information, see the [project wiki](https://github.com/INN-SFU/Data
 
 ## Project Structure
 
+The React frontend calls the FastAPI backend using Keycloak-issued bearer tokens. The backend enforces Casbin policies, accesses S3-compatible storage through storage agents, stores configuration and policies in MongoDB, and maintains the searchable file tree and event queue in PostgreSQL. Multi-file downloads are built by the Java bundler (the default) or the Python bundler, then written to object storage.
+
 **Main Directories:**
 - `backend/` - Main backend service with FastAPI application
   - `api/v0_1/endpoints/` - API routes
-  - `core/connectivity/` - Storage agents (S3, Dummy)
-  - `core/services/` - Instances, policies, users, file and tree handling
-  - `core/settings/` - Configuration
+  - `core/services/` - Instances, policies, projects, users, file trees, and storage events
+  - `core/storage_agents/` - S3-compatible and dummy storage adapters
+  - `core/db/` - MongoDB and PostgreSQL integration
+  - `storage_events_worker/` - Asynchronous file-tree event processing and cleanup
 - `frontend/` - React application
-- `local/keycloak/` - Keycloak configuration and realm export
-- `deployment/` - Production configurations
+- `java-bundler/` - Default Spring Boot ZIP bundle service
+- `bundler/` - Alternative Python ZIP bundle service
+- `local/` - Local Docker Compose stack (Keycloak, MinIO, MongoDB, PostgreSQL, backend, frontend, and bundler)
+- `deployment/` - Docker Compose and Nomad production configurations
+- `tools/object-storage-notifications/` - Ceph/S3 notification setup and test tools
 - `docs/diagrams/` - Mermaid architecture diagrams
 
 For detailed system architecture, see [Architecture Diagrams](./docs/diagrams/).
-
-## API Reference
-
-### Endpoints
-
-All endpoints use the `/api` prefix.
-
-**Authentication:**
-- `GET /api/auth/validate` - Validate JWT token
-
-**Asset Management:**
-- `PUT /api/asset/upload` - Upload file
-- `PUT /api/asset/download` - Download file
-- `GET /api/asset/user-home-data` - User home directory
-- `GET /api/asset/user-assets-data` - User assets list
-
-**Users:**
-- `GET /api/users/{username}/instances` - Get user's available storage instances
-
-**Administration (all require admin privileges):**
-- `GET /api/users/` - List users
-- `POST /api/users/` - Create user
-- `DELETE /api/users/{username}` - Delete user
-- `GET /api/policies/` - List policies
-- `POST /api/policies/` - Add policy
-- `DELETE /api/policies/` - Remove policy
-- `GET /api/instances/` - List storage instances
-- `POST /api/instances/` - Create storage instance
-- `GET /api/instances/{uuid}` - Get instance details
-- `DELETE /api/instances/{uuid}` - Delete storage instance
-- `GET /api/assets/dashboard/{instance}` - Get specific storage instance assets by UUID
-
-**Health Monitoring:**
-- `GET /api/health/` - Basic health
-- `GET /api/health/detailed` - Detailed status
-- `GET /api/health/ready` - Readiness probe
-- `GET /api/health/live` - Liveness probe
 
 ### Authentication Flow
 
@@ -113,35 +88,9 @@ const response = await fetch('/api/users/', {
 - `email` - Email address
 - `realm_access.roles` - User roles
 - `exp`, `iat` - Token expiration
-
-## Development
-
-### Environment Variables
-
-Key configuration variables:
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `AMS_HOST` | Backend bind address | `0.0.0.0` |
-| `AMS_PORT` | Backend port | `8000` |
-| `KEYCLOAK_DOMAIN` | Keycloak URL | `http://localhost:8080` |
-| `KEYCLOAK_REALM` | Realm name | `ams-portal` |
+- `projects` - List of projects
 
 ## Deployment
-
-### Docker Compose (Development)
-
-```bash
-# Start all services
-cd backend
-docker compose -f docker-compose.dev-all.yml up -d
-
-# View logs
-docker compose -f docker-compose.dev-all.yml logs -f
-
-# Stop services
-docker compose -f docker-compose.dev-all.yml down
-```
 
 ### Production
 
@@ -182,24 +131,6 @@ docker logs ams-backend | grep "Keycloak configured"
 docker restart ams-backend
 ```
 
-**Storage access denied**
-- Verify user has appropriate Casbin policies
-- Check storage instance configuration
-- Confirm S3 credentials are valid
-
-**Docker issues**
-```bash
-# Clean restart
-docker compose -f backend/docker-compose.dev-all.yml down -v
-docker network create ams-network
-docker compose -f backend/docker-compose.dev-all.yml up -d
-```
-
-### Logs
-
-- **Docker**: `docker compose -f backend/docker-compose.dev-all.yml logs -f`
-- **Local**: `backend/logs/`
-
 ## Security
 
 - **Secrets Management**: Base64-encoded secrets stored separately
@@ -211,9 +142,9 @@ docker compose -f backend/docker-compose.dev-all.yml up -d
 
 ## Contributing
 
-1. Create feature branch from `main`
+1. Create feature branch from `development`
 2. Ensure code follows project conventions
-3. Submit pull request with clear description
+3. Submit pull request with clear description and target `development` 
 
 ## License
 
