@@ -2,93 +2,65 @@
 
 ## User Login Flow
 
-Complete OAuth2/OIDC authentication flow with Keycloak.
+Current OAuth2/OIDC login flow using Keycloak.
 
 ```mermaid
 sequenceDiagram
     actor User
-    participant Browser
-    participant Frontend
-    participant Backend
+    participant Frontend as React Frontend
     participant Keycloak
+    participant Backend as FastAPI Backend
 
-    User->>Browser: Navigate to App
-    Browser->>Frontend: Load React App
-    Frontend->>Browser: Show Login Button
+    User->>Frontend: Open app
+    Frontend->>Keycloak: Check for an existing SSO session
 
-    User->>Frontend: Click Login
-    Frontend->>Keycloak: Redirect to /auth<br/>(OAuth2 Authorization)
-    Note over Keycloak: Authorization Endpoint
+    alt Existing Keycloak SSO session
+        Keycloak-->>Frontend: Return tokens
+    else No Keycloak SSO session
+        Frontend-->>User: Show login button
+        User->>Frontend: Click Login
+        Frontend->>Keycloak: Redirect to login
+        User->>Keycloak: Enter credentials
+        Keycloak-->>Frontend: Redirect to /app with authorization code
+        Frontend->>Keycloak: Exchange authorization code for tokens
+        Keycloak-->>Frontend: Return tokens
+    end
 
-    Keycloak->>User: Show Login Form
-    User->>Keycloak: Enter Credentials<br/>(username/password)
-
-    Keycloak->>Keycloak: Validate Credentials
-    Keycloak->>Frontend: Redirect with Auth Code
-    Note over Frontend,Keycloak: Redirect URI with code parameter
-
-    Frontend->>Keycloak: Exchange Code for Token<br/>(Token Endpoint)
-    Note over Frontend,Keycloak: POST /token<br/>grant_type=authorization_code
-
-    Keycloak->>Frontend: JWT Access Token<br/>+ Refresh Token
-
-    Frontend->>Frontend: Store Token<br/>(Memory/SessionStorage)
-
-    Note over Frontend,Backend: Authenticated API Request
-
-    Frontend->>Backend: API Request<br/>Authorization: Bearer {token}
-    Backend->>Backend: Extract JWT from Header
-    Backend->>Keycloak: Validate Token<br/>(Introspection or JWKS)
-    Keycloak->>Backend: Token Valid + User Info
-    Backend->>Backend: Extract User Claims<br/>(sub, email, roles)
-    Backend->>Backend: Check Casbin Policies
-    Backend->>Frontend: API Response
-    Frontend->>Browser: Update UI
+    Frontend->>Frontend: Keep tokens in memory and route by claims
+    Frontend->>Keycloak: Refresh token when near expiry
+    Frontend->>Backend: API request with bearer token
+    Backend->>Keycloak: Fetch OIDC configuration and JWKS keys
+    Backend->>Backend: Validate JWT and apply endpoint authorization
+    Backend-->>Frontend: API response
 ```
 
 ## Token Validation Flow
 
-How the backend validates JWT tokens from Keycloak.
+How the backend validates Keycloak access tokens.
 
 ```mermaid
 sequenceDiagram
     participant Frontend
-    participant Backend
-    participant JWTModule
+    participant Backend as FastAPI Backend
     participant Keycloak
-    participant Casbin
 
-    Frontend->>Backend: API Request<br/>Authorization: Bearer {jwt}
-
-    Backend->>JWTModule: Extract and Validate Token
-    JWTModule->>JWTModule: Decode JWT Header<br/>(Check algorithm)
-
-    alt Using JWKS Validation (Recommended)
-        JWTModule->>Keycloak: GET /.well-known/jwks.json
-        Keycloak->>JWTModule: Public Keys (JWKS)
-        JWTModule->>JWTModule: Verify Signature<br/>with Public Key
-    else Using Introspection
-        JWTModule->>Keycloak: POST /token/introspect
-        Keycloak->>JWTModule: Token Active + Claims
-    end
+    Frontend->>Backend: API request with bearer token
+    Backend->>Backend: Extract JWT
+    Backend->>Keycloak: Fetch OIDC configuration
+    Keycloak-->>Backend: Return JWKS URI
+    Backend->>Keycloak: Fetch public signing key
+    Keycloak-->>Backend: Return JWKS keys
+    Backend->>Backend: Verify RS256 signature, issuer, and expiry
 
     alt Token Valid
-        JWTModule->>JWTModule: Check Expiration (exp)
-        JWTModule->>JWTModule: Check Audience (aud)
-        JWTModule->>JWTModule: Check Issuer (iss)
-        JWTModule->>Backend: User Claims<br/>{sub, email, roles}
-
-        Backend->>Casbin: Check Authorization<br/>(user, resource, action)
-        Casbin->>Backend: ALLOW/DENY
-
-        alt Authorization Granted
-            Backend->>Frontend: 200 OK<br/>Response Data
-        else Authorization Denied
-            Backend->>Frontend: 403 Forbidden
+        Backend->>Backend: Read claims and check endpoint permissions
+        alt Authorized
+            Backend-->>Frontend: API response
+        else Insufficient permissions
+            Backend-->>Frontend: 403 Forbidden
         end
-    else Token Invalid
-        JWTModule->>Backend: Invalid Token
-        Backend->>Frontend: 401 Unauthorized
+    else Token missing or invalid
+        Backend-->>Frontend: 401 Unauthorized
     end
 ```
 
@@ -273,4 +245,4 @@ sequenceDiagram
 
 ---
 
-**Last Updated:** 2025-10-23
+**Last Updated:** 2026-08-18

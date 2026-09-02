@@ -812,6 +812,10 @@ buck-out/
 [Ll]ib
 [Ll]ib64
 [Ll]ocal
+
+# Keep the project's local deployment directory visible
+!/local/
+
 # Windows virtualenv script directories.
 .venv/[Ss]cripts/
 venv/[Ss]cripts/

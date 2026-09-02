@@ -1,0 +1,35 @@
+services:
+  java-bundler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: java-bundler:local
+    environment:
+      SERVER_PORT: "8888"
+      # Bundler variables with defaults for local deployment
+      BUNDLER_JOBS_POSTGRES_JDBC_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-inn_objtree}
+      BUNDLER_JOBS_POSTGRES_USERNAME: ${POSTGRES_USER:-objtree_app}
+      BUNDLER_JOBS_POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-1q2w3e4r}
+      BUNDLER_OUTPUT_OBJECT_STORAGE_ENDPOINT: ${BUNDLER_OUTPUT_OBJECT_STORAGE_ENDPOINT:-http://minio:9000}
+      BUNDLER_OUTPUT_OBJECT_STORAGE_REGION: ${BUNDLER_OUTPUT_OBJECT_STORAGE_REGION:-us-east-1}
+      BUNDLER_OUTPUT_OBJECT_STORAGE_BUCKET: ${BUNDLER_OUTPUT_OBJECT_STORAGE_BUCKET:-bundles}
+      BUNDLER_OUTPUT_OBJECT_STORAGE_KEY_PREFIX: ${BUNDLER_OUTPUT_OBJECT_STORAGE_KEY_PREFIX:-bundles}
+      BUNDLER_OUTPUT_OBJECT_STORAGE_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-admin}
+      BUNDLER_OUTPUT_OBJECT_STORAGE_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-admin123}
+      BUNDLER_OUTPUT_OBJECT_STORAGE_PATH_STYLE_ACCESS: ${BUNDLER_OUTPUT_OBJECT_STORAGE_PATH_STYLE_ACCESS:-true}
+      BUNDLER_OUTPUT_OBJECT_STORAGE_PRESIGNED_URL_EXPIRATION_SECONDS: ${BUNDLER_OUTPUT_OBJECT_STORAGE_PRESIGNED_URL_EXPIRATION_SECONDS:-3600}
+      BUNDLER_ARCHIVE_TEMP_DIR: /tmp/bundler
+      BUNDLER_ARCHIVE_STRATEGY: ${BUNDLER_ARCHIVE_STRATEGY:-hybrid}
+    ports:
+      - "${JAVA_BUNDLER_PORT:-8888}:8888"
+    depends_on:
+      minio:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    networks:
+      - ams-network
+
+networks:
+  ams-network:
+    driver: bridge

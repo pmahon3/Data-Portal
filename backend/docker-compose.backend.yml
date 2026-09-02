@@ -11,8 +11,14 @@ services:
       platforms:
         - "linux/amd64"
     depends_on:
-    # Require keycloak be ready before backend starts up
+    # Require backend dependencies to be ready before startup tasks run
       keycloak:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      java-bundler:
         condition: service_healthy
     # entrypoint: ["bash", "/app/entrypoint.backend.sh"]
     environment:
@@ -43,16 +49,23 @@ services:
       # Casbin/data paths
       ENFORCER_MODEL: /app/core/services/policies/casbin/model.conf
       ENFORCER_POLICY: /app/core/services/policies/casbin/policy.csv
-      USER_POLICIES: /app/data/policies
       INSTANCE_CONFIGS: /app/data/configs
 
       # Backend base URL
       BACKEND_BASE_URL: http://localhost:8000
 
+      # Database connections
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-objtree_app}:${POSTGRES_PASSWORD:-1q2w3e4r}@postgres:5432/${POSTGRES_DB:-inn_objtree}
+      MONGO_HOST: mongodb
+      MONGO_PORT: "27017"
+      MONGO_INIT_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:-admin}
+      MONGO_INIT_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:-1q2w3e4r}
+      MONGO_DB: ${MONGO_DB:-inn_mongo}
+
       # Bundler provider switch: set BUNDLER_PROVIDER to "python" or "java"
       BUNDLER_PROVIDER: ${BUNDLER_PROVIDER:-java}
       PYTHON_BUNDLER_URL: ${PYTHON_BUNDLER_URL:-http://bundler:8082}
-      JAVA_BUNDLER_URL: ${JAVA_BUNDLER_URL:-http://host.docker.internal:8888}
+      JAVA_BUNDLER_URL: ${JAVA_BUNDLER_URL:-http://java-bundler:8888}
 
       # Control smoke test execution on startup (default: true)
       RUN_SMOKE_TESTS: "true"
