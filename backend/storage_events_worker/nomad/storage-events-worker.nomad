@@ -3,6 +3,27 @@ variable "database_url" {
   description = "Async SQLAlchemy Postgres URL, for example postgresql+asyncpg://user:password@host:5432/database"
 }
 
+variable "object_storage_endpoint_url" {
+  type        = string
+  description = "S3-compatible object storage endpoint URL used to verify create events"
+}
+
+variable "object_storage_access_key_id" {
+  type        = string
+  description = "S3-compatible object storage access key ID used to verify create events"
+}
+
+variable "object_storage_secret_access_key" {
+  type        = string
+  description = "S3-compatible object storage secret access key used to verify create events"
+}
+
+variable "object_storage_region" {
+  type        = string
+  description = "S3-compatible object storage region used to verify create events"
+  default     = ""
+}
+
 variable "worker_image" {
   type        = string
   description = "Docker image for the storage events worker"
@@ -28,7 +49,13 @@ variable "registry_server" {
 
 job "storage-events-worker" {
   datacenters = ["rmcintos-cedar-cloud"]
+  namespace   = "apps"
   type        = "service"
+
+  constraint {
+    attribute = "${meta.node_class}"
+    value     = "prod"
+  }
 
   group "storage-events-group" {
     count = 1
@@ -49,7 +76,11 @@ job "storage-events-worker" {
       }
 
       env = {
-        DATABASE_URL = var.database_url
+        DATABASE_URL                      = var.database_url
+        OBJECT_STORAGE_ENDPOINT_URL       = var.object_storage_endpoint_url
+        OBJECT_STORAGE_ACCESS_KEY_ID      = var.object_storage_access_key_id
+        OBJECT_STORAGE_SECRET_ACCESS_KEY  = var.object_storage_secret_access_key
+        OBJECT_STORAGE_REGION             = var.object_storage_region
       }
 
       resources {

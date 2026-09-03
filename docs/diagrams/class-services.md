@@ -1,69 +1,99 @@
-  # Class Services Diagrams
+# Class Service Diagrams
+
+**Last updated:** 2026-08-11
 
 ## Storage Agent Architecture
 
-Pluggable storage backend system using the Abstract Factory pattern.
+Pluggable storage backends are created by the storage-agent factory. Agents own
+backend-specific connections and operations; file-tree metadata is no longer
+cached by the agents.
 
 ```mermaid
 classDiagram
     class AbstractStorageAgent {
         <<abstract>>
         +FLAVOUR: str
+        +CONFIG: dict
+        +instance_url: str
+        +generate_access_link(resource, method, ttl) Tuple
+        +delete_object(resource)
+        +delete_objects(resources)
+        +get_object_metadata(resource) dict
         +config(secrets) dict
-        +load_file_tree() FileTree
-        +generate_access_link() URL
-        +generate_upload_link() URL
+        +secrets() set~str~
+        +clear_secrets()
+        +connect() *
+        +close() *
     }
 
     class S3StorageAgent {
-        +FLAVOUR = "s3"
+        +FLAVOUR: str = "s3"
         -s3_client: boto3.Client
-        -bucket_name: str
-        +load_file_tree() FileTree
-        +generate_access_link() URL
-        +generate_upload_link() URL
+        -aws_access_key_id: str
+        -aws_secret_access_key: str
+        -region_name: str
+        +connect()
+        +fetch_all_buckets() list~str~
+        +generate_access_link(resource, method, ttl) Tuple
+        +delete_object(resource)
+        +delete_objects(resources)
+        +get_object_metadata(resource) dict
+        +config(secrets) dict
+        +secrets() set~str~
+        +close()
     }
 
     class DummyStorageAgent {
-        +FLAVOUR = "dummy"
-        -mock_data: dict
-        +load_file_tree() FileTree
-        +generate_access_link() URL
-        +generate_upload_link() URL
+        +FLAVOUR: str = "dummy"
+        +get_object(object_name)
+        +put_object(object_name, data)
+        +delete_object(object_name)
+        +list_objects(prefix) list
+        +connect()
+        +close()
     }
 
     class AgentFactory {
-        +agent_factory(config, flavour) AbstractStorageAgent
-        +available_flavours: dict
+        <<module>>
+        +AVAILABLE_FLAVOURS: dict
+        +agent_factory(config) AbstractStorageAgent
     }
 
     AbstractStorageAgent <|-- S3StorageAgent
     AbstractStorageAgent <|-- DummyStorageAgent
-    AgentFactory ..> AbstractStorageAgent : creates
+    AgentFactory ..> S3StorageAgent : creates
 ```
 
 ## Instance Manager Architecture
 
-This service orchestrates the lifecycle of storage instances. 
-It initializes connections via specialized agents during startup and provides a unified interface for CRUD operations.
-Additionally, it maintains a registry of agents which handle instance-specific tasks, such as generating pre-signed URLs.
+The instance manager persists configuration in MongoDB and keeps connected
+agents in memory. Secret fields declared by an agent are encrypted before
+persistence and cleared from memory after connection. Bucket names already
+represented in PostgreSQL are used to reject conflicting storage instances.
 
 ```mermaid
 classDiagram
     class AbstractInstanceManager {
         <<abstract>>
         +instances: list~Instance~
-        +get_instances(instance_names: set) dict
-        +save_instance(config) UUID
-        +get_instances_by_uuid(uuids: list) list
-        +get_instance_uuid(instance_name: str) UUID
-        +get_instance_by_uuid(uuid: UUID) Instance
-        +delete_instance(instance_uuid: UUID) bool
+        +get_instances(instance_names) dict
+        +save_instance(config, session) UUID
+        +update_instance(instance_id, new_name) bool
+        +get_instances_by_uuid(uuids) list~Instance~
+        +get_instance_uuid(instance_name) UUID
+        +get_instance_by_uuid(uuid) Instance
+        +delete_instance(instance_uuid) bool
     }
 
     class InstanceManager {
-        -_collection
+        -_collection: MongoCollection
+        -_encryption_key: str
         -_agents: dict
+        +get_existing_bucket_names(session) set~str~
+        -_validate_unique_bucket_names(agent, existing_buckets)
+        +save_instance(config, session) UUID
+        +update_instance(instance_id, new_name) bool
+        +delete_instance(instance_uuid) bool
         +teardown()
     }
 
@@ -73,7 +103,8 @@ classDiagram
         +name: str
         +flavour: str
         +agent: AbstractStorageAgent
-        +config(secrets: bool)
+        +config(secrets) dict
+        +close()
     }
 
     class AbstractStorageAgent {
@@ -177,6 +208,7 @@ classDiagram
         +remove_policies(policies) bool
         +remove_user_policy_store(user_uuid) bool
         +validate_policy(policy) bool
+        +get_allowed_actions(user_uuid, instance_uuid, resource, actions) list~str~
         +create_agreement(agreement) bool
         +remove_agreement(agreement) bool
     }
@@ -188,8 +220,8 @@ classDiagram
         +action: str | None
     }
 
-    class Agreement:::grayedOut {
-        <<Not Implemented>>
+    class Agreement {
+        <<not implemented>>
         +uuid: UUID
         +policies: list~Policy~
         +lifespan: timedelta
@@ -197,17 +229,17 @@ classDiagram
     }
 
     class Enforcer {
-        <<external_casbin>>
+        <<external casbin>>
     }
 
-    class Adapter {
-        <<external_casbin_pymongo_adapter>>
+    class MongoAdapter {
+        <<external casbin-pymongo-adapter>>
     }
 
-    CasbinPolicyManager o-- Enforcer : Uses
-    Enforcer o-- Adapter : uses for db persistence
-    Enforcer ..> Policy : handles
-    Agreement *-- Policy : contains collection
+    CasbinPolicyManager o-- Enforcer : evaluates policies with
+    Enforcer o-- MongoAdapter : persists through
+    CasbinPolicyManager ..> Policy : manages
+    Agreement *-- Policy : contains
 ```
 
 ## Tree Service Architecture

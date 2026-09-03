@@ -1,8 +1,13 @@
 # Component Architecture
 
+**Last updated:** 2026-08-12
+
 ## System Overview
 
 High-level view of the AMS Data Portal components and their relationships.
+The frontend communicates with the backend via REST APIs secured by Bearer tokens;
+the backend delegates authentication to Keycloak and enforces access through
+Casbin policies backed by a MongoDB adapter.
 
 ```mermaid
 graph TB
@@ -117,7 +122,7 @@ graph TB
 
     subgraph "Policy Manager"
         PolicyMgr[Policy Manager]
-        PolicyStore[Policy Storage<br/>JSON Files]
+        PolicyStore[(MongoDB<br/>Policy Store)]
     end
 
     subgraph "Access Control"
@@ -145,27 +150,26 @@ graph TB
 
 ## Data Flow
 
-How data moves through the system for a typical file download request.
+How multiple files are packaged and downloaded through the bundler.
 
 ```mermaid
 graph LR
-    User[User] -->|1. Request File| Frontend
-    Frontend -->|2. API Call + JWT| Backend
-    Backend -->|3. Validate Token| Keycloak
-    Keycloak -->|4. User Info| Backend
-    Backend -->|5. Check Policy| Casbin
-    Casbin -->|6. ALLOW| Backend
-    Backend -->|7. Get Presigned URL| StorageAgent
-    StorageAgent -->|8. Generate URL| S3
-    S3 -->|9. Presigned URL| StorageAgent
-    StorageAgent -->|10. URL| Backend
-    Backend -->|11. URL Response| Frontend
-    Frontend -->|12. Redirect| User
-    User -->|13. Direct Download| S3
+    User -->|Select files| Frontend
+    Frontend -->|Bundle request + JWT| Backend
+    Backend -->|Check access| Casbin
+    Backend -->|Create source URLs| StorageAgent
+    StorageAgent -->|Presigned URLs| Backend
+    Backend -->|Start job w/ URLs| Bundler
+    Bundler <-->|Read files / store ZIP| S3
+    Frontend -.->|Poll status| Backend
+    Backend -.->|Check job| Bundler
+    Bundler -->|ZIP URL| Backend
+    Backend -->|ZIP URL| Frontend
+    Frontend -->|Download ZIP| S3
 
     style Backend fill:#4A90E2
-    style Keycloak fill:#E94B3C
     style Casbin fill:#FFD700
+    style Bundler fill:#95E1D3
     style S3 fill:#FF9900
 ```
 
@@ -183,9 +187,10 @@ graph LR
 ### Backend (FastAPI)
 - REST API endpoints
 - JWT token validation
-- Policy enforcement (Casbin)
-- Storage agent coordination
+- Policy enforcement via Casbin (MongoDB adapter)
+- Storage agent coordination (factory pattern)
 - User and instance management
+- File-tree metadata service (PostgreSQL)
 
 ### Keycloak
 - User authentication (OIDC)
@@ -197,7 +202,7 @@ graph LR
 ### Storage Agents
 - Abstract storage interface
 - S3 presigned URL generation
-- File tree loading
+- Secret encryption and lifecycle management
 - Backend-specific operations
 
 ### Casbin Policy Engine
@@ -205,7 +210,3 @@ graph LR
 - Fine-grained access control
 - Dynamic policy management
 - Resource-level permissions
-
----
-
-**Last Updated:** 2025-10-23
