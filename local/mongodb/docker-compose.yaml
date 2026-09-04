@@ -1,7 +1,10 @@
 
 services:
   mongodb:
-    image: mongo:latest
+    # Pinned to 7.0: mongo:latest and 8.0 refuse to start on Linux kernel 6.19+
+    # (Docker Desktop's VM ships 7.x), failing with SERVER-121912. Revert to
+    # :latest once upstream ships a fix.
+    image: mongo:${MONGO_IMAGE_TAG:-7.0}
     attach: false
     # container_name: mongodb
     ports:

@@ -25,6 +25,7 @@ from core.services.instances import AbstractInstanceManager
 from core.services.policies import CasbinPolicyManager
 from core.services.policies import Policy
 from core.services.users import AbstractUserManager
+from core.services.filetree.models.bundle import Bundle, BundleScope
 from core.services.filetree.models.file import File
 from core.services.filetree.models.folder import Folder
 from core.services.filetree.file_service import FileService
@@ -819,6 +820,53 @@ async def delete_folder(
 
 # --------------- Bundler Endpoints ---------------
 
+async def authorize_bundle_access(
+    bundle_id: str,
+    user: dict,
+    session: AsyncSession,
+    user_manager: AbstractUserManager,
+    policy_manager: CasbinPolicyManager,
+) -> None:
+    """Authorize a bundle redemption against the caller's *current* policies.
+
+    A bundle id identifies an archive; it does not grant access to one. The
+    check is made per redemption rather than recorded at creation, so an
+    archive never outlives the access it was built under.
+
+    Scopes are deduplicated by parent folder, so cost scales with the shape of
+    the tree rather than the file count. See docs/bundling-design.md.
+
+    Unknown and unauthorized both raise 404: a 403 would confirm which bundle
+    ids exist, and these ids are not treated as secrets.
+    """
+    bundle = (await session.execute(
+        select(Bundle).where(Bundle.id == bundle_id)
+    )).scalar_one_or_none()
+    if bundle is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bundle not found")
+
+    user_uuid = user_manager.get_user_uuid(user["preferred_username"])
+
+    scopes = (await session.execute(
+        select(BundleScope.bucket, BundleScope.folder_path)
+        .where(BundleScope.bundle_id == bundle_id)
+    )).all()
+
+    for bucket, folder_path in scopes:
+        policy = Policy(
+            user_uuid=user_uuid,
+            instance_uuid=bundle.instance_uuid,
+            resource=resource_for_folder(bucket, folder_path),
+            action="read",
+        )
+        if not policy_manager.validate_policy(policy):
+            logger.warning(
+                f"Bundle {bundle_id} redemption denied for "
+                f"'{user['preferred_username']}': no read on {bucket}{folder_path}"
+            )
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bundle not found")
+
+
 def get_bundler_provider() -> str:
     provider = BUNDLER_PROVIDER
     if provider not in {"python", "java"}:
@@ -1019,6 +1067,18 @@ async def create_asset_bundle(
     if not bundle_id:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Something went wrong while preparing your download. Please try again.")
 
+    # Record the folder scopes this bundle draws from so redemption can be
+    # authorized against current policy. Deduplicated by parent folder.
+    scopes = {
+        (f.bucket, normalize_folder_full_path(f.key.rsplit("/", 1)[0] if "/" in f.key else "/"))
+        for f in files_to_bundle.values()
+    }
+    session.add(Bundle(id=bundle_id, instance_uuid=instance_uuid))
+    session.add_all([
+        BundleScope(bundle_id=bundle_id, bucket=b, folder_path=fp) for b, fp in scopes
+    ])
+    await session.commit()
+
     # Send bundle id and status back to client
     return BundleCreateResponse(bundle_id=bundle_id, status="processing", folder_name=folder_name)
 
@@ -1032,7 +1092,10 @@ async def create_asset_bundle(
 )
 async def get_bundle_status(
     bundle_id: str,
-    user: dict = Depends(decode_token)
+    user: dict = Depends(decode_token),
+    session: AsyncSession = Depends(get_session),
+    user_manager: AbstractUserManager = Depends(get_user_manager),
+    policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
 ) -> BundleStatusOut:
     """
     Check the processing status of a previously requested bundle.
@@ -1044,6 +1107,8 @@ async def get_bundle_status(
     Returns:
         dict: The current status of the bundle.
     """
+    await authorize_bundle_access(bundle_id, user, session, user_manager, policy_manager)
+
     try:
         bundler_url = get_bundler_url(get_bundler_provider())
         poll_res = await bundler_client.get(f"{bundler_url}/bundles/{bundle_id}", timeout=5.0)
@@ -1073,8 +1138,13 @@ async def get_bundle_status(
 )
 async def get_bundle_download_url(
     bundle_id: str,
-    user: dict = Depends(decode_token)
+    user: dict = Depends(decode_token),
+    session: AsyncSession = Depends(get_session),
+    user_manager: AbstractUserManager = Depends(get_user_manager),
+    policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
 ):
+    await authorize_bundle_access(bundle_id, user, session, user_manager, policy_manager)
+
     # Bundles are downloaded from object storage; this endpoint returns a presigned URL, not ZIP bytes.
     try:
         bundler_url = get_bundler_url(get_bundler_provider())

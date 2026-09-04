@@ -21,6 +21,7 @@ For detailed information, see the [project wiki](https://github.com/INN-SFU/Data
 - [API Reference](./docs/api-reference.md) - Backend endpoint reference
 - [File Tree Loading](./docs/file-tree-loading/) - PostgreSQL tree model, browse/search modes, and lazy loading
 - [Java Bundler](./java-bundler/README.md) - ZIP bundle service configuration
+- [Bundling Design](./docs/bundling-design.md) - Bundle identity, authorization, and caching
 
 **Architecture diagrams:**
 

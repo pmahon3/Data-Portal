@@ -87,3 +87,22 @@ CREATE INDEX IF NOT EXISTS idx_storage_events_bucket_key
 
 CREATE INDEX IF NOT EXISTS idx_storage_events_event_time
   ON storage_events(event_time);
+
+-- Bundle manifest: the folder scopes each bundle draws from.
+-- Read at redemption to authorize the caller against current policy.
+CREATE TABLE IF NOT EXISTS bundles (
+  id            TEXT PRIMARY KEY,
+  instance_uuid UUID NOT NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS bundle_scopes (
+  id          BIGSERIAL PRIMARY KEY,
+  bundle_id   TEXT NOT NULL REFERENCES bundles(id) ON DELETE CASCADE,
+  bucket      TEXT NOT NULL,
+  folder_path TEXT NOT NULL,
+  CONSTRAINT uq_bundle_scope UNIQUE (bundle_id, bucket, folder_path)
+);
+
+CREATE INDEX IF NOT EXISTS ix_bundle_scopes_bundle_id
+  ON bundle_scopes(bundle_id);
