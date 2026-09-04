@@ -25,6 +25,12 @@ server {
 
   # Proxy API calls to backend in Nomad
   location /api/ {
+    # Folder upload init sends one JSON manifest for all selected files.
+    client_max_body_size 50m;
+    # Large folder init/complete requests can take longer than Nginx defaults.
+    proxy_connect_timeout 60s;
+    proxy_send_timeout 600s;
+    proxy_read_timeout 600s;
     proxy_http_version 1.1;
 
     # original host and client chain from Traefik
@@ -40,4 +46,3 @@ server {
     proxy_redirect off;
   }
 }
-

@@ -34,22 +34,25 @@ presigned PUT URL. The backend manages authorization and file metadata.
 ```mermaid
 flowchart TD
     A["User selects files or a folder"] --> B{"Folder upload?"}
-    B -->|Yes| C["Frontend ensures relative folder paths<br/>POST /api/tree/folders/ensure-path"]
-    B -->|No| D["Process next file"]
-    C --> D
 
-    D --> E["Frontend initializes upload<br/>POST /api/tree/files/upload/init"]
-    E --> F["Backend authenticates user<br/>and builds the S3 object key"]
-    F --> G["Casbin authorizes write access"]
-    G -->|Denied| H["Return an access error"]
-    G -->|Allowed| I["Create pending file row<br/>and presigned PUT URL with 900 second TTL"]
-    I --> J["Browser uploads file bytes<br/>directly to S3 storage"]
-    J --> K["Frontend confirms upload<br/>POST /api/tree/files/upload/complete"]
-    K --> L["Backend reauthorizes and checks<br/>the S3 object with HEAD"]
-    L --> M["Update file metadata and mark<br/>file and ancestor folders complete"]
-    M --> N{"More files?"}
-    N -->|Yes| D
-    N -->|No| O["Upload complete"]
+    B -->|Single file| C["Frontend initializes single-file upload<br/>POST /api/tree/files/upload/init"]
+    C --> D["Backend authenticates user<br/>and builds the S3 object key"]
+    D --> E["Casbin authorizes write access"]
+    E -->|Denied| F["Return an access error"]
+    E -->|Allowed| G["Create pending file row<br/>and presigned PUT URL"]
+    G --> H["Browser uploads file bytes<br/>directly to S3 storage"]
+    H --> I["Frontend confirms upload<br/>POST /api/tree/files/upload/complete"]
+    I --> J["Backend checks S3 object with HEAD<br/>and marks file complete"]
+
+    B -->|Folder| K["Frontend builds folder manifest"]
+    K --> L["Frontend initializes folder upload once<br/>POST /api/tree/folders/upload/init"]
+    L --> M["Backend checks write access<br/>on selected parent folder"]
+    M --> N["Backend validates paths,<br/>checks conflicts, and creates pending rows"]
+    N --> O["Backend returns one presigned PUT URL<br/>per file"]
+    O --> P["Browser uploads files directly<br/>to S3 storage in parallel"]
+    P --> Q["Frontend completes folder upload once<br/>POST /api/tree/folders/upload/complete"]
+    Q --> R["Backend checks permissions<br/>and batch-updates DB rows"]
+    R --> S["Mark uploaded folders complete"]
 ```
 
 ## File Tree Loading
@@ -259,7 +262,7 @@ sequenceDiagram
 | Operation | S3 Agent | Dummy Agent | Description |
 |-----------|----------|-------------|-------------|
 | `generate_access_link()` | ✅ Presigned GET URL | ✅ Mock URL | Get download URL |
-| `generate_upload_link()` | ✅ Presigned POST | ✅ Mock URL | Get upload URL |
+| `generate_upload_link()` | ✅ Presigned PUT URL | ✅ Mock URL | Get upload URL |
 | `load_file_tree()` | ✅ S3 list_objects | ✅ Mock tree | List files/folders |
 | `validate_config()` | ✅ Test credentials | ✅ Always valid | Check connection |
 

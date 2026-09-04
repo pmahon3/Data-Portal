@@ -64,6 +64,8 @@ variables:
   SERVICE_NAME: "frontend"
   NOMAD_DEPLOY_ENABLED: "${NOMAD_DEPLOY_ENABLED}"
   NOMAD_EXTERNAL_ACCESS: "true"  # Frontend always needs external access
+  NOMAD_RESOURCE_CPU: 500  # CPU and Memory for nomad job
+  NOMAD_RESOURCE_MEMORY: 256 # CPU and Memory for nomad job
   
   # Enable staging deployment (requires manual promotion to production)
   # When enabled: staging deploys automatically, production requires manual promotion

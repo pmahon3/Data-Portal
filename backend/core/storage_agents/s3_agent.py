@@ -93,7 +93,9 @@ class S3StorageAgent(AbstractStorageAgent):
 
     def fetch_all_buckets(self) -> List[str]:
         resp = self.s3_client.list_buckets()
-        return [b['Name'] for b in resp.get('Buckets', [])]
+        # TODO: remove temporary solution to filter out the reserved buckets in the S3 managed by us:
+        # bundle and inn-test
+        return [b['Name'] for b in resp.get('Buckets', []) if b['Name'] not in ['bundle', 'inn-test']]
 
     def generate_access_link(
         self, resource: str, method: str, ttl: int
@@ -117,7 +119,8 @@ class S3StorageAgent(AbstractStorageAgent):
             Params={"Bucket": bucket, "Key": key},
             ExpiresIn=ttl
         )
-        logger.info(f"generate_access_link ({method}): URL for {resource}")
+        # Debug only because folder upload may generate thousands of URLs.
+        logger.debug("generate_access_link (%s): URL for %s", method, resource)
         return [url], [resource]
 
     def delete_object(self, resource: str):

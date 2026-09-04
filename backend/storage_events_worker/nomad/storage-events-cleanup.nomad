@@ -26,8 +26,11 @@ variable "registry_server" {
   default     = "https://registry.rcg.sfu.ca"
 }
 
-job "storage-events-cleanup" {
-  datacenters = ["rmcintos-cedar-cloud"]
+# `var` variables cannot be used to dynamically populate a nomad job name. 
+# since this job is not used in an automated pipeline, we accept the compromise 
+# substitute using a different mechanism
+job "storage-events-cleanup-${__ENVIRONMENT__}" {
+  datacenters = ["rmcintos-fir-cloud"]
   namespace   = "apps"
   type        = "batch"
 
