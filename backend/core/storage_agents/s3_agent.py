@@ -93,7 +93,9 @@ class S3StorageAgent(AbstractStorageAgent):
 
     def fetch_all_buckets(self) -> List[str]:
         resp = self.s3_client.list_buckets()
-        return [b['Name'] for b in resp.get('Buckets', [])]
+        # TODO: remove temporary solution to filter out the reserved buckets in the S3 managed by us:
+        # bundle and inn-test
+        return [b['Name'] for b in resp.get('Buckets', []) if b['Name'] not in ['bundle', 'inn-test']]
 
     def generate_access_link(
         self, resource: str, method: str, ttl: int
