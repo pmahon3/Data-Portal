@@ -4,6 +4,16 @@ import { getAuthHeaders } from '../../../utils/authUtils';
 
 const BUNDLE_POLL_INTERVAL_MS = 2000;
 const BUNDLE_MAX_POLL_ATTEMPTS = 1800; // 60 minutes for large folder bundles.
+// Upload at most 6 folder files at the same time.
+const FOLDER_UPLOAD_CONCURRENCY = 6;
+const IGNORED_FOLDER_UPLOAD_NAMES = new Set([
+  ".DS_Store",
+  "Thumbs.db",
+  "desktop.ini",
+]);
+const IGNORED_FOLDER_UPLOAD_DIRS = new Set([
+  "__MACOSX",
+]);
 
 // --- presigned upload helpers ---
 
@@ -29,8 +39,7 @@ async function readFileAsArrayBuffer(file) {
 }
 
 /**
- * Uploads a file to object storage using a presigned URL or a presigned POST
- * form.
+ * Uploads a file to object storage using a presigned PUT URL.
  */
 async function uploadViaPresigned(entry, file) {
   if (typeof entry === "string") {
@@ -54,14 +63,6 @@ async function uploadViaPresigned(entry, file) {
   if (entry && typeof entry === "object") {
     const url = entry.url || entry.href;
     if (!url) throw new Error("Presigned entry missing url.");
-    if (entry.fields && typeof entry.fields === "object") {
-      const fd = new FormData();
-      for (const [k, v] of Object.entries(entry.fields)) fd.append(k, v);
-      fd.append("file", file);
-      const r = await fetch(url, { method: "POST", body: fd, credentials: "omit", cache: "no-store", mode: "cors" });
-      if (!r.ok) throw new Error(`Storage POST failed (${r.status}): ${await safeText(r)}`);
-      return;
-    }
     const method = (entry.method || "PUT").toUpperCase();
     const headers = entry.headers || undefined;
     const r = await fetch(url, { method, headers, body: file, credentials: "omit", cache: "no-store", mode: "cors" });
@@ -91,6 +92,16 @@ function isDirectoryPlaceholder(file) {
   return file.size === 0 && getRelativeFilePath(file).endsWith("/");
 }
 
+function shouldSkipFolderUploadFile(file) {
+  const relativePath = getRelativeFilePath(file);
+  const parts = relativePath.split("/").filter(Boolean);
+  const filename = parts[parts.length - 1];
+
+  if (isDirectoryPlaceholder(file)) return true;
+  if (IGNORED_FOLDER_UPLOAD_NAMES.has(filename)) return true;
+  return parts.some(part => IGNORED_FOLDER_UPLOAD_DIRS.has(part));
+}
+
 /**
  * Extracts the path of a file relative to the folder root that was picked
  * by the user. For webkitdirectory selections this is the full relative
@@ -100,15 +111,18 @@ function getRelativeFilePath(file) {
   return String(file.webkitRelativePath || file.name || "").replace(/^\/+|\/+$/g, "");
 }
 
-/**
- * Given a relative file path, returns the parent directory portion. The
- * filename itself is uploaded through the existing single-file endpoints,
- * so only the directory chain needs to be created on the server.
- */
-function getParentRelativePath(relativeFilePath) {
-  const normalized = String(relativeFilePath || "").replace(/^\/+|\/+$/g, "");
-  const lastSlash = normalized.lastIndexOf("/");
-  return lastSlash === -1 ? "" : normalized.slice(0, lastSlash);
+async function runWithConcurrency(items, concurrency, worker) {
+  let nextIndex = 0;
+  const workerCount = Math.min(concurrency, items.length);
+
+  // Example: with 20 files and concurrency 6, only 6 uploads run at once.
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      await worker(items[currentIndex], currentIndex);
+    }
+  }));
 }
 
 // --- upload orchestration ---
@@ -171,43 +185,60 @@ export async function uploadFiles(http, endpointName, bucket, folderId, files, o
 }
 
 /**
- * Uploads a local directory by recreating its relative folder paths on the
- * server first, then uploading each file through the standard presigned
- * upload flow.
+ * Uploads a local directory by preparing metadata once, then using the
+ * returned PUT URLs to upload files directly to object storage.
  */
 export async function uploadFolderFiles(http, endpointName, bucket, folderId, files, onProgress) {
-  // flat list of File object returned by webkitdirectory
-  const realFiles = files.filter(file => !isDirectoryPlaceholder(file));
+  // Keep real user files only. Example: skip ".DS_Store" from macOS.
+  const realFiles = files.filter(file => !shouldSkipFolderUploadFile(file));
   let completed = 0;
   onProgress(completed, realFiles.length);
 
-  // Cache folder ids per relative path so repeated siblings do not keep
-  // calling the backend for the same nested directory chain.
-  const folderIdByRelativePath = new Map([["", Number(folderId)]]); // create a map and initilize it
+  const fileByRelativePath = new Map();
+  const manifest = realFiles.map(file => {
+    const relativePath = getRelativeFilePath(file);
+    // Keep the browser File object so we can find it after backend returns the plan.
+    fileByRelativePath.set(relativePath, file);
+    return {
+      // Example: "StudyA/a.txt".
+      relative_path: relativePath,
+      content_type: file.type || "application/octet-stream",
+      size: file.size,
+    };
+  });
 
-  for (const file of realFiles) {
-    let authHeaders = await getAuthHeaders();
-    // Example:
-    // webkitRelativePath = "StudyA/session1/image.nii.gz"
-    // parentRelativePath = "StudyA/session1"
-    const relativeFilePath = getRelativeFilePath(file);
-    const parentRelativePath = getParentRelativePath(relativeFilePath);
-    let targetFolderId = folderIdByRelativePath.get(parentRelativePath);
+  let authHeaders = await getAuthHeaders();
+  const { data } = await http.post("/tree/folders/upload/init", {
+    instance_name: endpointName,
+    bucket,
+    parent_id: Number(folderId),
+    // For now, do not overwrite existing files from the frontend.
+    on_conflict: "error",
+    files: manifest,
+  }, { headers: authHeaders });
 
-    if (!targetFolderId) {
-      const { data: folderData } = await http.post("/tree/folders/ensure-path", {
-        instance_name: endpointName,
-        bucket,
-        parent_id: Number(folderId),
-        relative_path: parentRelativePath,
-      }, { headers: authHeaders });
-      targetFolderId = Number(folderData.id);
-      folderIdByRelativePath.set(parentRelativePath, targetFolderId);
-    }
+  await runWithConcurrency(data.files || [], FOLDER_UPLOAD_CONCURRENCY, async filePlan => {
+    const file = fileByRelativePath.get(filePlan.relative_path);
+    if (!file) throw new Error(`Missing selected file for ${filePlan.relative_path}`);
+    if (!filePlan.url) throw new Error(`Missing upload URL for ${filePlan.relative_path}`);
 
-    await uploadSingleFile(http, endpointName, bucket, targetFolderId, file);
+    // Example: filePlan.url is already signed for "bc/sub/a.txt".
+    await uploadViaPresigned(filePlan.url, file);
+
     completed += 1;
     onProgress(completed, realFiles.length);
+  });
+
+  // Tell the backend to verify all uploaded files in one request.
+  // Example: file_ids = [691, 692].
+  const completeHeaders = await getAuthHeaders();
+  const completeResp = await http.post("/tree/folders/upload/complete", {
+    instance_name: endpointName,
+    file_ids: (data.files || []).map(filePlan => filePlan.file_id),
+  }, { headers: completeHeaders });
+
+  if (completeResp.data?.failed?.length) {
+    throw new Error(`Folder upload complete failed for ${completeResp.data.failed.length} file(s).`);
   }
 
   return realFiles.length;

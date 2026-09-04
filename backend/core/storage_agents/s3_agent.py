@@ -117,7 +117,8 @@ class S3StorageAgent(AbstractStorageAgent):
             Params={"Bucket": bucket, "Key": key},
             ExpiresIn=ttl
         )
-        logger.info(f"generate_access_link ({method}): URL for {resource}")
+        # Debug only because folder upload may generate thousands of URLs.
+        logger.debug("generate_access_link (%s): URL for %s", method, resource)
         return [url], [resource]
 
     def delete_object(self, resource: str):

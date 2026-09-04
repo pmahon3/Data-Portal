@@ -8,6 +8,7 @@ import os
 import httpx
 import logging
 from datetime import datetime
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -28,7 +29,7 @@ from core.services.filetree.models.file import File
 from core.services.filetree.models.folder import Folder
 from core.services.filetree.file_service import FileService
 from core.services.filetree.tree_service import TreeService
-from core.utils.paths import normalize_folder_full_path
+from core.utils.paths import build_object_key, join_child_full_path, normalize_folder_full_path
 
 router = APIRouter(prefix="/tree", tags=["Tree"])
 logger = logging.getLogger("api.endpoints")
@@ -37,6 +38,8 @@ BUNDLER_URL = os.getenv("BUNDLER_URL", "http://bundler:8082")
 PYTHON_BUNDLER_URL = os.getenv("PYTHON_BUNDLER_URL", BUNDLER_URL)
 JAVA_BUNDLER_URL = os.getenv("JAVA_BUNDLER_URL", "http://localhost:8888")
 BUNDLE_SOURCE_URL_EXPIRATION_SECONDS = int(os.getenv("BUNDLE_SOURCE_URL_EXPIRATION_SECONDS", "7200"))
+FOLDER_UPLOAD_PUT_EXPIRATION_SECONDS = int(os.getenv("FOLDER_UPLOAD_PUT_EXPIRATION_SECONDS", "7200"))
+FOLDER_UPLOAD_SKIP_HEAD_CHECK = os.getenv("FOLDER_UPLOAD_SKIP_HEAD_CHECK", "false").strip().lower() == "true"
 
 # Global async HTTP client for interacting with the bundler service
 bundler_client = httpx.AsyncClient(timeout=httpx.Timeout(60.0))
@@ -81,6 +84,71 @@ class UploadInitOut(BaseModel):
 class UploadCompleteIn(BaseModel):
     instance_name: str
     file_id: int
+
+
+# Request to complete many folder-upload files at once.
+# Example: file_ids = [691, 692].
+class FolderUploadCompleteIn(BaseModel):
+    instance_name: str
+    file_ids: list[int] = Field(..., min_length=1)
+
+
+# One file that could not be completed.
+class FolderUploadCompleteFailureOut(BaseModel):
+    file_id: int
+    detail: str
+
+
+# Batch complete result.
+# Example: completed = 2 and failed = [] means all files completed.
+class FolderUploadCompleteOut(BaseModel):
+    completed: int
+    failed: list[FolderUploadCompleteFailureOut]
+
+
+# One file inside the selected folder.
+# `relative_path` keeps the folder path from the user's computer.
+class FolderUploadManifestFileIn(BaseModel):
+    relative_path: str = Field(..., min_length=1, max_length=4096)
+    content_type: str | None = None
+    size: int | None = Field(default=None, ge=0)
+
+
+# Request body for starting a folder upload check.
+# Folder upload is separate from single-file upload because it handles many files.
+class FolderUploadInitIn(BaseModel):
+    instance_name: str
+    bucket: str
+    parent_id: int
+    on_conflict: Literal["error", "replace"] = "error"
+    files: list[FolderUploadManifestFileIn] = Field(..., min_length=1)
+
+
+class FolderUploadConflictOut(BaseModel):
+    relative_path: str
+    key: str
+
+
+class FolderUploadPreparedFileOut(BaseModel):
+    file_id: int
+    relative_path: str
+    key: str
+    action: Literal["create", "replace"]
+    # One PUT URL for this exact file key.
+    # Example: the browser PUTs "StudyA/a.txt" to this URL.
+    url: str
+    expires_in: int
+
+
+# Response for the folder upload setup.
+# It creates DB metadata and returns one PUT URL per file.
+class FolderUploadInitOut(BaseModel):
+    total_files: int
+    total_bytes: int
+    common_prefix: str
+    folders_to_create: int
+    conflicts: list[FolderUploadConflictOut]
+    files: list[FolderUploadPreparedFileOut]
 
 
 class FolderOut(BaseModel):
@@ -154,6 +222,41 @@ def resource_for_folder(bucket: str, full_path: str) -> str:
 def resource_for_key(bucket: str, key: str) -> str:
     """Build a Casbin resource string for a file key (e.g. ``bucket/path/file.txt``)."""
     return f"{bucket}/{key}"
+
+
+def normalize_upload_relative_path(relative_path: str) -> str:
+    """Normalize a browser folder-upload relative path and reject traversal."""
+    # Clean the browser path and block paths that try to go outside the folder.
+    normalized = str(relative_path or "").replace("\\", "/").strip("/")
+    segments = [segment for segment in normalized.split("/") if segment]
+
+    if not segments:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Folder upload file relative_path must include a filename",
+        )
+
+    if any(segment in {".", ".."} for segment in segments):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid folder upload relative_path: {relative_path!r}",
+        )
+
+    return "/".join(segments)
+
+
+def folder_full_paths_for_relative_file(parent_full_path: str, relative_path: str) -> list[str]:
+    """Return folder full paths that would be needed for a relative file path."""
+    # Find which folder rows would be needed in Postgres for this file path.
+    segments = relative_path.split("/")[:-1]
+    folder_full_path = normalize_folder_full_path(parent_full_path)
+    full_paths: list[str] = []
+
+    for segment in segments:
+        folder_full_path = join_child_full_path(folder_full_path, segment)
+        full_paths.append(folder_full_path)
+
+    return full_paths
 
 ####################################################################################
 ########################################  ENDPOINTS ################################
@@ -283,6 +386,257 @@ async def ensure_folder_path(
     # Postgres, then returns the final folder row to the frontend.
     folder = await tree_svc.ensure_folder_path(payload.bucket, payload.parent_id, payload.relative_path)
     return {"id": folder.id, "name": folder.name, "full_path": folder.full_path}
+
+####################################################################################
+@router.post("/folders/upload/init", response_model=FolderUploadInitOut)
+async def folder_upload_init(
+    payload: FolderUploadInitIn,
+    user: dict = Depends(decode_token),
+    session: AsyncSession = Depends(get_session),
+    user_manager: AbstractUserManager = Depends(get_user_manager),
+    policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
+    instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
+) -> FolderUploadInitOut:
+    """Create folder/file metadata for a folder upload before bytes are uploaded."""
+    user_uuid = user_manager.get_user_uuid(user["preferred_username"])
+    instance_uuid, agent = get_instance_agent(instance_manager, payload.instance_name)
+
+    # All uploaded files will go under this selected folder.
+    parent = (await session.execute(
+        select(Folder).where(Folder.id == payload.parent_id, Folder.bucket == payload.bucket)
+    )).scalar_one()
+
+    # Check that the user can write to the selected folder.
+    policy = Policy(
+        user_uuid=user_uuid,
+        instance_uuid=instance_uuid,
+        resource=resource_for_folder(payload.bucket, parent.full_path),
+        action="write",
+    )
+    policy_or_403(policy_manager, policy)
+
+    parent_full_path = normalize_folder_full_path(parent.full_path)
+    planned_files: list[dict[str, str]] = []
+    folder_full_paths: set[str] = set()
+
+    # Build the final object key for each file and collect needed folder paths.
+    for file_in in payload.files:
+        relative_path = normalize_upload_relative_path(file_in.relative_path)
+        # Example: parent "/bc/" + "sub/a.txt" becomes key "bc/sub/a.txt".
+        key = build_object_key(parent_full_path, relative_path)
+        planned_files.append({"relative_path": relative_path, "key": key})
+        folder_full_paths.update(folder_full_paths_for_relative_file(parent_full_path, relative_path))
+
+    # We may add duplicate-key checks later before bulk DB inserts.
+    # For now, browser folder selections are assumed to be unique.
+    relative_path_by_key = {file["key"]: file["relative_path"] for file in planned_files}
+    keys = list(relative_path_by_key.keys())
+
+    # Find existing completed files that this upload would conflict with.
+    existing_files = list((await session.execute(
+        select(File).where(
+            File.bucket == payload.bucket,
+            File.key == any_(keys),
+            File.status == "complete",
+        )
+    )).scalars().all())
+    existing_file_keys = {file.key for file in existing_files}
+
+    conflicts = [
+        FolderUploadConflictOut(
+            relative_path=relative_path_by_key[key],
+            key=key,
+        )
+        for key in sorted(existing_file_keys)
+    ]
+
+    if conflicts and payload.on_conflict == "error":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": "Folder upload has file conflicts.",
+                "conflicts": [conflict.model_dump() for conflict in conflicts],
+            },
+        )
+
+    common_prefix = parent_full_path.lstrip("/")
+    existing_folder_paths: set[str] = set()
+    if folder_full_paths:
+        # Count missing folder rows before creating them.
+        existing_folder_paths = set((await session.execute(
+            select(Folder.full_path).where(
+                Folder.bucket == payload.bucket,
+                Folder.full_path == any_(list(folder_full_paths)),
+            )
+        )).scalars().all())
+    folders_to_create = len(folder_full_paths - existing_folder_paths)
+
+    tree_svc = TreeService(session)
+    file_svc = FileService(session)
+    prepared_files: list[FolderUploadPreparedFileOut] = []
+
+    for file_in, planned_file in zip(payload.files, planned_files):
+        relative_path = planned_file["relative_path"]
+        key = planned_file["key"]
+        relative_segments = relative_path.split("/")
+        filename = relative_segments[-1]
+        relative_parent_path = "/".join(relative_segments[:-1])
+
+        # Create the folder rows needed for this file, then put the file row there.
+        # Example: "sub/a.txt" creates/finds folder "sub", then adds "a.txt".
+        target_folder = await tree_svc.ensure_folder_path(
+            payload.bucket,
+            payload.parent_id,
+            relative_parent_path,
+        )
+        action = "replace" if key in existing_file_keys else "create"
+        file = await file_svc.create_or_replace_file_row(
+            payload.bucket,
+            target_folder.id,
+            filename,
+            key,
+            file_in.content_type,
+            replace=action == "replace",
+        )
+        # The URL is signed locally by boto3. This does not call S3 once per
+        # file; it only builds a URL that lets the browser PUT this exact key.
+        urls, _paths = agent.generate_access_link(
+            resource_for_key(payload.bucket, key),
+            "write",
+            FOLDER_UPLOAD_PUT_EXPIRATION_SECONDS,
+        )
+        prepared_files.append(FolderUploadPreparedFileOut(
+            file_id=file.id,
+            relative_path=relative_path,
+            key=key,
+            action=action,
+            url=urls[0],
+            expires_in=FOLDER_UPLOAD_PUT_EXPIRATION_SECONDS,
+        ))
+
+    logger.info(
+        "Folder upload init prepared %s file(s) under %s/%s",
+        len(prepared_files),
+        payload.bucket,
+        common_prefix,
+    )
+
+    return FolderUploadInitOut(
+        total_files=len(planned_files),
+        total_bytes=sum(file_in.size or 0 for file_in in payload.files),
+        common_prefix=common_prefix,
+        folders_to_create=folders_to_create,
+        conflicts=conflicts,
+        files=prepared_files,
+    )
+
+####################################################################################
+@router.post("/folders/upload/complete", response_model=FolderUploadCompleteOut)
+async def folder_upload_complete(
+    payload: FolderUploadCompleteIn,
+    user: dict = Depends(decode_token),
+    session: AsyncSession = Depends(get_session),
+    user_manager: AbstractUserManager = Depends(get_user_manager),
+    policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
+    instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
+) -> FolderUploadCompleteOut:
+    """Complete many folder-upload files after the browser uploads the bytes."""
+    user_uuid = user_manager.get_user_uuid(user["preferred_username"])
+    instance_uuid, agent = get_instance_agent(instance_manager, payload.instance_name)
+
+    file_svc = FileService(session)
+    # Only pending files can be completed here.
+    files = await file_svc.get_files_for_completion(payload.file_ids)
+    file_by_id = {file.id: file for file in files}
+    failed: list[FolderUploadCompleteFailureOut] = []
+    completed = 0
+    skip_head_file_ids: list[int] = []
+    head_updates: list[dict] = []
+
+    for file_id in payload.file_ids:
+        file = file_by_id.get(file_id)
+        if not file:
+            # Example: bad id, already complete id, or id from another upload.
+            failed.append(FolderUploadCompleteFailureOut(
+                file_id=file_id,
+                detail="Pending file not found",
+            ))
+            continue
+
+        policy = Policy(
+            user_uuid=user_uuid,
+            instance_uuid=instance_uuid,
+            resource=resource_for_key(file.bucket, file.key),
+            action="write",
+        )
+        try:
+            # Make sure the user can still write this file key.
+            policy_or_403(policy_manager, policy)
+            if FOLDER_UPLOAD_SKIP_HEAD_CHECK:
+                # Trust the browser PUT result and batch-complete these rows later.
+                skip_head_file_ids.append(file.id)
+            else:
+                # Check object storage to confirm the browser uploaded the file.
+                head = agent.get_object_metadata(resource_for_key(file.bucket, file.key))
+                head_updates.append({
+                    "id": file.id,
+                    "size": head.get("ContentLength", file.size),
+                    "etag": head.get("ETag", file.etag),
+                    "last_modified": head.get("LastModified", file.last_modified),
+                    "content_type": head.get("ContentType", file.content_type),
+                    "status": "complete",
+                })
+            completed += 1
+        except HTTPException as e:
+            failed.append(FolderUploadCompleteFailureOut(
+                file_id=file_id,
+                detail=str(e.detail),
+            ))
+        except Exception:
+            failed.append(FolderUploadCompleteFailureOut(
+                file_id=file_id,
+                detail="Unable to verify uploaded object",
+            ))
+
+    if skip_head_file_ids:
+        completed = await file_svc.mark_files_complete_without_head(skip_head_file_ids)
+    elif head_updates:
+        completed = await file_svc.update_many_from_head(head_updates)
+
+    if failed:
+        # Log one summary instead of one line per file. Large folder uploads can
+        # have thousands of files, so per-file logs are hard to read.
+        logger.warning(
+            "Folder upload complete had %s failed file(s) out of %s. First failed ids: %s",
+            len(failed),
+            len(payload.file_ids),
+            [item.file_id for item in failed[:10]],
+        )
+
+    if completed:
+        tree_svc = TreeService(session)
+        completed_folders_by_bucket: dict[str, set[int]] = {}
+        skip_head_file_id_set = set(skip_head_file_ids)
+        head_update_file_id_set = {update_item["id"] for update_item in head_updates}
+        for file in files:
+            if FOLDER_UPLOAD_SKIP_HEAD_CHECK:
+                if file.id in skip_head_file_id_set:
+                    completed_folders_by_bucket.setdefault(file.bucket, set()).add(file.folder_id)
+            elif file.id in head_update_file_id_set:
+                completed_folders_by_bucket.setdefault(file.bucket, set()).add(file.folder_id)
+
+        # Mark parent folders complete so they show up in the frontend tree.
+        for bucket, folder_ids in completed_folders_by_bucket.items():
+            for folder_id in folder_ids:
+                await tree_svc.mark_folder_ancestors_complete(bucket, folder_id)
+
+    logger.info(
+        "Folder upload complete finished: completed=%s failed=%s",
+        completed,
+        len(failed),
+    )
+
+    return FolderUploadCompleteOut(completed=completed, failed=failed)
 
 #################################################################################### initialize upload.It creates the DB record and returns a presigned URL so the client can start uploading the file bytes
 @router.post("/files/upload/init", response_model=UploadInitOut)
