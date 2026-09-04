@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import any_, select
+from sqlalchemy import any_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.services.filetree.models.file import File
@@ -73,6 +73,47 @@ class FileService:
         await self.session.refresh(file)
         return file
 
+    async def create_or_replace_file_row(
+        self,
+        bucket: str,
+        folder_id: int,
+        name: str,
+        key: str,
+        content_type: str | None = None,
+        replace: bool = False,
+    ) -> File:
+        """Create a pending file row, or reuse an existing row when replacing."""
+        lookup = select(File).where(File.bucket == bucket, File.key == key)
+        existing = (await self.session.execute(lookup)).scalar_one_or_none()
+
+        if existing:
+            if existing.status != "pending" and not replace:
+                raise ValueError
+
+            existing.folder_id = folder_id
+            existing.name = name
+            existing.content_type = content_type
+            existing.size = None
+            existing.etag = None
+            existing.last_modified = None
+            existing.status = "pending"
+            await self.session.commit()
+            await self.session.refresh(existing)
+            return existing
+
+        file = File(
+            bucket=bucket,
+            folder_id=folder_id,
+            name=name,
+            key=key,
+            content_type=content_type,
+            status="pending",
+        )
+        self.session.add(file)
+        await self.session.commit()
+        await self.session.refresh(file)
+        return file
+
     async def get_file(self, file_id: int, include_pending: bool = False) -> File | None:
         """Retrieve a single file record by its ID.
 
@@ -98,6 +139,13 @@ class FileService:
             select(File).where(File.id == any_(file_ids), File.status == "complete")
         )).scalars().all())
 
+    async def get_files_for_completion(self, file_ids: list[int]) -> list[File]:
+        """Retrieve file rows that are allowed to be completed."""
+        # Example: after folder upload init, rows are pending until bytes arrive.
+        return list((await self.session.execute(
+            select(File).where(File.id == any_(file_ids), File.status == "pending")
+        )).scalars().all())
+
     async def update_from_head(self, file: File, head: dict) -> None:
         """Update file metadata from an S3/MinIO HEAD-object response.
 
@@ -117,6 +165,33 @@ class FileService:
         file.content_type = head.get("ContentType", file.content_type)
         file.status = "complete"
         await self.session.commit()
+
+    async def update_many_from_head(self, updates: list[dict]) -> int:
+        """Update many files from HEAD responses in one DB commit."""
+        if not updates:
+            return 0
+
+        # Each row has different metadata, but all rows are committed together.
+        # Example: 10,000 HEAD results become many UPDATE statements in one
+        # transaction instead of 10,000 separate commits.
+        await self.session.execute(update(File), updates)
+        await self.session.commit()
+        return len(updates)
+
+    async def mark_files_complete_without_head(self, file_ids: list[int]) -> int:
+        """Mark many pending files complete in one DB update."""
+        if not file_ids:
+            return 0
+
+        # Example: 10,000 uploaded files become one DB update instead of
+        # 10,000 separate file commits.
+        result = await self.session.execute(
+            update(File)
+            .where(File.id == any_(file_ids), File.status == "pending")
+            .values(status="complete")
+        )
+        await self.session.commit()
+        return result.rowcount or 0
 
     async def delete_file_row(self, file: File) -> None:
         """
