@@ -63,8 +63,11 @@ variables:
     - |
       if [ -n "$NOMAD_ENVIRONMENT_URL" ]; then
         echo "Deployment URL = $NOMAD_ENVIRONMENT_URL"
+        echo "DYNAMIC_ENVIRONMENT_URL=$NOMAD_ENVIRONMENT_URL" >> deploy.env    # Add the value to a dotenv file.
       fi
   artifacts:
+    reports:
+      dotenv: deploy.env
     paths:
       - "*.nomad"
     expire_in: 1 week
@@ -115,6 +118,7 @@ review:
     # Persist environment URL for Auto DevOps browser_performance and similar jobs
     # They expect environment_url.txt containing the base URL of this environment.
     - echo "${NOMAD_ENVIRONMENT_URL:-}" > environment_url.txt
+    - echo "DYNAMIC_ENVIRONMENT_URL=$NOMAD_ENVIRONMENT_URL" >> deploy.env    # Add the value to a dotenv file.
   rules:
     - if: '$NOMAD_DEPLOY_ENABLED != "true"'
       when: never
@@ -127,10 +131,12 @@ review:
     - if: '$CI_COMMIT_TAG || $CI_COMMIT_BRANCH'
   environment:
     name: review/$CI_COMMIT_REF_NAME
-    url: $NOMAD_ENVIRONMENT_URL
+    url: $DYNAMIC_ENVIRONMENT_URL
     on_stop: stop_review
     auto_stop_in: 1 week
   artifacts:
+    reports:
+      dotenv: deploy.env
     paths:
       - "*.nomad"
       - "environment_url.txt"
@@ -145,6 +151,7 @@ review:
     - |
       if [ -n "$NOMAD_ENVIRONMENT_URL" ]; then
         echo "Deployment URL = $NOMAD_ENVIRONMENT_URL"
+        echo "DYNAMIC_ENVIRONMENT_URL=$NOMAD_ENVIRONMENT_URL" >> deploy.env    # Add the value to a dotenv file.
       fi
 
 # Review App cleanup job (mirrors Auto DevOps stop_review pattern)
@@ -217,7 +224,10 @@ staging:
     # Persist environment URL for Auto DevOps browser_performance and similar jobs
     # They expect environment_url.txt containing the base URL of this environment.
     - echo "${NOMAD_ENVIRONMENT_URL:-}" > environment_url.txt
+    - echo "DYNAMIC_ENVIRONMENT_URL=$NOMAD_ENVIRONMENT_URL" >> deploy.env    # Add the value to a dotenv file.
   artifacts:
+    reports:
+      dotenv: deploy.env
     paths:
       - "*.nomad"
       - "environment_url.txt"
@@ -233,7 +243,7 @@ staging:
     - if: '$STAGING_ENABLED'
   environment:
     name: staging
-    url: $NOMAD_ENVIRONMENT_URL
+    url: $DYNAMIC_ENVIRONMENT_URL
 
 # Canaries are disabled by default, but if you want them,
 # and know what the downsides are, you can enable this by setting
@@ -257,7 +267,10 @@ canary:
     - NOMAD_JOB_FILE="$CI_PROJECT_DIR/${SERVICE_NAME}-${__ENVIRONMENT__}.nomad"
     - if [ ! -f "$NOMAD_JOB_FILE" ]; then echo "Error - Expected Nomad job file not found = $NOMAD_JOB_FILE"; exit 1; fi
     - echo "Nomad job file present = $NOMAD_JOB_FILE"
+    - echo "DYNAMIC_ENVIRONMENT_URL=$NOMAD_ENVIRONMENT_URL" >> deploy.env    # Add the value to a dotenv file.
   artifacts:
+    reports:
+      dotenv: deploy.env
     paths:
       - "*.nomad"
     expire_in: 1 week
@@ -275,7 +288,7 @@ canary:
       when: manual
   environment:
     name: production
-    url: $NOMAD_ENVIRONMENT_URL
+    url: $DYNAMIC_ENVIRONMENT_URL
 
 # Production deploy template (mirrors Auto DevOps .production pattern)
 # Uses extends instead of YAML anchors for better compatibility with GitLab CI
@@ -297,10 +310,13 @@ canary:
     - if [ ! -f "$NOMAD_JOB_FILE" ]; then echo "Error - Expected Nomad job file not found = $NOMAD_JOB_FILE"; exit 1; fi
     - echo "Nomad job file present = $NOMAD_JOB_FILE"
     - echo "${NOMAD_ENVIRONMENT_URL:-}" > environment_url.txt
+    - echo "DYNAMIC_ENVIRONMENT_URL=$NOMAD_ENVIRONMENT_URL" >> deploy.env    # Add the value to a dotenv file.
   environment:
     name: production
-    url: $NOMAD_ENVIRONMENT_URL
+    url: $DYNAMIC_ENVIRONMENT_URL
   artifacts:
+    reports:
+      dotenv: deploy.env
     paths:
       - "*.nomad"
       - "environment_url.txt"
@@ -375,10 +391,13 @@ production_manual:
     - if [ ! -f "$NOMAD_JOB_FILE" ]; then echo "Error - Expected Nomad job file not found = $NOMAD_JOB_FILE"; exit 1; fi
     - echo "Nomad job file present = $NOMAD_JOB_FILE"
     - echo "${NOMAD_ENVIRONMENT_URL:-}" > environment_url.txt
+    - echo "DYNAMIC_ENVIRONMENT_URL=$NOMAD_ENVIRONMENT_URL" >> deploy.env    # Add the value to a dotenv file.
   environment:
     name: production
-    url: $NOMAD_ENVIRONMENT_URL
+    url: $DYNAMIC_ENVIRONMENT_URL
   artifacts:
+    reports:
+      dotenv: deploy.env
     paths:
       - "*.nomad"
       - "environment_url.txt"
@@ -490,7 +509,10 @@ deploy:development:
     - if [ ! -f "$NOMAD_JOB_FILE" ]; then echo "Error - Expected Nomad job file not found = $NOMAD_JOB_FILE"; exit 1; fi
     - echo "Nomad job file present = $NOMAD_JOB_FILE"
     - echo "${NOMAD_ENVIRONMENT_URL:-}" > environment_url.txt
+    - echo "DYNAMIC_ENVIRONMENT_URL=$NOMAD_ENVIRONMENT_URL" >> deploy.env    # Add the value to a dotenv file.
   artifacts:
+    reports:
+      dotenv: deploy.env
     paths:
       - "*.nomad"
       - "environment_url.txt"
@@ -505,4 +527,4 @@ deploy:development:
       when: on_success
   environment:
     name: development
-    url: $NOMAD_ENVIRONMENT_URL
+    url: $DYNAMIC_ENVIRONMENT_URL
