@@ -1,4 +1,5 @@
 import logging
+import os
 from typing import List, Optional, Tuple
 
 import boto3
@@ -9,6 +10,9 @@ from core.storage_agents.abstract_storage_agent import AbstractStorageAgent
 
 logger = logging.getLogger('storage.s3')
 
+def _bucket_access_level_enabled() -> bool:
+    """True only for the string 'true' (production). 'false' and unset are false."""
+    return os.environ.get("BUCKET_ACCESS_LEVEL", "").strip().lower() in {"1", "true", "yes"}
 
 class S3StorageAgent(AbstractStorageAgent):
     FLAVOUR = 's3'
@@ -95,7 +99,10 @@ class S3StorageAgent(AbstractStorageAgent):
         resp = self.s3_client.list_buckets()
         # TODO: remove temporary solution to filter out the reserved buckets in the S3 managed by us:
         # bundle and inn-test
-        return [b['Name'] for b in resp.get('Buckets', []) if b['Name'] not in ['bundle', 'inn-test']]
+        if _bucket_access_level_enabled():  # true means enable dev access to all buckets;
+            return [b['Name'] for b in resp.get('Buckets', [])]
+        else: # false means hide reserved buckets
+            return [b['Name'] for b in resp.get('Buckets', []) if b['Name'] not in ['bundle', 'inn-test']]
 
     def generate_access_link(
         self, resource: str, method: str, ttl: int
