@@ -7,6 +7,25 @@ if [ -z "$API_GATEWAY" ]; then
   exit 1
 fi
 
+# Prefer REACT_APP_* (Nomad frontend runtime env), then Keycloak CI names.
+REACT_APP_KEYCLOAK_URL="${REACT_APP_KEYCLOAK_URL:-${KEYCLOAK_URL:-${KEYCLOAK_DOMAIN:-}}}"
+REACT_APP_KEYCLOAK_REALM="${REACT_APP_KEYCLOAK_REALM:-${KEYCLOAK_REALM:-}}"
+REACT_APP_KEYCLOAK_CLIENT_ID="${REACT_APP_KEYCLOAK_CLIENT_ID:-${KEYCLOAK_CLIENT_ID:-${KEYCLOAK_UI_CLIENT_ID:-}}}"
+export REACT_APP_KEYCLOAK_URL REACT_APP_KEYCLOAK_REALM REACT_APP_KEYCLOAK_CLIENT_ID
+
+if [ -z "$REACT_APP_KEYCLOAK_URL" ] || [ -z "$REACT_APP_KEYCLOAK_REALM" ] || [ -z "$REACT_APP_KEYCLOAK_CLIENT_ID" ]; then
+  echo "ERROR: Keycloak runtime config is incomplete."
+  echo "Set REACT_APP_KEYCLOAK_URL, REACT_APP_KEYCLOAK_REALM, and REACT_APP_KEYCLOAK_CLIENT_ID"
+  echo "(or KEYCLOAK_DOMAIN / KEYCLOAK_REALM / KEYCLOAK_CLIENT_ID)."
+  exit 1
+fi
+
+envsubst '${REACT_APP_KEYCLOAK_URL} ${REACT_APP_KEYCLOAK_REALM} ${REACT_APP_KEYCLOAK_CLIENT_ID}' \
+  < /etc/nginx/templates/env.js.template \
+  > /usr/share/nginx/html/env.js
+
+echo "Wrote /usr/share/nginx/html/env.js (url=${REACT_APP_KEYCLOAK_URL}, realm=${REACT_APP_KEYCLOAK_REALM}, client=${REACT_APP_KEYCLOAK_CLIENT_ID})"
+
 # SERVER_NAME="${SERVER_NAME:-_}"
 
 # Render the template with only the vars we use
