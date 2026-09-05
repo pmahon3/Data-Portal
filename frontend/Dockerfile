@@ -8,17 +8,7 @@ RUN npm ci
 # Copy app source (includes .env files)
 COPY . .
 
-# Provided by the frontend CI/CD pipeline (or local Docker Compose build args)
-ARG REACT_APP_KEYCLOAK_URL
-ARG REACT_APP_KEYCLOAK_REALM
-ARG REACT_APP_KEYCLOAK_CLIENT_ID=ams-portal-ui
-
-# Convert build args to env vars for React build process
-ENV REACT_APP_KEYCLOAK_URL=$REACT_APP_KEYCLOAK_URL
-ENV REACT_APP_KEYCLOAK_REALM=$REACT_APP_KEYCLOAK_REALM
-ENV REACT_APP_KEYCLOAK_CLIENT_ID=$REACT_APP_KEYCLOAK_CLIENT_ID
-
-# Build the app
+# Build the app. Keycloak URL/realm/client are injected at container start via env.js.
 RUN npm run build
 
 # ---- Stage 2: Nginx runtime ----
@@ -28,6 +18,7 @@ RUN apk add --no-cache gettext
 
 COPY --from=build /app/build/ /usr/share/nginx/html/
 COPY nginx/conf/nginx.conf.template /etc/nginx/conf.d/default.conf.template
+COPY nginx/env.js.template /etc/nginx/templates/env.js.template
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

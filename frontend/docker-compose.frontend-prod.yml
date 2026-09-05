@@ -9,10 +9,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      args:
-        REACT_APP_KEYCLOAK_URL: http://localhost:8080
-        REACT_APP_KEYCLOAK_REALM: ams-portal
-        REACT_APP_KEYCLOAK_CLIENT_ID: ams-portal-ui
     depends_on:
       backend:
         condition: service_healthy
