@@ -135,11 +135,7 @@ job "[[ var "service" . ]]-[[ var "environment" . ]]" {
         "api",
 [[- if var "enable_traefik" . ]]
         "traefik.enable=true",
-[[-   if ne (var "public_domain" .) "" ]]
-        "traefik.http.routers.[[ var "router_name" . ]].rule=Host(`[[ var "hostname" . ]]`) || Host(`[[ var "public_domain" . ]]`) || PathPrefix(`/api/[[ var "environment_sanitized" . ]]`)",
-[[-   else ]]
         "traefik.http.routers.[[ var "router_name" . ]].rule=Host(`[[ var "hostname" . ]]`) || PathPrefix(`/api/[[ var "environment_sanitized" . ]]`)",
-[[-   end ]]
         "traefik.http.routers.[[ var "router_name" . ]].entrypoints=websecure",
         "traefik.http.routers.[[ var "router_name" . ]].tls=true",
 [[- end ]]

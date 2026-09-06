@@ -167,7 +167,7 @@ RUNTIME_ENV_ESCAPED=$(hcl_escape_heredoc "${__RUNTIME_ENV__:-}")
 SECRET_KEY_ESCAPED=$(hcl_escape_heredoc "${__SECRET_ENCRYPTION_KEY__:-}")
 
 echo "===== Writing pack vars file ====="
-echo "Note - Traefik tags are rendered in the pack (hostname + optional public_domain)"
+echo "Note - Traefik tags are rendered in the pack (hostname; public_domain is frontend-only)"
 echo "Note - runtime_env may contain pack snippets like [[ var \"nomad_environment_url\" . ]]; pack tpl expands them"
 echo "Note - Nomad interpolations (e.g. \${NOMAD_PORT_http}, \${meta.role}) stay literal in the pack template"
 echo "enable_traefik = ${ENABLE_TRAEFIK_HCL}, hostname = ${__HOSTNAME__:-}, public_domain = ${__PUBLIC_DOMAIN__:-}"
@@ -190,13 +190,20 @@ datacenters             = ${DATACENTERS_HCL}
 enable_traefik          = ${ENABLE_TRAEFIK_HCL}
 router_name             = "$(hcl_escape_string "${__ROUTER_NAME__:-${SERVICE_NAME}}")"
 hostname                = "$(hcl_escape_string "${__HOSTNAME__:-}")"
-public_domain           = "$(hcl_escape_string "${__PUBLIC_DOMAIN__:-}")"
 api_gateway             = "$(hcl_escape_string "${__API_GATEWAY__:-}")"
 nomad_environment_url   = "$(hcl_escape_string "${__NOMAD_ENVIRONMENT_URL__:-}")"
 runtime_env             = <<-EOT
 ${RUNTIME_ENV_ESCAPED}
 EOT
 EOF
+
+# Frontend-only: optional PUBLIC_DOMAIN Host alias
+if [ -f "$PACK_DIR/variables.hcl" ] && grep -q 'variable "public_domain"' "$PACK_DIR/variables.hcl"; then
+  echo "Appending frontend-only var public_domain=${__PUBLIC_DOMAIN__:-}"
+  cat >> "$VARS_FILE" <<EOF
+public_domain           = "$(hcl_escape_string "${__PUBLIC_DOMAIN__:-}")"
+EOF
+fi
 
 # Backend-only vars (only append when the pack declares them in variables.hcl)
 if [ -f "$PACK_DIR/variables.hcl" ] && grep -q 'variable "health_base"' "$PACK_DIR/variables.hcl"; then
