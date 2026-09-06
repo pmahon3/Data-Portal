@@ -44,6 +44,36 @@ async def get_current_user(
     return decode_token(credentials)
 
 
+def authenticated_user_uuid(user: dict) -> UUID:
+    """
+    Return the caller's UUID from their verified token.
+
+    Keycloak's ``sub`` claim *is* the user id that policies are stored against,
+    so resolving the username back to a UUID over the admin API asks Keycloak
+    for something the request already carries. ``decode_token`` has already
+    verified the signature, issuer and expiry by the time this is called, so
+    the claim is trustworthy.
+
+    Only valid for the *caller*. Resolving some other user named in a request
+    body or path still needs ``AbstractUserManager.get_user_uuid``.
+    """
+    sub = user.get("sub")
+    if not sub:
+        logger.error("Token has no 'sub' claim; cannot identify the caller")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials"
+        )
+    try:
+        return UUID(sub)
+    except ValueError:
+        logger.error(f"Token 'sub' claim is not a UUID: {sub!r}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials"
+        )
+
+
 async def require_admin(
     current_user: dict = Depends(get_current_user)
 ) -> dict:

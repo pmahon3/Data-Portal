@@ -10,12 +10,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.v0_1.endpoints.auth import decode_token
+from api.v0_1.common.auth_dependencies import authenticated_user_uuid
 from core.db.postgres.session import get_session
-from core.services.injectors import get_instance_manager, get_policy_manager, get_user_manager
+from core.services.injectors import get_instance_manager, get_policy_manager
 from core.services.instances import AbstractInstanceManager
 from core.services.policies import CasbinPolicyManager
 from core.services.policies import Policy
-from core.services.users import AbstractUserManager
 from core.services.filetree.models.file import File
 from core.services.filetree.models.folder import Folder
 from core.utils.paths import normalize_folder_full_path
@@ -81,7 +81,6 @@ async def dashboard_db(
     access: Literal["read", "write", "delete"] = Query(..., description="Access tree to return"),
     token_payload: dict = Depends(decode_token),
     session: AsyncSession = Depends(get_session),
-    user_manager: AbstractUserManager = Depends(get_user_manager),
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ):
@@ -90,7 +89,7 @@ async def dashboard_db(
     Returns { access: "read"|"write"|"delete", assets: [nodes] }
     """
     # Resolve Identity and Context
-    user_uuid = user_manager.get_user_uuid(token_payload["preferred_username"])
+    user_uuid = authenticated_user_uuid(token_payload)
     instance = instance_manager.get_instance_by_uuid(UUID(instance_uuid))
     agent = instance.agent
 
@@ -228,7 +227,6 @@ async def dashboard_children_db(
     parent_id: int | None = Query(None, description="Folder id to lazy-load. Omit to load roots."),
     token_payload: dict = Depends(decode_token),
     session: AsyncSession = Depends(get_session),
-    user_manager: AbstractUserManager = Depends(get_user_manager),
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ):
@@ -236,7 +234,7 @@ async def dashboard_children_db(
     DB-backed lazy tree endpoint.
     Returns authorized roots when parent_id is omitted, otherwise only immediate children.
     """
-    user_uuid = user_manager.get_user_uuid(token_payload["preferred_username"])
+    user_uuid = authenticated_user_uuid(token_payload)
     instance_uuid_obj = UUID(instance_uuid)
     instance = instance_manager.get_instance_by_uuid(instance_uuid_obj)
     agent = instance.agent

@@ -17,14 +17,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 # INN dependencies
 from api.v0_1.endpoints.auth import decode_token
+from api.v0_1.common.auth_dependencies import authenticated_user_uuid
 from api.v0_1.common.models import BundleCreateRequest, BundleCreateResponse, BundleDownloadUrlResponse
 # DB models
 from core.db.postgres.session import get_session
-from core.services.injectors import get_instance_manager, get_policy_manager, get_user_manager
+from core.services.injectors import get_instance_manager, get_policy_manager
 from core.services.instances import AbstractInstanceManager
 from core.services.policies import CasbinPolicyManager
 from core.services.policies import Policy
-from core.services.users import AbstractUserManager
 from core.services.filetree.models.file import File
 from core.services.filetree.models.folder import Folder
 from core.services.filetree.file_service import FileService
@@ -266,12 +266,11 @@ async def get_root(
     q: TreeRootQuery = Depends(),
     user: dict = Depends(decode_token),
     session: AsyncSession = Depends(get_session),
-    user_manager: AbstractUserManager = Depends(get_user_manager),
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ) -> FolderOut:
     """Return the root folder for a bucket (creating it if needed)."""
-    user_uuid = user_manager.get_user_uuid(user["preferred_username"])
+    user_uuid = authenticated_user_uuid(user)
     instance_uuid, _agent = get_instance_agent(instance_manager, q.instance_name)
     policy = Policy(user_uuid=user_uuid, instance_uuid=instance_uuid, resource=resource_for_folder(q.bucket, "/"), action="read")
     policy_or_403(policy_manager, policy)
@@ -287,12 +286,11 @@ async def list_children(
     q: TreeRootQuery = Depends(),
     user: dict = Depends(decode_token),
     session: AsyncSession = Depends(get_session),
-    user_manager: AbstractUserManager = Depends(get_user_manager),
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ) -> ListChildrenOut:
     """List immediate child folders and files of a folder (non-recursive)."""
-    user_uuid = user_manager.get_user_uuid(user["preferred_username"])
+    user_uuid = authenticated_user_uuid(user)
     instance_uuid, _agent = get_instance_agent(instance_manager, q.instance_name)
 
     folder = (await session.execute(
@@ -327,12 +325,11 @@ async def create_folder(
     payload: CreateFolderIn,
     user: dict = Depends(decode_token),
     session: AsyncSession = Depends(get_session),
-    user_manager: AbstractUserManager = Depends(get_user_manager),
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ) -> FolderOut:
     """Create a new subfolder under an existing parent folder."""
-    user_uuid = user_manager.get_user_uuid(user["preferred_username"])
+    user_uuid = authenticated_user_uuid(user)
     instance_uuid, _agent = get_instance_agent(instance_manager, payload.instance_name)
 
     parent = (await session.execute(
@@ -352,12 +349,11 @@ async def ensure_folder_path(
     payload: EnsureFolderPathIn,
     user: dict = Depends(decode_token),
     session: AsyncSession = Depends(get_session),
-    user_manager: AbstractUserManager = Depends(get_user_manager),
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ) -> FolderOut:
     """Ensure a nested folder path exists under a parent (idempotent)."""
-    user_uuid = user_manager.get_user_uuid(user["preferred_username"])
+    user_uuid = authenticated_user_uuid(user)
     instance_uuid, _agent = get_instance_agent(instance_manager, payload.instance_name)
 
     # Load the folder selected in the write tree. Folder uploads create nested
@@ -392,12 +388,11 @@ async def folder_upload_init(
     payload: FolderUploadInitIn,
     user: dict = Depends(decode_token),
     session: AsyncSession = Depends(get_session),
-    user_manager: AbstractUserManager = Depends(get_user_manager),
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ) -> FolderUploadInitOut:
     """Create folder/file metadata for a folder upload before bytes are uploaded."""
-    user_uuid = user_manager.get_user_uuid(user["preferred_username"])
+    user_uuid = authenticated_user_uuid(user)
     instance_uuid, agent = get_instance_agent(instance_manager, payload.instance_name)
 
     # All uploaded files will go under this selected folder.
@@ -535,12 +530,11 @@ async def folder_upload_complete(
     payload: FolderUploadCompleteIn,
     user: dict = Depends(decode_token),
     session: AsyncSession = Depends(get_session),
-    user_manager: AbstractUserManager = Depends(get_user_manager),
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ) -> FolderUploadCompleteOut:
     """Complete many folder-upload files after the browser uploads the bytes."""
-    user_uuid = user_manager.get_user_uuid(user["preferred_username"])
+    user_uuid = authenticated_user_uuid(user)
     instance_uuid, agent = get_instance_agent(instance_manager, payload.instance_name)
 
     file_svc = FileService(session)
@@ -643,12 +637,11 @@ async def upload_init(
     payload: UploadInitIn,
     user: dict = Depends(decode_token),
     session: AsyncSession = Depends(get_session),
-    user_manager: AbstractUserManager = Depends(get_user_manager),
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ) -> UploadInitOut:
     """Initiate a file upload — create a pending DB row and return a presigned upload URL."""
-    user_uuid = user_manager.get_user_uuid(user["preferred_username"])
+    user_uuid = authenticated_user_uuid(user)
     instance_uuid, agent = get_instance_agent(instance_manager, payload.instance_name)
 
     tree_svc = TreeService(session)
@@ -676,12 +669,11 @@ async def upload_complete(
     payload: UploadCompleteIn,
     user: dict = Depends(decode_token),
     session: AsyncSession = Depends(get_session),
-    user_manager: AbstractUserManager = Depends(get_user_manager),
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ) -> UploadCompleteOut:
     """Complete an upload — verify the S3 object exists, sync metadata, and mark ancestors complete."""
-    user_uuid = user_manager.get_user_uuid(user["preferred_username"])
+    user_uuid = authenticated_user_uuid(user)
     instance_uuid, agent = get_instance_agent(instance_manager, payload.instance_name)
 
     file_svc = FileService(session)
@@ -708,12 +700,11 @@ async def download_url(
     instance_name: str,
     user: dict = Depends(decode_token),
     session: AsyncSession = Depends(get_session),
-    user_manager: AbstractUserManager = Depends(get_user_manager),
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ) -> DownloadUrlOut:
     """Generate a presigned download URL for a file."""
-    user_uuid = user_manager.get_user_uuid(user["preferred_username"])
+    user_uuid = authenticated_user_uuid(user)
     instance_uuid, agent = get_instance_agent(instance_manager, instance_name)
 
     file_svc = FileService(session)
@@ -735,12 +726,11 @@ async def delete_file(
     instance_name: str,
     user: dict = Depends(decode_token),
     session: AsyncSession = Depends(get_session),
-    user_manager: AbstractUserManager = Depends(get_user_manager),
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ) -> DeleteFileOut:
     """Delete a file from S3 and its DB row."""
-    user_uuid = user_manager.get_user_uuid(user["preferred_username"])
+    user_uuid = authenticated_user_uuid(user)
     instance_uuid, agent = get_instance_agent(instance_manager, instance_name)
     file_svc = FileService(session)
     file = await file_svc.get_file(file_id)
@@ -785,12 +775,11 @@ async def delete_folder(
     bucket: str,
     user: dict = Depends(decode_token),
     session: AsyncSession = Depends(get_session),
-    user_manager: AbstractUserManager = Depends(get_user_manager),
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ) -> DeleteFolderOut:
     """Delete a folder subtree — remove all S3 objects under the prefix, then delete DB rows."""
-    user_uuid = user_manager.get_user_uuid(user["preferred_username"])
+    user_uuid = authenticated_user_uuid(user)
     instance_uuid, agent = get_instance_agent(instance_manager, instance_name)
 
     folder = (await session.execute(
@@ -849,7 +838,6 @@ async def create_asset_bundle(
     request: BundleCreateRequest,
     user: dict = Depends(decode_token),
     session: AsyncSession = Depends(get_session),
-    user_manager: AbstractUserManager = Depends(get_user_manager),
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager)
 ):
@@ -863,7 +851,6 @@ async def create_asset_bundle(
         request: The bundle request containing instance_name, folder_name, and file_ids
         user: Current authenticated user
         session: Async database session dependency
-        user_manager: User manager dependency
         policy_manager: Policy manager dependency
         instance_manager: Instance manager dependency
         
@@ -879,7 +866,7 @@ async def create_asset_bundle(
     if not request.file_ids and not request.folder_ids:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No files provided for downloading.")
 
-    user_uuid = user_manager.get_user_uuid(user['preferred_username'])
+    user_uuid = authenticated_user_uuid(user)
     instance_uuid, agent = get_instance_agent(instance_manager, request.instance_name)
 
     file_svc = FileService(session)
