@@ -1,3 +1,7 @@
+# DEPRECATED: Use Nomad Pack at .gitlab/deploy/packs/frontend instead.
+# Kept for rollback via NOMAD_PACK_ENABLED=false (legacy envsubst path).
+# Do not add new services here — add a pack under .gitlab/deploy/packs/<service>/.
+#
 # Frontend-specific Nomad job template
 # Extends base-service.template.nomad with frontend-specific configurations
 
