@@ -130,12 +130,6 @@ variable "hostname" {
   default     = ""
 }
 
-variable "public_domain" {
-  description = "Optional extra hostname OR'd into the Traefik Host rule (from PUBLIC_DOMAIN)."
-  type        = string
-  default     = ""
-}
-
 variable "secret_encryption_key" {
   description = "Application secret encryption key (from CI/Nomad Variables)."
   type        = string

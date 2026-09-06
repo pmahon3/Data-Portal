@@ -23,8 +23,10 @@ if [ "$NOMAD_ENVIRONMENT" = "review" ]; then
 fi
 
 # Always inject runtime env (independent of Traefik / external access)
+# Extra Traefik Host (PUBLIC_DOMAIN) is frontend-only — never apply to backend/API jobs.
 if [ "$SERVICE_NAME" = "frontend" ]; then
   SERVICE_TYPE="frontend"
+  export __PUBLIC_DOMAIN__="${PUBLIC_DOMAIN:-}"
   export __RUNTIME_ENV__="${__RUNTIME_ENV_FRONTEND__}"
   # Frontend proxies /api/ to API_GATEWAY; it must match the backend's Traefik host or Traefik returns 418 (no route).
   if [ "$NOMAD_ENVIRONMENT" = "review" ]; then
@@ -38,6 +40,7 @@ if [ "$SERVICE_NAME" = "frontend" ]; then
   fi
 else
   SERVICE_TYPE="backend"
+  export __PUBLIC_DOMAIN__=""
   export __RUNTIME_ENV__="${__RUNTIME_ENV_BACKEND__}"
 fi
 echo "Selected runtime environment (NOMAD_ENVIRONMENT=${NOMAD_ENVIRONMENT}) for ${SERVICE_TYPE}"
@@ -58,7 +61,6 @@ fi
 
 # Pack path uses these; legacy envsubst still uses __SERVICE_TAGS__ below.
 export __ROUTER_NAME__="${__SERVICE__:-$SERVICE_NAME}-${__ENVIRONMENT_SANITIZED__}"
-export __PUBLIC_DOMAIN__="${PUBLIC_DOMAIN:-}"
 
 if [ "$NEEDS_EXTERNAL_ACCESS" = "true" ]; then
   # Generate hostname based on environment
