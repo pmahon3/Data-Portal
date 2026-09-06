@@ -111,6 +111,12 @@ sequenceDiagram
 
 ## Folder Download (ZIP)
 
+> **Outdated.** This describes `GET /api/asset/download-folder` returning a list of
+> presigned URLs for the browser to assemble with JSZip. That endpoint no longer
+> exists: multi-file downloads now go through `POST /api/tree/bundle/zip`, which
+> hands the work to the bundler service. See "File Download Flow (S3)" above for the
+> current shape. Kept for historical reference until it is rewritten.
+
 Downloading an entire folder as a ZIP archive.
 
 ```mermaid
@@ -160,6 +166,54 @@ sequenceDiagram
         Frontend->>User: Download folder.zip
     end
 ```
+
+## Single File Download URL
+
+`GET /api/tree/files/{file_id}/download-url` — the request the browser makes for each
+file it wants. No call reaches Keycloak or the object store: identity comes from the
+verified token, the policy check is in memory, and presigning is local crypto.
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant Frontend
+    participant Backend
+    participant Mongo
+    participant Postgres
+    participant Casbin
+    participant S3Storage
+
+    User->>Frontend: Click Download
+    Frontend->>Backend: GET /api/tree/files/{id}/download-url<br/>Bearer {token}&instance_name={name}
+
+    Backend->>Backend: Verify JWT with cached JWKS keys
+    Backend->>Backend: Read caller uuid from 'sub' claim
+
+    Backend->>Mongo: find_one({name: instance_name})
+    Mongo-->>Backend: Instance document<br/>(agent comes from in-memory map)
+
+    Backend->>Postgres: SELECT file WHERE id = {id}
+    Postgres-->>Backend: bucket, key
+
+    Backend->>Casbin: enforce(user_uuid, instance_uuid,<br/>bucket/key, read)
+
+    alt Allowed
+        Casbin-->>Backend: true
+        Backend->>Backend: Sign presigned GET URL locally<br/>(no network call)
+        Backend-->>Frontend: 200 {url}
+        Frontend->>S3Storage: GET {presigned_url}
+        S3Storage-->>Frontend: File data
+        Frontend->>User: File downloaded
+    else Denied
+        Casbin-->>Backend: false
+        Backend-->>Frontend: 403 Forbidden
+    end
+```
+
+Per request this is one Mongo read, one Postgres read, one in-memory policy evaluation
+and one local signing operation. Earlier revisions also made two Keycloak round trips
+(OIDC discovery plus a JWKS fetch) and a third to resolve the caller's username into a
+uuid, and read the instance document twice; those were removed in 2026-09.
 
 ## Storage Instance Creation
 

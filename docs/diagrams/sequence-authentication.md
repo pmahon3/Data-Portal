@@ -29,8 +29,7 @@ sequenceDiagram
     Frontend->>Frontend: Keep tokens in memory and route by claims
     Frontend->>Keycloak: Refresh token when near expiry
     Frontend->>Backend: API request with bearer token
-    Backend->>Keycloak: Fetch OIDC configuration and JWKS keys
-    Backend->>Backend: Validate JWT and apply endpoint authorization
+    Backend->>Backend: Validate JWT with cached JWKS keys<br/>and apply endpoint authorization
     Backend-->>Frontend: API response
 ```
 
@@ -38,22 +37,37 @@ sequenceDiagram
 
 How the backend validates Keycloak access tokens.
 
+The JWKS client is built once per process and caches Keycloak's signing keys, so
+steady-state requests do **not** call Keycloak at all. The key set is refreshed on
+its own lifespan (300 s) and again on demand if a token arrives signed with an
+unrecognised key id, so key rotation still works.
+
 ```mermaid
 sequenceDiagram
     participant Frontend
     participant Backend as FastAPI Backend
     participant Keycloak
 
-    Frontend->>Backend: API request with bearer token
-    Backend->>Backend: Extract JWT
+    Note over Backend,Keycloak: Once per process, on first authenticated request
     Backend->>Keycloak: Fetch OIDC configuration
     Keycloak-->>Backend: Return JWKS URI
-    Backend->>Keycloak: Fetch public signing key
+    Backend->>Keycloak: Fetch public signing keys
     Keycloak-->>Backend: Return JWKS keys
-    Backend->>Backend: Verify RS256 signature, issuer, and expiry
+    Backend->>Backend: Cache JWKS client
+
+    Note over Frontend,Backend: Every request thereafter
+    Frontend->>Backend: API request with bearer token
+    Backend->>Backend: Extract JWT
+    Backend->>Backend: Verify RS256 signature, issuer<br/>and expiry using cached keys
+
+    alt Signing key id not in cache (key rotation)
+        Backend->>Keycloak: Refresh JWKS
+        Keycloak-->>Backend: Return current keys
+    end
 
     alt Token Valid
-        Backend->>Backend: Read claims and check endpoint permissions
+        Backend->>Backend: Read caller uuid from 'sub' claim
+        Backend->>Backend: Check endpoint permissions
         alt Authorized
             Backend-->>Frontend: API response
         else Insufficient permissions
@@ -234,9 +248,12 @@ sequenceDiagram
 - ✅ **HTTP-only Cookies** - Alternative secure option
 
 ### Token Validation
-- ✅ **JWKS-based** - Fast, no network call per request
-- ✅ **Token Introspection** - Real-time revocation check
-- ⚠️ **Signature Verification** - Always verify, never trust client
+- ✅ **JWKS-based** - Signing keys are cached per process, so steady-state
+  requests make no network call to Keycloak
+- ❌ **Token Introspection** - Not implemented. Revocation therefore takes effect
+  when the access token expires (300 s), not immediately
+- ✅ **Signature Verification** - RS256 signature, issuer and expiry are verified
+  on every request
 
 ### Authorization Checks
 - ✅ **Backend enforcement** - Never trust frontend
@@ -245,4 +262,4 @@ sequenceDiagram
 
 ---
 
-**Last Updated:** 2026-08-18
+**Last Updated:** 2026-09-06
