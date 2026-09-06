@@ -5,6 +5,7 @@
 echo "===== Starting nomad-setup.sh ====="
 
 # Install GNU gettext-base envsubst binary (not included in hashicorp/nomad image)
+# Still required for NOMAD_PACK_ENABLED=false (legacy envsubst deploy path).
 if ! command -v envsubst > /dev/null 2>&1; then
   echo "Installing GNU gettext-base envsubst binary..."
 
@@ -39,6 +40,43 @@ fi
 
 echo "✓ envsubst = $(envsubst --version 2>&1 | head -1)"
 
+# Install nomad-pack (not included in hashicorp/nomad image)
+# Used by the default Nomad Pack deploy path (NOMAD_PACK_ENABLED=true).
+if ! command -v nomad-pack > /dev/null 2>&1; then
+  echo "Installing nomad-pack..."
+
+  ARCH=$(uname -m)
+  case "$ARCH" in
+    x86_64|amd64) PACK_ARCH="amd64" ;;
+    aarch64|arm64) PACK_ARCH="arm64" ;;
+    *) echo "Error - Unsupported architecture: $ARCH"; exit 1 ;;
+  esac
+
+  # Ensure download tools exist (hashicorp/nomad image is minimal)
+  if command -v apk > /dev/null 2>&1; then
+    apk add --no-cache wget unzip ca-certificates >/dev/null 2>&1 || true
+  elif command -v apt-get > /dev/null 2>&1; then
+    apt-get update -qq && apt-get install -y -qq wget unzip ca-certificates >/dev/null 2>&1 || true
+  fi
+
+  # Pin a known release; override with NOMAD_PACK_VERSION if needed
+  NOMAD_PACK_VERSION="${NOMAD_PACK_VERSION:-0.4.2}"
+  PACK_URL="https://releases.hashicorp.com/nomad-pack/${NOMAD_PACK_VERSION}/nomad-pack_${NOMAD_PACK_VERSION}_linux_${PACK_ARCH}.zip"
+
+  INSTALL_DIR="${CI_PROJECT_DIR:-/tmp}/.nomad-pack-bin"
+  mkdir -p "$INSTALL_DIR"
+  cd /tmp
+  wget -q -O nomad-pack.zip "$PACK_URL" || exit 1
+  unzip -o -q nomad-pack.zip nomad-pack || exit 1
+  chmod +x nomad-pack
+  mv nomad-pack "$INSTALL_DIR/nomad-pack"
+  export PATH="$INSTALL_DIR:$PATH"
+  rm -f /tmp/nomad-pack.zip
+  cd -
+fi
+
+echo "✓ nomad-pack = $(nomad-pack version 2>&1 | head -1)"
+
 # Verify Nomad connection variables
 echo "Checking NOMAD_SERVER_ADDRESS and NOMAD_SERVER_TOKEN..."
 if [ -z "$NOMAD_SERVER_ADDRESS" ] || [ -z "$NOMAD_SERVER_TOKEN" ]; then
@@ -64,10 +102,14 @@ if ! nomad status -address="$NOMAD_SERVER_ADDRESS" -token="$NOMAD_SERVER_TOKEN" 
 fi
 echo "✓ Connected to Nomad cluster"
 
+# Map Nomad Pack / Nomad CLI auth to the same CI credentials
+export NOMAD_ADDR="${NOMAD_ADDR:-$NOMAD_SERVER_ADDRESS}"
+export NOMAD_TOKEN="${NOMAD_TOKEN:-$NOMAD_SERVER_TOKEN}"
+export NOMAD_NAMESPACE="${NOMAD_NAMESPACE:-${__NAMESPACE__:-default}}"
+
 # Service and runtime variables (__SERVICE__, __IMAGE_NAME__, __IMAGE_TAG__, etc.) are
 # set by the GitLab CI variables block (.deploy). Only __API_GATEWAY__ default is set
 # here; nomad_routing.sh always sets __RUNTIME_ENV__ and gates Traefik on NOMAD_EXTERNAL_ACCESS.
 export __API_GATEWAY__="http://backend-${CI_COMMIT_REF_SLUG}.${NOMAD_DOMAIN:-example.com}"
 
 echo "===== nomad-setup.sh completed successfully ====="
-

@@ -5,6 +5,7 @@
 # (SERVICE_NAME must be set by the including pipeline, e.g. per-job or matrix)
 variables:
   NOMAD_DEPLOY_ENABLED: "true"
+  NOMAD_PACK_ENABLED: "true"
   NOMAD_DATACENTERS: '["dc1"]'
   NOMAD_JOB_DRIVER: "docker"
   NOMAD_IMAGE_FORCE_PULL: "true"
@@ -83,6 +84,7 @@ variables:
 
 # Deploy job for Review Apps (mirrors Auto DevOps review pattern)
 # Note: Does not use 'extends: .deploy' to avoid merge conflicts with Auto DevOps review job.
+# GitLab deep-merges two jobs with the same name. If Nomad’s review also extends: .deploy, that merge typically becomes: extends: .auto-deploy and .deploy
 review:
   stage: review
   image: 
@@ -161,32 +163,50 @@ stop_review:
   image:
     name: hashicorp/nomad:latest
     entrypoint: [""]
+  # Pack files are required for nomad-pack destroy (deployment name + job vars)
   variables:
-    GIT_STRATEGY: none
+    GIT_STRATEGY: fetch
   script:
-    # Note: nomad CLI is already available in hashicorp/nomad:latest image
-    # No additional packages needed for stop_review job
     - |
       if [ -z "$NOMAD_SERVER_ADDRESS" ] || [ -z "$NOMAD_SERVER_TOKEN" ]; then
         echo "Error - NOMAD_SERVER_ADDRESS and NOMAD_SERVER_TOKEN must be set"
         exit 1
       fi
-      # Determine environment name from CI_ENVIRONMENT_NAME
-      # Auto DevOps uses review/$CI_COMMIT_REF_NAME format, convert to Nomad job name
-      if echo "$CI_ENVIRONMENT_NAME" | grep -q "^review/"; then
-        # Extract branch name from review/$CI_COMMIT_REF_NAME
+      source "$CI_PROJECT_DIR/.gitlab/deploy/scripts/nomad_setup.sh"
+      # Determine Nomad job / pack deployment name.
+      # Review deploy uses __ENVIRONMENT__=review-${CI_COMMIT_REF_SLUG}, so the job is
+      #   ${SERVICE_NAME}-review-${CI_COMMIT_REF_SLUG}
+      # Auto DevOps environment name is review/$CI_COMMIT_REF_NAME (slash-separated);
+      # that is only used if CI_COMMIT_REF_SLUG is missing.
+      if [ -n "$CI_COMMIT_REF_SLUG" ]; then
+        ENV_SUFFIX="review-${CI_COMMIT_REF_SLUG}"
+      elif echo "$CI_ENVIRONMENT_NAME" | grep -q "^review/"; then
+        # Extract branch name from review/$CI_COMMIT_REF_NAME and slugify
         BRANCH_NAME=$(echo "$CI_ENVIRONMENT_NAME" | sed 's|^review/||')
-        JOB_NAME="${SERVICE_NAME}-review-$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')"
+        ENV_SUFFIX="review-$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')"
       else
-        JOB_NAME="${SERVICE_NAME}-${CI_ENVIRONMENT_NAME}"
+        ENV_SUFFIX="${CI_ENVIRONMENT_NAME}"
       fi
-      echo "Stopping Nomad job = $JOB_NAME"
+      
+      DEPLOYMENT_NAME="${SERVICE_NAME}-${ENV_SUFFIX}"
+      PACK_DIR="$CI_PROJECT_DIR/.gitlab/deploy/packs/${SERVICE_NAME}"
+      echo "Destroying Nomad Pack deployment = $DEPLOYMENT_NAME"
+      if [ -d "$PACK_DIR" ] && command -v nomad-pack > /dev/null 2>&1; then
+        nomad-pack destroy "$PACK_DIR" \
+          --name="$DEPLOYMENT_NAME" \
+          --var="service=${SERVICE_NAME}" \
+          --var="environment=${ENV_SUFFIX}" \
+          || echo "Pack destroy reported an error; falling back to nomad job stop"
+      fi
+      
+      # Fallback / idempotent cleanup by Nomad job name (same as pack job name)
+      echo "Stopping Nomad job = $DEPLOYMENT_NAME"
       nomad job stop \
         -address="$NOMAD_SERVER_ADDRESS" \
         -token="$NOMAD_SERVER_TOKEN" \
         -namespace="${NOMAD_NAMESPACE:-default}" \
         -purge \
-        "$JOB_NAME" || echo "Job $JOB_NAME not found or already stopped"
+        "$DEPLOYMENT_NAME" || echo "Job $DEPLOYMENT_NAME not found or already stopped"
   rules:
     - if: '$NOMAD_DEPLOY_ENABLED != "true"'
       when: never

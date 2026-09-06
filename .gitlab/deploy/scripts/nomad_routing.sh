@@ -56,6 +56,10 @@ else
   fi
 fi
 
+# Pack path uses these; legacy envsubst still uses __SERVICE_TAGS__ below.
+export __ROUTER_NAME__="${__SERVICE__:-$SERVICE_NAME}-${__ENVIRONMENT_SANITIZED__}"
+export __PUBLIC_DOMAIN__="${PUBLIC_DOMAIN:-}"
+
 if [ "$NEEDS_EXTERNAL_ACCESS" = "true" ]; then
   # Generate hostname based on environment
   if [ "$NOMAD_ENVIRONMENT" = "review" ]; then
@@ -65,17 +69,50 @@ if [ "$NEEDS_EXTERNAL_ACCESS" = "true" ]; then
   fi
   export NOMAD_ENVIRONMENT_URL="https://${__HOSTNAME__}"
   export __NOMAD_ENVIRONMENT_URL__=${NOMAD_ENVIRONMENT_URL}
+  export __ENABLE_TRAEFIK__="true"
 
-  # Build Traefik tags
-  if [ "$SERVICE_TYPE" = "frontend" ]; then
-    export __SERVICE_TAGS__="[\"${SERVICE_TYPE}\",\"traefik.enable=true\",\"traefik.http.routers.${__SERVICE__}-${__ENVIRONMENT_SANITIZED__}.rule=Host(\`${__HOSTNAME__}\`)\",\"traefik.http.routers.${__SERVICE__}-${__ENVIRONMENT_SANITIZED__}.entrypoints=websecure\",\"traefik.http.routers.${__SERVICE__}-${__ENVIRONMENT_SANITIZED__}.tls=true\"]"
+  # Host rule: primary hostname, optionally OR PUBLIC_DOMAIN
+  if [ -n "$__PUBLIC_DOMAIN__" ]; then
+    __HOST_RULE__="Host(\`${__HOSTNAME__}\`) || Host(\`${__PUBLIC_DOMAIN__}\`)"
   else
-    export __SERVICE_TAGS__="[\"${SERVICE_TYPE}\",\"api\",\"traefik.enable=true\",\"traefik.http.routers.${__SERVICE__}-${__ENVIRONMENT_SANITIZED__}.rule=Host(\`${__HOSTNAME__}\`) || PathPrefix(\`/api/${__ENVIRONMENT_SANITIZED__}\`)\",\"traefik.http.routers.${__SERVICE__}-${__ENVIRONMENT_SANITIZED__}.entrypoints=websecure\",\"traefik.http.routers.${__SERVICE__}-${__ENVIRONMENT_SANITIZED__}.tls=true\"]"
+    __HOST_RULE__="Host(\`${__HOSTNAME__}\`)"
+  fi
+
+  # Legacy envsubst only: Pack templates build Traefik tags from enable_traefik/hostname/public_domain
+  if [ "$SERVICE_TYPE" = "frontend" ]; then
+    export __SERVICE_TAGS__="[\"${SERVICE_TYPE}\",\"traefik.enable=true\",\"traefik.http.routers.${__ROUTER_NAME__}.rule=${__HOST_RULE__}\",\"traefik.http.routers.${__ROUTER_NAME__}.entrypoints=websecure\",\"traefik.http.routers.${__ROUTER_NAME__}.tls=true\"]"
+  else
+    export __SERVICE_TAGS__="[\"${SERVICE_TYPE}\",\"api\",\"traefik.enable=true\",\"traefik.http.routers.${__ROUTER_NAME__}.rule=${__HOST_RULE__} || PathPrefix(\`/api/${__ENVIRONMENT_SANITIZED__}\`)\",\"traefik.http.routers.${__ROUTER_NAME__}.entrypoints=websecure\",\"traefik.http.routers.${__ROUTER_NAME__}.tls=true\"]"
   fi
 else
   # Internal access only via service discovery (no Traefik)
   export __HOSTNAME__=""
   export NOMAD_ENVIRONMENT_URL=""
   export __NOMAD_ENVIRONMENT_URL__=${NOMAD_ENVIRONMENT_URL}
-  export __SERVICE_TAGS__='["api"]'
+  export __ENABLE_TRAEFIK__="false"
+  if [ "$SERVICE_TYPE" = "frontend" ]; then
+    export __SERVICE_TAGS__="[\"${SERVICE_TYPE}\"]"
+  else
+    export __SERVICE_TAGS__="[\"${SERVICE_TYPE}\",\"api\"]"
+  fi
+fi
+
+# Nested deploy-time values for Nomad Pack `tpl` (not expanded here).
+# CI __RUNTIME_ENV_*__ blobs should use pack syntax, e.g.:
+#   KEYCLOAK_REDIRECT_URI=[[ var "nomad_environment_url" . ]]
+#   API_GATEWAY=http://{{- range nomadService "backend-[[ var "environment" . ]]" }}{{ .Address }}:{{ .Port }}{{- end }}
+# Pack templates run: [[ tpl (var "runtime_env" .) . ]]
+# Legacy envsubst path (NOMAD_PACK_ENABLED=false) still uses ${__*__} + two-pass envsubst.
+
+# Frontend safety net: ensure API_GATEWAY uses Nomad service discovery when missing
+if [ "$SERVICE_TYPE" = "frontend" ]; then
+  case "${__RUNTIME_ENV__}" in
+    *API_GATEWAY=*) ;;
+    *)
+      # Pack tpl expands [[ var "environment" . ]]; Nomad later expands {{ range nomadService }}
+      _api_gateway_line='API_GATEWAY=http://{{- range nomadService "backend-[[ var "environment" . ]]" }}{{ .Address }}:{{ .Port }}{{- end }}'
+      export __RUNTIME_ENV__="${__RUNTIME_ENV__}
+${_api_gateway_line}"
+      ;;
+  esac
 fi
