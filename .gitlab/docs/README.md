@@ -1,6 +1,6 @@
 # Nomad Deployment Integration with Auto DevOps
 
-This directory contains reusable templates and configurations for integrating HashiCorp Nomad with GitLab Auto DevOps pipelines.
+This directory documents how HashiCorp Nomad deploys integrate with GitLab Auto DevOps pipelines in this monorepo.
 
 ## Overview
 
@@ -13,24 +13,35 @@ This integration allows you to:
 
 ## Architecture
 
-### Directory Structure
+- Auto DevOps still owns build/test/scan and job names (`review`, `staging`, `production`, `deploy:development`, rollouts).
+- Deploy jobs live in [`.gitlab/deploy/Deploy.nomad.gitlab-ci.yml`](../deploy/Deploy.nomad.gitlab-ci.yml).
+- Routing policy (Traefik hosts, review host ids, runtime env selection) stays in [`nomad_routing.sh`](../deploy/scripts/nomad_routing.sh).
+- Job render + submit uses **Nomad Pack** via [`nomad_deploy.sh`](../deploy/scripts/nomad_deploy.sh) (replaces two-pass `envsubst`).
 
-```
+## Directory structure
+
+```text
 .gitlab/deploy/
-├── README.md                    # This file
-├── Deploy.nomad.gitlab-ci             # Reusable GitLab CI templates for Nomad deployment
-├── nomad-templates/             # Nomad job specification templates
-│   ├── base-service.template.nomad      # Base template for any service
-│   ├── frontend.template.nomad       # Frontend-specific template
-│   └── backend.template.nomad        # Backend-specific template
-└── scripts/                     # Helper scripts
-    ├── deploy-nomad.sh          # Deployment script
-    └── cleanup-review-app.sh    # Review App cleanup script
+├── Deploy.nomad.gitlab-ci.yml   # Auto DevOps-shaped deploy jobs
+├── packs/                       # Nomad Pack definitions (source of truth)
+│   ├── backend/
+│   │   ├── metadata.hcl
+│   │   ├── variables.hcl
+│   │   └── templates/backend.nomad.tpl
+│   └── frontend/
+│       ├── metadata.hcl
+│       ├── variables.hcl
+│       └── templates/frontend.nomad.tpl
+├── nomad-templates/             # DEPRECATED envsubst templates (rollback only)
+└── scripts/
+    ├── nomad_setup.sh           # Installs nomad-pack; checks Nomad connectivity
+    ├── nomad_routing.sh         # Traefik / runtime env policy
+    └── nomad_deploy.sh          # Writes vars.hcl → nomad-pack plan/run
 ```
 
 ### Integration Approach
 
-We use **Option C: Reusable Templates** with the ability to run parallel with Kubernetes:
+We use **Reusable Templates** with the ability to run parallel with Kubernetes:
 
 1. **Extend Auto DevOps**: Our templates extend Auto DevOps jobs, maintaining compatibility
 2. **Override Deploy Stage**: We override the `.deploy` job from Auto DevOps to use Nomad
@@ -65,6 +76,14 @@ Branches map to environments:
 - Placeholders for Grafana dashboards
 - Per-environment monitoring support
 
+## Deploy flow
+
+1. `nomad_setup.sh` — ensure `nomad-pack` on `PATH`, map `NOMAD_ADDR`/`NOMAD_TOKEN`.
+2. `nomad_routing.sh` — set `__RUNTIME_ENV__`, `__SERVICE_TAGS__`, `__HOSTNAME__`, `__API_GATEWAY__`.
+3. `nomad_deploy.sh` — write `${SERVICE_NAME}-${__ENVIRONMENT__}.vars.hcl`, `nomad-pack render` (CI artifact), `plan`, `run` with `--name=${SERVICE_NAME}-${__ENVIRONMENT__}`.
+
+Set `NOMAD_PACK_ENABLED=false` to force the legacy `envsubst` + `.template.nomad` path (temporary rollback).
+
 ## Usage
 
 ### Basic Setup
@@ -81,20 +100,67 @@ variables:
   SERVICE_NAME: "backend"  # or "frontend"
 ```
 
-### Environment Variables
+## Pack variables
 
-Required (set in GitLab CI/CD settings):
-- `NOMAD_SERVER_ADDRESS`: Nomad server endpoint
-- `NOMAD_SERVER_TOKEN`: Nomad ACL token
-- `NOMAD_NAMESPACE`: Nomad namespace
+Defaults live in each pack’s `variables.hcl`. CI overrides them through the vars file written by `nomad_deploy.sh`:
+
+| Pack var | Typical CI source |
+|---|---|
+| `service` | `SERVICE_NAME` / `__SERVICE__` |
+| `environment` | `__ENVIRONMENT__` (e.g. `staging`, `review-<slug>`) |
+| `datacenters` | `NOMAD_DATACENTERS` / `__DATACENTERS__` (HCL list) |
+| `namespace` | `NOMAD_NAMESPACE` |
+| `image_name` / `image_tag` | registry image + commit SHA |
+| `service_tags` | built by `nomad_routing.sh` (Traefik or `["api"]`) |
+| `runtime_env` | `__RUNTIME_ENV_BACKEND__` / `__RUNTIME_ENV_FRONTEND__` (may embed pack `[[ var … ]]` snippets; expanded by `tpl`) |
+| `api_gateway` / `nomad_environment_url` / `hostname` | from `nomad_routing.sh` (for `tpl` inside `runtime_env`) |
+| `resource_cpu` / `resource_memory` / `count` | `NOMAD_RESOURCE_*` / `NOMAD_COUNT` |
+| `health_base` / `secret_encryption_key` | backend pack only |
+
+**Nested values in runtime env (Nomad Pack):** use pack syntax in CI blobs, not `${__*__}`:
+
+```text
+KEYCLOAK_REDIRECT_URI=[[ var "nomad_environment_url" . ]]
+API_GATEWAY=[[ var "api_gateway" . ]]
+```
+
+Pack templates evaluate these with `[[ tpl (var "runtime_env" .) . ]]`. No GitLab escaping is needed for `[[ … ]]` (no `$`). Keep `${DATABASE_URL}`-style refs for values GitLab should expand at job start.
+
+Nomad interpolations such as `${meta.role}`, `${NOMAD_PORT_http}`, and `${NOMAD_SECRETS_DIR}` stay literal in `.nomad.tpl` files.
+
+## How to add a new service pack
+
+1. Copy `.gitlab/deploy/packs/backend` (or `frontend`) to `.gitlab/deploy/packs/<service>/`.
+2. Update `metadata.hcl` `pack.name` and adjust `templates/*.nomad.tpl` (ports, health paths, secrets).
+3. Declare defaults in `variables.hcl`.
+4. Set `SERVICE_NAME: "<service>"` in that service’s `.gitlab-ci.yml` so deploy resolves `.gitlab/deploy/packs/<service>`.
+5. Dry-run locally:
+
+```bash
+nomad-pack render .gitlab/deploy/packs/<service> \
+  --name=<service>-staging \
+  --var-file=/path/to/sample.vars.hcl \
+  --to-dir=/tmp/pack-out --auto-approve
+```
+
+## Review Apps cleanup
+
+`stop_review` calls `nomad-pack destroy` with `--name=${SERVICE_NAME}-review-${CI_COMMIT_REF_SLUG}` (same convention as deploy), then falls back to `nomad job stop -purge`.
+
+## Environment variables
+
+Required (GitLab CI/CD settings):
+
+- `NOMAD_SERVER_ADDRESS`
+- `NOMAD_SERVER_TOKEN`
 
 Optional:
-- `NOMAD_DATACENTERS`: Comma-separated list (default: `["dc1"]`)
-- `NOMAD_DEPLOY_ENABLED`: Enable Nomad deployment (default: `"true"`)
-- `NOMAD_EXTERNAL_ACCESS`: Control external access per service (default: environment-based)
-  - `"true"`: Always enable external access via Traefik
-  - `"false"`: Always disable external access (internal only)
-  - Not set: Uses defaults (review=true, production/staging/development=false for backend, frontend typically always true)
+- `NOMAD_DEPLOY_ENABLED`: Enable Nomad deployment suite (default `true`)
+- `NOMAD_PACK_ENABLED` (default `true`; set `false` for envsubst rollback)
+- `NOMAD_PACK_VERSION` (default `0.4.2` when setup installs the binary)
+- `NOMAD_EXTERNAL_ACCESS`: Control external access per service (`true`/`false`, or unset for environment defaults)
+- `NOMAD_DATACENTERS`: Control external access per service (default: environment-based)
+- `NOMAD_RESOURCE_CPU`, `NOMAD_RESOURCE_MEMORY`, `NOMAD_COUNT`
 
 ### Service-Specific Configuration
 
@@ -129,31 +195,6 @@ variables:
   NOMAD_EXTERNAL_ACCESS: "false"  # Always internal only
 ```
 
-See [External Access Control](./EXTERNAL_ACCESS_CONTROL.md) for detailed documentation.
-
-## Customization
-
-### Custom Nomad Job Templates
-
-1. Create a template in `.gitlab/deploy/nomad-templates/` with naming convention `*.template.nomad`
-2. Use `envsubst` variables: `${__SERVICE__}`, `${__ENVIRONMENT__}`, etc.
-3. The template will be processed to generate a `*.nomad` file
-4. Reference it via `NOMAD_JOB_TEMPLATE` variable
-
-### Traefik Routing
-
-Configure routing in your Nomad job template:
-
-```hcl
-service {
-  tags = [
-    "traefik.enable=true",
-    "traefik.http.routers.${__SERVICE__}-${__ENVIRONMENT__}.rule=Host(`${__HOSTNAME__}`)",
-    "traefik.http.routers.${__SERVICE__}-${__ENVIRONMENT__}.entrypoints=websecure",
-    "traefik.http.routers.${__SERVICE__}-${__ENVIRONMENT__}.tls=true",
-  ]
-}
-```
 
 ## Future Enhancements
 
@@ -170,3 +211,4 @@ service {
 - [HashiCorp Nomad](https://www.nomadproject.io/docs)
 - [Nomad Service Discovery](https://www.nomadproject.io/docs/service-discovery)
 
+- [Nomad Pack](https://developer.hashicorp.com/nomad/tools/nomad-pack)
