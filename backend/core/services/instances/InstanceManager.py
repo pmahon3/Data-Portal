@@ -355,6 +355,29 @@ class InstanceManager(AbstractInstanceManager):
             )
         raise ValueError(f"Instance with UUID '{uuid}' not found.")
 
+    def get_instance_by_name(self, instance_name: str) -> Instance:
+        """
+        Get an instance by its name in a single query.
+
+        Equivalent to ``get_instance_by_uuid(get_instance_uuid(name))`` but
+        without the second round trip: the agent comes from the in-memory
+        ``_agents`` map, so the extra document read served no purpose.
+
+        :param instance_name: The name of the instance.
+        :return: The Instance object.
+        :raises KeyError: If no instance with that name exists.
+        """
+        doc = self._collection.find_one({"name": instance_name})
+        if not doc:
+            raise KeyError(f"Instance with name '{instance_name}' not found.")
+
+        return Instance(
+            uuid=UUID(str(doc["uuid"])),
+            name=doc["name"],
+            flavour=doc["flavour"],
+            agent=self._agents.get(str(doc["uuid"]))
+        )
+
     def delete_instance(self, instance_uuid: UUID) -> bool:
         """
         Delete an instance from the database.

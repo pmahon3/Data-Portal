@@ -89,6 +89,16 @@ class AbstractInstanceManager(ABC):
         """
 
     @abstractmethod
+    def get_instance_by_name(self, instance_name: str) -> Instance:
+        """
+        Get an instance by its name.
+
+        :param instance_name: The name of the instance.
+        :return: The Instance object.
+        :raises KeyError: If instance with the given name is not found.
+        """
+
+    @abstractmethod
     def delete_instance(self, instance_uuid: UUID) -> bool:
         """
         Delete an instance.

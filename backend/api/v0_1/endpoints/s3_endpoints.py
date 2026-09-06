@@ -208,9 +208,8 @@ def policy_or_403(policy_manager: CasbinPolicyManager, policy: Policy) -> None:
 
 def get_instance_agent(instance_manager: AbstractInstanceManager, instance_name: str):
     """Resolve an instance UUID and its storage agent by name."""
-    instance_uuid = instance_manager.get_instance_uuid(instance_name)
-    instance = instance_manager.get_instance_by_uuid(instance_uuid)
-    return instance_uuid, instance.agent
+    instance = instance_manager.get_instance_by_name(instance_name)
+    return instance.uuid, instance.agent
 
 
 def resource_for_folder(bucket: str, full_path: str) -> str:

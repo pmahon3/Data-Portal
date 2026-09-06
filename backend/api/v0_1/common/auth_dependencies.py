@@ -287,27 +287,42 @@ def check_owner_or_admin(
     return False
 
 
-def get_jwks_client():
+# Shared JWKS client, created lazily on first access.
+#
+# PyJWKClient maintains its own signing-key cache, so it is meant to be long
+# lived. Building one per request discarded that cache and forced both an OIDC
+# discovery request and a JWKS fetch on every authenticated call.
+_jwks_client: PyJWKClient | None = None
+
+
+def get_jwks_client() -> PyJWKClient:
     """
-    Creates a PyJWKClient using the JWKS URI from KeyCloak's well-known configuration.
+    Returns the shared PyJWKClient, creating it lazily on first access.
+
+    The client caches signing keys internally and refreshes them when it sees a
+    key id it does not recognise, so key rotation is handled without rebuilding
+    the client.
     """
+    global _jwks_client
+    if _jwks_client is not None:
+        return _jwks_client
+
     well_known_url = os.getenv("KEYCLOAK_WELL_KNOWN_URL")
-    logger.debug(f"Using well-known URL: {well_known_url}")
     if not well_known_url:
         logger.error("KEYCLOAK_WELL_KNOWN_URL environment variable is not set")
         raise Exception("KEYCLOAK_WELL_KNOWN_URL is not set")
-    
-    logger.debug(f"Fetching OIDC configuration from: {well_known_url}")
+
+    logger.info(f"Fetching OIDC configuration from: {well_known_url}")
     oidc_config = requests.get(well_known_url).json()
-    logger.debug(f"OIDC config keys: {list(oidc_config.keys())}")
-    
+
     jwks_uri = oidc_config.get("jwks_uri")
     if not jwks_uri:
         logger.error("jwks_uri not found in OIDC configuration")
         raise Exception("jwks_uri not found in OIDC configuration")
-    
-    logger.debug(f"Using JWKS URI: {jwks_uri}")
-    return PyJWKClient(jwks_uri)
+
+    logger.info(f"Initializing shared JWKS client for: {jwks_uri}")
+    _jwks_client = PyJWKClient(jwks_uri, cache_keys=True)
+    return _jwks_client
 
 
 def decode_token(credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme)):
@@ -317,32 +332,6 @@ def decode_token(credentials: HTTPAuthorizationCredentials = Depends(bearer_sche
     if not token:
         logger.warning("No token found in Authorization header")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Bearer token required")
-
-    logger.debug("Token received via Authorization header")
-    logger.debug(f"Token preview (first 50 chars): {token[:50]}...")
-
-    # Decode token header to inspect issuer claim
-    try:
-        import base64
-        import json
-        # JWT tokens have 3 parts: header.payload.signature
-        header_b64 = token.split('.')[0]
-        # Add padding if needed
-        header_b64 += '=' * (4 - len(header_b64) % 4)
-        header = json.loads(base64.b64decode(header_b64))
-
-        payload_b64 = token.split('.')[1]
-        payload_b64 += '=' * (4 - len(payload_b64) % 4)
-        payload = json.loads(base64.b64decode(payload_b64))
-
-        logger.debug(f"Token header: {header}")
-        logger.debug(f"Token issuer claim: {payload.get('iss', 'Not present')}")
-        logger.debug(f"Token azp claim: {payload.get('azp', 'Not present')}")
-        logger.debug(f"Token aud claim: {payload.get('aud', 'Not present')}")
-        logger.debug(f"Token exp: {payload.get('exp', 'Not present')}")
-        logger.debug(f"Token username: {payload.get('preferred_username', 'Not present')}")
-    except Exception as e:
-        logger.warning(f"Could not decode token for inspection: {e}")
 
     client_id = os.getenv("KEYCLOAK_UI_CLIENT_ID")
     keycloak_domain = os.getenv("KEYCLOAK_DOMAIN")
