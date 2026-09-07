@@ -17,6 +17,31 @@ class BundleCreateRequest(BaseModel):
     folder_name: Union[str, None] = Field(default="", description="Optional folder name for the bundle.")
 
 
+class ManifestRequest(BaseModel):
+    instance_name: str = Field(..., description="The name of the access point.")
+    file_ids: list[int] = Field(default_factory=list, description="List of file IDs to include.")
+    folder_ids: list[int] = Field(default_factory=list, description="List of folder IDs to expand and include.")
+    ttl_seconds: Union[int, None] = Field(default=None, ge=60, le=604800,
+                                          description="Lifetime of the returned URLs. Defaults to the server setting.")
+
+
+class ManifestEntry(BaseModel):
+    file_id: int = Field(..., description="The file's id.")
+    bucket: str = Field(..., description="The bucket holding the object.")
+    key: str = Field(..., description="The object key within the bucket.")
+    relative_path: str = Field(..., description="Path to reconstruct on the client, as bucket/key.")
+    size: Union[int, None] = Field(default=None, description="Size in bytes, if known.")
+    url: str = Field(..., description="Presigned GET URL for the object.")
+
+
+class ManifestResponse(BaseModel):
+    instance_name: str = Field(..., description="The access point the entries belong to.")
+    count: int = Field(..., description="Number of entries returned.")
+    total_bytes: int = Field(..., description="Sum of entry sizes where known.")
+    expires_in: int = Field(..., description="Lifetime of the URLs in seconds.")
+    entries: list[ManifestEntry] = Field(..., description="One entry per authorized file.")
+
+
 class BundleCreateResponse(BaseModel):
     bundle_id: str = Field(..., description="The ID of the requested bundle.")
     status: str = Field(..., description="The current status of the bundle request.")

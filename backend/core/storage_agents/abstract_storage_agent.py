@@ -39,6 +39,27 @@ class AbstractStorageAgent(ABC):
         """
         raise NotImplementedError
 
+    def generate_access_links(self, resources: list[str], method: str, ttl: int):
+        """
+        Generate presigned access URLs for many assets at once.
+
+        The default implementation loops over :meth:`generate_access_link`, so
+        agents get this for free. Backends that can hoist per-call setup out of
+        the loop should override it.
+
+        :param resources: The keys of the assets.
+        :param method: The method to use for accessing the assets.
+        :param ttl: The time-to-live for the URLs.
+        :return: A tuple of (urls, resource paths), aligned with *resources*.
+        """
+        urls: list[str] = []
+        paths: list[str] = []
+        for resource in resources:
+            resource_urls, resource_paths = self.generate_access_link(resource, method, ttl)
+            urls.extend(resource_urls)
+            paths.extend(resource_paths)
+        return urls, paths
+
     def delete_object(self, resource: str):
         """Delete an object identified by its storage resource path."""
         raise NotImplementedError

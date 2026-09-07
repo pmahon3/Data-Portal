@@ -104,6 +104,45 @@ class S3StorageAgent(AbstractStorageAgent):
         else: # false means hide reserved buckets
             return [b['Name'] for b in resp.get('Buckets', []) if b['Name'] not in ['bundle', 'inn-test']]
 
+    def generate_access_links(
+        self, resources: List[str], method: str, ttl: int
+    ) -> Tuple[List[str], List[str]]:
+        """Generate presigned URLs for many objects in one pass.
+
+        Presigning is local HMAC work, so the cost of a batch is dominated by
+        per-call overhead rather than the signing itself. Resolving the client
+        method once and logging once, rather than per object, keeps a 10k-file
+        manifest from emitting 10k log lines.
+        """
+        client_method = self._client_method_for(method)
+
+        urls: List[str] = []
+        for resource in resources:
+            bucket, key = self._split_resource(resource)
+            urls.append(self.s3_client.generate_presigned_url(
+                ClientMethod=client_method,
+                Params={"Bucket": bucket, "Key": key},
+                ExpiresIn=ttl,
+            ))
+
+        logger.info(f"generate_access_links ({method}): {len(urls)} URL(s)")
+        return urls, list(resources)
+
+    @staticmethod
+    def _client_method_for(method: str) -> str:
+        client_method = {"write": "put_object", "read": "get_object"}.get(method)
+        if client_method is None:
+            raise ValueError(f"Unsupported access method {method!r}")
+        return client_method
+
+    @staticmethod
+    def _split_resource(resource: str) -> Tuple[str, str]:
+        try:
+            bucket, key = resource.split("/", 1)
+        except ValueError:
+            raise ValueError(f"Bad S3 path: {resource!r}")
+        return bucket, key
+
     def generate_access_link(
         self, resource: str, method: str, ttl: int
     ) -> Tuple[List[str], List[str]]:

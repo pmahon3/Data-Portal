@@ -18,7 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # INN dependencies
 from api.v0_1.endpoints.auth import decode_token
 from api.v0_1.common.auth_dependencies import authenticated_user_uuid
-from api.v0_1.common.models import BundleCreateRequest, BundleCreateResponse, BundleDownloadUrlResponse
+from api.v0_1.common.models import (BundleCreateRequest, BundleCreateResponse, BundleDownloadUrlResponse,
+                                    ManifestEntry, ManifestRequest, ManifestResponse)
 # DB models
 from core.db.postgres.session import get_session
 from core.services.injectors import get_instance_manager, get_policy_manager
@@ -208,7 +209,13 @@ def policy_or_403(policy_manager: CasbinPolicyManager, policy: Policy) -> None:
 
 def get_instance_agent(instance_manager: AbstractInstanceManager, instance_name: str):
     """Resolve an instance UUID and its storage agent by name."""
-    instance = instance_manager.get_instance_by_name(instance_name)
+    try:
+        instance = instance_manager.get_instance_by_name(instance_name)
+    except KeyError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Storage instance '{instance_name}' not found.",
+        )
     return instance.uuid, instance.agent
 
 
@@ -807,6 +814,101 @@ async def delete_folder(
 
 # --------------- Bundler Endpoints ---------------
 
+async def resolve_authorized_files(
+    instance_name: str,
+    file_ids: list[int],
+    folder_ids: list[int],
+    user: dict,
+    session: AsyncSession,
+    policy_manager: CasbinPolicyManager,
+    instance_manager: AbstractInstanceManager,
+):
+    """Resolve file ids and folder ids to the files the caller may read.
+
+    Shared by the manifest and bundle endpoints so both make the *same*
+    authorization decision. Expensive context - the caller's uuid and the
+    storage instance - is resolved once here rather than once per file, which
+    is the whole point of asking for many files in one request.
+
+    Explicitly requested files that the caller cannot read raise 403. Files
+    reached by expanding a folder are skipped instead, since a folder the user
+    can partly read should return the readable part.
+
+    :returns: (instance_uuid, agent, files) where *files* is ordered and
+        deduplicated.
+    """
+    if not file_ids and not folder_ids:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="No files provided.")
+
+    user_uuid = authenticated_user_uuid(user)
+    instance_uuid, agent = get_instance_agent(instance_manager, instance_name)
+
+    file_svc = FileService(session)
+    resolved: dict[int, File] = {}
+    explicit_file_ids: set[int] = set()
+
+    requested_file_ids = list(dict.fromkeys(file_ids))
+    files = await file_svc.get_files(requested_file_ids) if requested_file_ids else []
+    file_map = {f.id: f for f in files}
+    for file_id in requested_file_ids:
+        file = file_map.get(file_id)
+        if not file:
+            logger.warning(f"File ID {file_id} not found in DB.")
+            continue
+        resolved.setdefault(file.id, file)
+        explicit_file_ids.add(file.id)
+
+    deduped_folder_ids = list(dict.fromkeys(folder_ids))
+    if deduped_folder_ids:
+        try:
+            allowed_buckets = set(agent.fetch_all_buckets()) if hasattr(agent, "fetch_all_buckets") else set()
+        except Exception as e:
+            logger.error(f"Failed to fetch allowed buckets: {str(e)}", exc_info=True)
+            raise HTTPException(status_code=500,
+                                detail="Unable to retrieve bucket information from storage. Please try again later.")
+
+        folders = list((await session.execute(
+            select(Folder).where(
+                Folder.id == any_(deduped_folder_ids),
+                Folder.bucket.in_(allowed_buckets),
+                Folder.status == "complete",
+            )
+        )).scalars().all())
+
+        for folder in folders:
+            folder_files = list((await session.execute(
+                select(File)
+                .join(Folder, File.folder_id == Folder.id)
+                .where(
+                    Folder.bucket == folder.bucket,
+                    Folder.path.op("<@")(folder.path),
+                    Folder.status == "complete",
+                    File.status == "complete",
+                )
+                .order_by(File.folder_id, File.name)
+            )).scalars().all())
+            for file in folder_files:
+                resolved.setdefault(file.id, file)
+
+    authorized: list[File] = []
+    for file in resolved.values():
+        policy = Policy(
+            user_uuid=user_uuid,
+            instance_uuid=instance_uuid,
+            resource=resource_for_key(file.bucket, file.key),
+            action="read",
+        )
+        if not policy_manager.validate_policy(policy):
+            if file.id in explicit_file_ids:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                                    detail="Access denied by policy")
+            continue
+        authorized.append(file)
+
+    return instance_uuid, agent, authorized
+
+
 def get_bundler_provider() -> str:
     provider = BUNDLER_PROVIDER
     if provider not in {"python", "java"}:
@@ -825,6 +927,71 @@ def get_bundler_url(provider: str) -> str:
     raise HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         detail=f"Unsupported bundler provider '{provider}'."
+    )
+
+
+@router.post(
+    "/manifest",
+    response_model=ManifestResponse,
+    summary="Get presigned download URLs for many files at once",
+    description=(
+        "Returns one presigned GET URL per authorized file. Accepts file ids, folder "
+        "ids, or both; folders are expanded to their completed descendants.\n\n"
+        "Requesting N files here costs one request rather than N. The caller's identity "
+        "and the storage instance are resolved once for the whole batch, and presigning "
+        "is local, so the marginal cost per file is small."
+    ),
+)
+async def create_manifest(
+    payload: ManifestRequest,
+    user: dict = Depends(decode_token),
+    session: AsyncSession = Depends(get_session),
+    policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
+    instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
+) -> ManifestResponse:
+    """Mint presigned download URLs for a set of files in a single request."""
+    ttl = payload.ttl_seconds or BUNDLE_SOURCE_URL_EXPIRATION_SECONDS
+
+    instance_uuid, agent, files = await resolve_authorized_files(
+        payload.instance_name, payload.file_ids, payload.folder_ids,
+        user, session, policy_manager, instance_manager,
+    )
+
+    if not files:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail="No readable files found for the requested resources.")
+
+    resources = [resource_for_key(f.bucket, f.key) for f in files]
+    try:
+        urls, _paths = agent.generate_access_links(resources, "read", ttl)
+    except Exception as e:
+        logger.error(f"Unable to generate presigned URLs for manifest: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY,
+                            detail="Unable to generate download URLs. Please try again.")
+
+    entries = [
+        ManifestEntry(
+            file_id=f.id,
+            bucket=f.bucket,
+            key=f.key,
+            relative_path=f"{f.bucket}/{f.key}",
+            size=f.size,
+            url=url,
+        )
+        for f, url in zip(files, urls)
+    ]
+
+    logger.info(
+        f"Manifest for user '{user.get('preferred_username')}' on instance "
+        f"'{payload.instance_name}': {len(entries)} entries"
+    )
+
+    return ManifestResponse(
+        instance_name=payload.instance_name,
+        count=len(entries),
+        total_bytes=sum(f.size or 0 for f in files),
+        expires_in=ttl,
+        entries=entries,
     )
 
 
@@ -863,97 +1030,28 @@ async def create_asset_bundle(
         f"{len(request.folder_ids)} folder_ids."
     )
     
-    if not request.file_ids and not request.folder_ids:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No files provided for downloading.")
+    instance_uuid, agent, files_to_bundle = await resolve_authorized_files(
+        request.instance_name, request.file_ids, request.folder_ids,
+        user, session, policy_manager, instance_manager,
+    )
 
-    user_uuid = authenticated_user_uuid(user)
-    instance_uuid, agent = get_instance_agent(instance_manager, request.instance_name)
-
-    file_svc = FileService(session)
     all_presigned_urls = []
     java_bundle_files = []
-    files_to_bundle = {}
 
-    # Set of file IDs that were explicitly requested and successfully found as completed file rows
-    explicit_file_ids = set()
-
-    # Retrieve the file objects from DB based on file ids
-    requested_file_ids = list(dict.fromkeys(request.file_ids))
-    files = await file_svc.get_files(requested_file_ids) if requested_file_ids else []
-    file_map = {f.id: f for f in files}
-
-    for file_id in requested_file_ids:
-        file = file_map.get(file_id)
-        if not file:
-            logger.warning(f"File ID {file_id} not found in DB.")
-            continue
-        files_to_bundle.setdefault(file.id, file)
-        explicit_file_ids.add(file.id)
-
-    folder_ids = list(dict.fromkeys(request.folder_ids))
-    if folder_ids:
+    if files_to_bundle:
+        resources = [resource_for_key(f.bucket, f.key) for f in files_to_bundle]
         try:
-            allowed_buckets = set(agent.fetch_all_buckets()) if hasattr(agent, "fetch_all_buckets") else set()
-        except Exception as e:
-            logger.error(f"Failed to fetch allowed buckets: {str(e)}", exc_info=True)
-            raise HTTPException(status_code=500, detail="Unable to retrieve bucket information from storage. Please try again later.")
-        
-        # Get requested folders from db
-        folders = list((await session.execute(
-            select(Folder)
-            .where(
-                Folder.id == any_(folder_ids),
-                Folder.bucket.in_(allowed_buckets),
-                Folder.status == "complete",
+            all_presigned_urls, _paths = agent.generate_access_links(
+                resources, "read", BUNDLE_SOURCE_URL_EXPIRATION_SECONDS,
             )
-        )).scalars().all())
-
-        # Get the files of each folder
-        for folder in folders:
-            folder_files = list((await session.execute(
-                select(File)
-                .join(Folder, File.folder_id == Folder.id)
-                .where(
-                    Folder.bucket == folder.bucket,
-                    Folder.path.op("<@")(folder.path),
-                    Folder.status == "complete",
-                    File.status == "complete",
-                )
-                .order_by(File.folder_id, File.name)
-            )).scalars().all())
-
-            for file in folder_files:
-                files_to_bundle.setdefault(file.id, file)
-
-    # Get presigned urls for each file
-    for file in files_to_bundle.values():
-        policy = Policy(
-            user_uuid=user_uuid,
-            instance_uuid=instance_uuid,
-            resource=resource_for_key(file.bucket, file.key),
-            action="read"
-        )
-        if not policy_manager.validate_policy(policy):
-            if file.id in explicit_file_ids:
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied by policy")
-            continue
-
-        try:
-            urls, _paths = agent.generate_access_link(
-                resource_for_key(file.bucket, file.key),
-                "read",
-                BUNDLE_SOURCE_URL_EXPIRATION_SECONDS,
-            )
-            url = urls[0]
-            all_presigned_urls.append(url)
-            java_bundle_files.append({
-                "url": url,
-                "relativePath": f"{file.bucket}/{file.key}",
-            })
         except Exception as e:
-            logger.error(f"Unable to generate presigned URL for file_id {file.id}: {str(e)}")
+            logger.error(f"Unable to generate presigned URLs for bundle: {str(e)}", exc_info=True)
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-                                detail=f"Unable to generate presigned URL for file_id {file.id}: {str(e)}")
+                                detail="Unable to generate presigned URLs for the requested files.")
+        java_bundle_files = [
+            {"url": url, "relativePath": f"{f.bucket}/{f.key}"}
+            for f, url in zip(files_to_bundle, all_presigned_urls)
+        ]
 
     if not all_presigned_urls:
          logger.warning("No files found to bundle from the requested resources")
