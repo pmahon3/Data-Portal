@@ -82,6 +82,7 @@ classDiagram
         +get_instances_by_uuid(uuids) list~Instance~
         +get_instance_uuid(instance_name) UUID
         +get_instance_by_uuid(uuid) Instance
+        +get_instance_by_name(instance_name) Instance
         +delete_instance(instance_uuid) bool
     }
 
