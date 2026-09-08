@@ -1,6 +1,7 @@
-# Base Nomad job template for any service
+# Base Nomad job template for any service (legacy envsubst)
 # This template uses envsubst variables (${__VARIABLE__}) for substitution
 # Variables are set in the GitLab CI pipeline
+# Nomad Pack equivalent: base-service/templates/base-service.nomad.tpl (pack root: base-service/)
 
 job "${__SERVICE__}-${__ENVIRONMENT__}" {
   datacenters = ${__DATACENTERS__}

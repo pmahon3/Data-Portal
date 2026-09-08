@@ -38,7 +38,7 @@ job "[[ var "service" . ]]-[[ var "environment" . ]]" {
   update {
     stagger           = "10s"
     max_parallel      = 1
-    health_check      = "checks"
+    health_check      = "task_states"
     min_healthy_time  = "10s"
     healthy_deadline  = "3m"
     progress_deadline = "10m"
@@ -54,7 +54,7 @@ job "[[ var "service" . ]]-[[ var "environment" . ]]" {
 
     network {
       port "http" {
-        to = 80
+        to = 8000
       }
     }
 
@@ -94,6 +94,27 @@ job "[[ var "service" . ]]-[[ var "environment" . ]]" {
         change_mode = "restart"
       }
 
+      template {
+        # runtime_secrets from __SECRETS_BACKEND__ (via __RUNTIME_SECRETS__); tpl like runtime_env
+        destination = "${NOMAD_SECRETS_DIR}/env.vars"
+        env         = true
+        change_mode = "restart"
+        data        = <<EOF
+          {{- if nomadVarExists "nomad/jobs" -}}
+            {{- with nomadVar "nomad/jobs" -}}
+            #SECRET_ONE = {{ .secret_author }}
+            #SECRET_TWO  = {{ .role }}
+            {{- end -}}
+          {{- else -}}
+            # Nomad variable path was missing, skipping optional secrets
+          {{- end -}}
+
+          # This will now always render, regardless of Nomad's variable store status
+          # SECRET_ENCRYPTION_KEY = "[[ var "secret_encryption_key" . ]]"
+          [[ tpl (var "runtime_secrets" .) . ]]
+          EOF
+      }
+
       resources {
         cpu    = [[ var "resource_cpu" . ]]
         memory = [[ var "resource_memory" . ]]
@@ -113,13 +134,10 @@ job "[[ var "service" . ]]-[[ var "environment" . ]]" {
       port                = "http"
       tags = [
         "[[ var "service" . ]]",
+        "api",
 [[- if var "enable_traefik" . ]]
         "traefik.enable=true",
-[[-   if ne (var "public_domain" .) "" ]]
-        "traefik.http.routers.[[ var "router_name" . ]].rule=Host(`[[ var "hostname" . ]]`) || Host(`[[ var "public_domain" . ]]`)",
-[[-   else ]]
-        "traefik.http.routers.[[ var "router_name" . ]].rule=Host(`[[ var "hostname" . ]]`)",
-[[-   end ]]
+        "traefik.http.routers.[[ var "router_name" . ]].rule=Host(`[[ var "hostname" . ]]`) || PathPrefix(`/api/[[ var "environment_sanitized" . ]]`)",
         "traefik.http.routers.[[ var "router_name" . ]].entrypoints=websecure",
         "traefik.http.routers.[[ var "router_name" . ]].tls=true",
 [[- end ]]
@@ -129,7 +147,7 @@ job "[[ var "service" . ]]-[[ var "environment" . ]]" {
       check {
         type     = "http"
         port     = "http"
-        path     = "/health"
+        path     = "/[[ var "health_base" . ]]/health"
         interval = "10s"
         timeout  = "2s"
         method   = "GET"
@@ -138,7 +156,7 @@ job "[[ var "service" . ]]-[[ var "environment" . ]]" {
       check {
         type     = "http"
         port     = "http"
-        path     = "/ready"
+        path     = "/[[ var "health_base" . ]]/ready"
         interval = "10s"
         timeout  = "2s"
         method   = "GET"

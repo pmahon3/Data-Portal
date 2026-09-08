@@ -1,9 +1,10 @@
-# DEPRECATED: Use Nomad Pack at .gitlab/deploy/packs/frontend instead.
-# Kept for rollback via NOMAD_PACK_ENABLED=false (legacy envsubst path).
-# Do not add new services here — add a pack under .gitlab/deploy/packs/<service>/.
+# DEPRECATED: Use Nomad Pack at backend/deploy/ instead.
+# Kept for NOMAD_PACK_ENABLED=false rollback only.
+# Do not add new services here — add a pack under <service>/deploy/.
 #
-# Frontend-specific Nomad job template
-# Extends base-service.template.nomad with frontend-specific configurations
+# Backend-specific Nomad job template
+# Extends base-service.template.nomad with backend-specific configurations
+# Based on data-service.template.nomad with improvements
 
 job "${__SERVICE__}-${__ENVIRONMENT__}" {
   datacenters = ${__DATACENTERS__}
@@ -45,14 +46,21 @@ job "${__SERVICE__}-${__ENVIRONMENT__}" {
     weight    = 50
   }
 
+  # Constraint for data volumes (if needed)
+  # constraint {
+  #   attribute = "${meta.role}"
+  #   operator  = "set_contains"
+  #   value     = "data-volume"
+  # }
+
   # Update strategy
   # health_check = "checks" # deployment waits for service check blocks to pass; "task_states" = only wait for task running.
-  # health_check = "task_states" so deployment does not wait on service checks. The service check blocks in this job still run:
+  # health_check = "task_states" so deployment does not wait on service checks. The service check blocks in this job still run: 
   #                 Nomad runs them, reports status to Consul (if used), and they show in the Nomad/Consul UI for monitoring—they just do not gate the update strategy.
   update {
     stagger      = "10s"
     max_parallel = 1
-    health_check = "checks"
+    health_check = "task_states"
     min_healthy_time = "10s"
     healthy_deadline = "3m"
     progress_deadline = "10m"
@@ -68,17 +76,24 @@ job "${__SERVICE__}-${__ENVIRONMENT__}" {
 
     network {
       port "http" {
-        to = 80
+        to = 8000
       }
     }
+
+    # Volume mounts (if needed - uncomment and configure)
+    # volume "data-${__ENVIRONMENT__}" {
+    #   type      = "host"
+    #   source    = "data-${__ENVIRONMENT__}"
+    #   read_only = false
+    # }
 
     task "${__SERVICE__}-${__ENVIRONMENT__}" {
       driver = "${__JOB_DRIVER__}"
 
       config {
-        image      = "${__IMAGE_NAME__}:${__IMAGE_TAG__}"
-        force_pull = "${__IMAGE_FORCE_PULL__}"
-        ports      = ["http"]
+        image        = "${__IMAGE_NAME__}:${__IMAGE_TAG__}"
+        force_pull   = "${__IMAGE_FORCE_PULL__}"
+        ports        = ["http"]
         network_mode = "bridge"
         
         # Registry authentication (if needed)
@@ -99,15 +114,17 @@ job "${__SERVICE__}-${__ENVIRONMENT__}" {
         CI_ENVIRONMENT_NAME = "${__ENVIRONMENT__}"
         SERVICE_NAME        = "${__SERVICE__}"
         SERVER_PORT         = "${NOMAD_PORT_http}"
-        # API_GATEWAY         = "${__API_GATEWAY__}" # "http://backend-staging.rmcintos.cedar.researchcomputinggroup.ca"
-        # API_GATEWAY         = "http://{{- range nomadService \"backend-${__ENVIRONMENT__}\" }}{{ .Address }}:{{ .Port }}{{- end }}"   
+        # Database and service URLs (set via GitLab CI variables or Nomad service discovery)
+        # DATABASE_URL = "${DATABASE_URL}"
       }
 
       # Dynamic runtime environment variables
       # __RUNTIME_ENV__ should contain newline-separated KEY=VALUE pairs
-      # Example: REACT_APP_KEYCLOAK_URL=https://keycloak.example.com
-      #          REACT_APP_KEYCLOAK_REALM=ams-portal
-      #          API_GATEWAY=http://backend.example.com
+      # Example: KEYCLOAK_DOMAIN=https://keycloak.example.com
+      #          KEYCLOAK_REALM=ams-portal
+      #          KEYCLOAK_UI_CLIENT_ID=ams-portal-ui
+      #          AMS_HOST=0.0.0.0
+      #          LOG_LEVEL=INFO
       template {
         data        = <<EOF
 ${__RUNTIME_ENV__}
@@ -117,10 +134,48 @@ ${__RUNTIME_ENV__}
         change_mode = "restart"
       }
 
+      # Template for service discovery (e.g., database URL or other service URLs)
+      # Example: API Gateway discovering data-service
+      # template {
+      #   data        = <<EOF
+      #   DATA_SERVICE_URL={{- range nomadService "data-service-${__ENVIRONMENT__}" }}http://{{ .Address }}:{{ .Port }}{{- end }}
+      #   EOF
+      #   destination = "local/service-url.env"
+      #   env         = true
+      #   change_mode = "restart"
+      # }
+
+      template {
+        # https://www.hashicorp.com/en/blog/nomad-secrets-consumption-patterns-nomad-variables
+        destination = "${NOMAD_SECRETS_DIR}/env.vars"
+        env         = true
+        change_mode = "restart"
+        data        = <<EOF
+          {{- if nomadVarExists "nomad/jobs" -}}
+            {{- with nomadVar "nomad/jobs" -}}
+            #SECRET_ONE = {{ .secret_author }}
+            #SECRET_TWO  = {{ .role }}
+            {{- end -}}
+          {{- else -}}
+            # Nomad variable path was missing, skipping optional secrets
+          {{- end -}}
+          
+          # This will now always render, regardless of Nomad's variable store status
+          SECRET_ENCRYPTION_KEY = "${__SECRET_ENCRYPTION_KEY__}"
+          EOF
+      }
+
+      # Volume mounts (if needed - uncomment and configure)
+      # volume_mount {
+      #   volume      = "data-${__ENVIRONMENT__}"
+      #   destination = "/data"
+      #   read_only   = false
+      # }
+
       # Resources
       resources {
-        cpu    = ${__RESOURCE_CPU__} # ${__RESOURCE_CPU__:-500} # envsubst will only ever replace references to environment variables in the form of ${VAR} or $VAR. Special shell features like ${VAR:-default} are not supported.
-        memory = ${__RESOURCE_MEMORY__} # ${__RESOURCE_MEMORY__:-512}
+        cpu    = ${__RESOURCE_CPU__} # ${__RESOURCE_CPU__:-1000} # envsubst will only ever replace references to environment variables in the form of ${VAR} or $VAR. Special shell features like ${VAR:-default} are not supported.
+        memory = ${__RESOURCE_MEMORY__} # ${__RESOURCE_MEMORY__:-1024}
       }
 
       # Restart policy
@@ -132,8 +187,9 @@ ${__RUNTIME_ENV__}
       }
     }
 
-    # Service definition with Traefik integration for external routing
-    # Frontend services always need Traefik tags for hostname-based routing
+    # Service definition
+    # - Review Apps: Need Traefik tags for external access (testing)
+    # - Production/Staging/Development: Simple tags for internal service discovery
     service {
       name                = "${__SERVICE__}-${__ENVIRONMENT__}"
       provider            = "nomad"
@@ -145,7 +201,7 @@ ${__RUNTIME_ENV__}
       check {
         type     = "http"
         port     = "http"
-        path     = "/health"
+        path     = "/${__HEALTH_BASE__}/health"
         interval = "10s"
         timeout  = "2s"
         method   = "GET"
@@ -155,7 +211,7 @@ ${__RUNTIME_ENV__}
       check {
         type     = "http"
         port     = "http"
-        path     = "/ready"
+        path     = "/${__HEALTH_BASE__}/ready"
         interval = "10s"
         timeout  = "2s"
         method   = "GET"

@@ -54,8 +54,13 @@ variables:
 
   # Nomad deployment configuration
   SERVICE_NAME: "backend"
-  HEALTH_BASE: "api"
+  # Overrides root placeholder NOMAD_PACK_DIR: "deploy"
+  NOMAD_PACK_DIR: "backend/deploy"
+  # Pack runtime_env / runtime_secrets: wire service CI blobs into Nomad job __*__ vars
+  __RUNTIME_ENV__: ${__RUNTIME_ENV_BACKEND__}
+  __RUNTIME_SECRETS__: ${__SECRETS_BACKEND__}
   NOMAD_DEPLOY_ENABLED: "${NOMAD_DEPLOY_ENABLED}"
+  HEALTH_BASE: "api"
   # NOMAD_EXTERNAL_ACCESS not set - uses defaults:
   #   - Review Apps: external access enabled (for testing)
   #   - Production/Staging/Development: internal only (service discovery)

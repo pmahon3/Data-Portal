@@ -38,7 +38,7 @@ job "[[ var "service" . ]]-[[ var "environment" . ]]" {
   update {
     stagger           = "10s"
     max_parallel      = 1
-    health_check      = "task_states"
+    health_check      = "checks"
     min_healthy_time  = "10s"
     healthy_deadline  = "3m"
     progress_deadline = "10m"
@@ -54,7 +54,7 @@ job "[[ var "service" . ]]-[[ var "environment" . ]]" {
 
     network {
       port "http" {
-        to = 8000
+        to = 80
       }
     }
 
@@ -85,9 +85,16 @@ job "[[ var "service" . ]]-[[ var "environment" . ]]" {
       }
 
       template {
-        # runtime_env may embed pack snippets; tpl evaluates them against pack vars
+        # runtime_env may embed pack snippets; tpl evaluates them against pack vars.
+        # API_GATEWAY (Pack/tpl): use Nomad service discovery of the backend job
+        # (cluster-internal Address:Port), not a public Traefik http://…NOMAD_DOMAIN URL.
+        # Pack expands [[ var "environment" . ]]; Nomad later expands {{ range nomadService }}.
+        # Skip the default when CI runtime_env already sets API_GATEWAY=…
         data        = <<EOF
 [[ tpl (var "runtime_env" .) . ]]
+[[- if not (contains "API_GATEWAY=" (var "runtime_env" .)) ]]
+API_GATEWAY=http://{{- range nomadService "backend-[[ var "environment" . ]]" }}{{ .Address }}:{{ .Port }}{{- end }}
+[[- end ]]
         EOF
         destination = "local/runtime.env"
         env         = true
@@ -95,6 +102,7 @@ job "[[ var "service" . ]]-[[ var "environment" . ]]" {
       }
 
       template {
+        # runtime_secrets from __SECRETS_BACKEND__ (via __RUNTIME_SECRETS__); tpl like runtime_env
         destination = "${NOMAD_SECRETS_DIR}/env.vars"
         env         = true
         change_mode = "restart"
@@ -109,7 +117,8 @@ job "[[ var "service" . ]]-[[ var "environment" . ]]" {
           {{- end -}}
 
           # This will now always render, regardless of Nomad's variable store status
-          SECRET_ENCRYPTION_KEY = "[[ var "secret_encryption_key" . ]]"
+          # SECRET_ENCRYPTION_KEY = "[[ var "secret_encryption_key" . ]]"
+          [[ tpl (var "runtime_secrets" .) . ]]
           EOF
       }
 
@@ -132,10 +141,13 @@ job "[[ var "service" . ]]-[[ var "environment" . ]]" {
       port                = "http"
       tags = [
         "[[ var "service" . ]]",
-        "api",
 [[- if var "enable_traefik" . ]]
         "traefik.enable=true",
-        "traefik.http.routers.[[ var "router_name" . ]].rule=Host(`[[ var "hostname" . ]]`) || PathPrefix(`/api/[[ var "environment_sanitized" . ]]`)",
+[[-   if ne (var "public_domain" .) "" ]]
+        "traefik.http.routers.[[ var "router_name" . ]].rule=Host(`[[ var "hostname" . ]]`) || Host(`[[ var "public_domain" . ]]`)",
+[[-   else ]]
+        "traefik.http.routers.[[ var "router_name" . ]].rule=Host(`[[ var "hostname" . ]]`)",
+[[-   end ]]
         "traefik.http.routers.[[ var "router_name" . ]].entrypoints=websecure",
         "traefik.http.routers.[[ var "router_name" . ]].tls=true",
 [[- end ]]
@@ -145,7 +157,7 @@ job "[[ var "service" . ]]-[[ var "environment" . ]]" {
       check {
         type     = "http"
         port     = "http"
-        path     = "/[[ var "health_base" . ]]/health"
+        path     = "/health"
         interval = "10s"
         timeout  = "2s"
         method   = "GET"
@@ -154,7 +166,7 @@ job "[[ var "service" . ]]-[[ var "environment" . ]]" {
       check {
         type     = "http"
         port     = "http"
-        path     = "/[[ var "health_base" . ]]/ready"
+        path     = "/ready"
         interval = "10s"
         timeout  = "2s"
         method   = "GET"
