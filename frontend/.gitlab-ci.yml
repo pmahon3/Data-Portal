@@ -59,6 +59,11 @@ variables:
 
   # Nomad deployment configuration
   SERVICE_NAME: "frontend"
+  # Overrides root placeholder NOMAD_PACK_DIR: "deploy"
+  NOMAD_PACK_DIR: "frontend/deploy"
+  # Pack runtime_env / runtime_secrets: wire service CI blobs into Nomad job __*__ vars
+  __RUNTIME_ENV__: ${__RUNTIME_ENV_FRONTEND__}
+  __RUNTIME_SECRETS__: ${__SECRETS_FRONTEND__}
   NOMAD_DEPLOY_ENABLED: "${NOMAD_DEPLOY_ENABLED}"
   NOMAD_EXTERNAL_ACCESS: "true"  # Frontend always needs external access
   NOMAD_RESOURCE_CPU: 500  # CPU and Memory for nomad job

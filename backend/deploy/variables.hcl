@@ -94,6 +94,12 @@ variable "runtime_env" {
   default     = ""
 }
 
+variable "runtime_secrets" {
+  description = "Newline-separated secret KEY=VALUE pairs for NOMAD_SECRETS_DIR (from __SECRETS_BACKEND__). May contain pack [[ var … ]] snippets via tpl."
+  type        = string
+  default     = ""
+}
+
 variable "api_gateway" {
   description = "Backend public base URL for frontend proxy / API clients (optional)."
   type        = string
@@ -126,12 +132,6 @@ variable "environment_sanitized" {
 
 variable "hostname" {
   description = "Primary public hostname for Traefik Host() (no scheme)."
-  type        = string
-  default     = ""
-}
-
-variable "secret_encryption_key" {
-  description = "Application secret encryption key (from CI/Nomad Variables)."
   type        = string
   default     = ""
 }
