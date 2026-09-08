@@ -17,14 +17,80 @@ flowchart TD
     G -->|Yes| H["Return single_file_url"]
     H --> I["Browser downloads file<br/>from source S3 storage"]
 
-    G -->|No| J["Backend submits URLs to Bundler<br/>and returns bundle_id"]
+    G -->|No| J["Backend submits URLs to Bundler,<br/>records the bundle's folder scopes,<br/>and returns bundle_id"]
     J --> K["Bundler downloads source files<br/>and creates a ZIP"]
     K --> L["Bundler uploads ZIP<br/>to bundle S3 storage"]
     J --> M["Frontend polls bundle status"]
     L --> M
-    M --> N["Backend requests a <br/>presigned archive URL"]
+    M --> M2{"Caller still authorized<br/>for every scope?"}
+    M2 -->|No| M3["404 Not Found"]
+    M2 -->|Yes| N["Backend requests a <br/>presigned archive URL"]
     N --> O["Browser downloads ZIP<br/>from bundle S3 storage"]
 ```
+
+## Bundle Redemption Authorization
+
+`GET /api/tree/bundle/{id}/status` and `GET /api/tree/bundle/{id}/download` both
+authorize before doing any work. A bundle id identifies an archive; it does not grant
+access to one.
+
+The check runs against the caller's policies **at redemption time**, not against an
+owner recorded at creation, so an archive never outlives the access it was built under:
+revoke a user's read on a folder and their existing bundles stop opening.
+
+This is the backend's job precisely because the bundler is identity-unaware - it holds
+the archive, not the question of who may have it.
+
+```mermaid
+sequenceDiagram
+    actor Caller
+    participant Backend
+    participant Postgres
+    participant Casbin
+    participant Bundler
+
+    Caller->>Backend: GET /api/tree/bundle/{id}/status<br/>or /download, Bearer {token}
+
+    Backend->>Backend: Validate JWT
+    Backend->>Postgres: SELECT bundle WHERE id = {id}
+
+    alt No such bundle
+        Postgres-->>Backend: none
+        Backend-->>Caller: 404 Not Found
+    else Bundle exists
+        Postgres-->>Backend: instance_uuid
+        Backend->>Postgres: SELECT bucket, folder_path<br/>FROM bundle_scopes WHERE bundle_id = {id}
+        Postgres-->>Backend: distinct folder scopes
+
+        loop For each scope
+            Backend->>Casbin: enforce(user_uuid, instance_uuid,<br/>bucket/folder_path, read)
+            Casbin-->>Backend: allow or deny
+        end
+
+        alt Any scope denied
+            Note over Backend: Logged as a denied redemption
+            Backend-->>Caller: 404 Not Found
+        else All scopes allowed
+            Backend->>Bundler: GET /bundles/{id}
+            Bundler-->>Backend: status or archive URL
+            Backend-->>Caller: 200 OK
+        end
+    end
+```
+
+**Unknown and unauthorized both answer 404.** A 403 would confirm which bundle ids
+exist, and the ids are not treated as secrets - they travel in logs, proxy access logs,
+and browser history. Distinguishing the two cases would make the endpoint an existence
+oracle.
+
+### Why scopes rather than files
+
+`bundle_scopes` records the distinct parent folders a bundle draws from, deduplicated,
+rather than one row per file. Policies are path-scoped, so files sharing a directory
+resolve identically. A 10,000-file bundle spanning 50 directories costs 50 policy checks
+rather than 10,000 - roughly 3 ms against 380 ms, measured.
+
+Rationale and open decisions are in `docs/bundling-design.md`.
 
 ## File/Folder Upload Flow (S3)
 
