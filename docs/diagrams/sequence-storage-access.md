@@ -215,6 +215,73 @@ and one local signing operation. Earlier revisions also made two Keycloak round 
 (OIDC discovery plus a JWKS fetch) and a third to resolve the caller's username into a
 uuid, and read the instance document twice; those were removed in 2026-09.
 
+## Bulk Manifest
+
+`POST /api/tree/manifest` - one presigned URL per authorized file, in a single request.
+Accepts file ids, folder ids, or both; folders expand to their completed descendants.
+
+The cost that matters is the round trip. Asking for N files here is one request rather
+than N: the caller's identity and the storage instance are resolved once for the whole
+batch, and presigning is local crypto with no network call, so the marginal cost per
+file is small. Over a link with real latency this is the difference between paying the
+round trip once and paying it N times.
+
+```mermaid
+sequenceDiagram
+    actor Caller
+    participant Backend
+    participant Mongo
+    participant Postgres
+    participant Casbin
+    participant S3Storage
+
+    Caller->>Backend: POST /api/tree/manifest<br/>{instance_name, file_ids[], folder_ids[]}
+
+    Backend->>Backend: Verify JWT with cached JWKS keys
+    Backend->>Backend: Read caller uuid from 'sub' claim
+
+    Note over Backend,Mongo: Resolved once for the whole batch
+    Backend->>Mongo: find_one({name: instance_name})
+    Mongo-->>Backend: Instance document
+
+    Backend->>Postgres: SELECT files WHERE id IN {file_ids}
+    Postgres-->>Backend: file rows
+
+    opt folder_ids given
+        Backend->>Postgres: Expand folders to completed descendants
+        Postgres-->>Backend: file rows
+    end
+
+    loop For each resolved file
+        Backend->>Casbin: enforce(user_uuid, instance_uuid,<br/>bucket/key, read)
+        Casbin-->>Backend: allow or deny
+    end
+
+    alt An explicitly requested file is denied
+        Backend-->>Caller: 403 Forbidden
+    else No readable files
+        Backend-->>Caller: 404 Not Found
+    else Authorized
+        Backend->>Backend: generate_access_links(resources, read, ttl)<br/>sign each URL locally
+        Backend-->>Caller: 200 {count, total_bytes, expires_in, entries[]}
+        Caller->>S3Storage: GET each presigned URL
+        S3Storage-->>Caller: File data
+    end
+```
+
+Each entry carries `file_id`, `bucket`, `key`, `relative_path`, `size` and `url`, so a
+client can reconstruct the tree it asked for without a second call.
+
+### Denied files: 403 or skipped
+
+The two cases differ deliberately. A file named **explicitly** in `file_ids` that the
+caller cannot read raises 403 - asking for something specific and silently not getting
+it is worse than an error. A file reached by **expanding a folder** is skipped instead,
+because a folder the caller can partly read should return the readable part.
+
+Both paths go through `resolve_authorized_files`, which the bundle endpoint also uses,
+so a manifest and a bundle of the same selection make the same authorization decision.
+
 ## Storage Instance Creation
 
 Admin creating a new storage instance.

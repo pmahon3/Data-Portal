@@ -16,6 +16,7 @@ classDiagram
         +CONFIG: dict
         +instance_url: str
         +generate_access_link(resource, method, ttl) Tuple
+        +generate_access_links(resources, method, ttl) Tuple
         +delete_object(resource)
         +delete_objects(resources)
         +get_object_metadata(resource) dict
@@ -35,6 +36,7 @@ classDiagram
         +connect()
         +fetch_all_buckets() list~str~
         +generate_access_link(resource, method, ttl) Tuple
+        +generate_access_links(resources, method, ttl) Tuple
         +delete_object(resource)
         +delete_objects(resources)
         +get_object_metadata(resource) dict
