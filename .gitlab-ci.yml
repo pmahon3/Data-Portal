@@ -25,6 +25,9 @@ variables:
   CODE_QUALITY_DISABLED: "true"
   
   NOMAD_DEPLOY_ENABLED: "${NOMAD_DEPLOY_ENABLED}"
+  # Placeholder pack root (repo-relative). Does not need to exist at repo root —
+  # each service overrides this in {service}/.gitlab-ci.yml (e.g. backend/deploy).
+  NOMAD_PACK_DIR: "deploy"
   # NOMAD_EXTERNAL_ACCESS not set - uses defaults:
   #   - Review Apps: external access enabled (for testing)
   #   - Production/Staging/Development: internal only (service discovery)
@@ -140,6 +143,8 @@ frontend-autodevops:
     PIPELINE_TIMESTAMP: "${PIPELINE_TIMESTAMP}"
     # Disable deprecated CodeClimate-based Code Quality (inherited from parent)
     CODE_QUALITY_DISABLED: "${CODE_QUALITY_DISABLED}"
+    # Default pack path placeholder; child .gitlab-ci.yml overrides (frontend/deploy)
+    NOMAD_PACK_DIR: "${NOMAD_PACK_DIR}"
   rules:
     - changes:
         - frontend/**/*
@@ -162,6 +167,8 @@ backend-autodevops:
     PIPELINE_TIMESTAMP: "${PIPELINE_TIMESTAMP}"
     # Disable deprecated CodeClimate-based Code Quality (inherited from parent)
     CODE_QUALITY_DISABLED: "${CODE_QUALITY_DISABLED}"
+    # Default pack path placeholder; child .gitlab-ci.yml overrides (backend/deploy)
+    NOMAD_PACK_DIR: "${NOMAD_PACK_DIR}"
   rules:
     - changes:
         - backend/**/*

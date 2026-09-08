@@ -37,6 +37,9 @@ variables:
 
   # Nomad deployment configuration
   SERVICE_NAME: "backend"
+  NOMAD_PACK_DIR: "backend/deploy"
+  __RUNTIME_ENV__: ${__RUNTIME_ENV_BACKEND__}
+  __RUNTIME_SECRETS__: ${__SECRETS_BACKEND__}
   NOMAD_DEPLOY_ENABLED: "${NOMAD_DEPLOY_ENABLED}"
   # NOMAD_EXTERNAL_ACCESS not set - uses defaults:
   #   - Review Apps: external access enabled (for testing)

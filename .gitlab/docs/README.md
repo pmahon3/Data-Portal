@@ -15,29 +15,36 @@ This integration allows you to:
 
 - Auto DevOps still owns build/test/scan and job names (`review`, `staging`, `production`, `deploy:development`, rollouts).
 - Deploy jobs live in [`.gitlab/deploy/Deploy.nomad.gitlab-ci.yml`](../deploy/Deploy.nomad.gitlab-ci.yml).
-- Routing policy (Traefik hosts, review host ids, runtime env selection) stays in [`nomad_routing.sh`](../deploy/scripts/nomad_routing.sh).
+- Routing policy (Traefik hosts, review host ids) stays in [`nomad_routing.sh`](../deploy/scripts/nomad_routing.sh); Pack vs envsubst finishers in `nomad_routing_pack.sh` / `nomad_routing_envsubst.sh`.
 - Job render + submit uses **Nomad Pack** via [`nomad_deploy.sh`](../deploy/scripts/nomad_deploy.sh) (replaces two-pass `envsubst`).
 
 ## Directory structure
 
 ```text
-.gitlab/deploy/
-├── Deploy.nomad.gitlab-ci.yml   # Auto DevOps-shaped deploy jobs
-├── packs/                       # Nomad Pack definitions (source of truth)
-│   ├── backend/
-│   │   ├── metadata.hcl
-│   │   ├── variables.hcl
-│   │   └── templates/backend.nomad.tpl
-│   └── frontend/
-│       ├── metadata.hcl
-│       ├── variables.hcl
-│       └── templates/frontend.nomad.tpl
-├── nomad-templates/             # DEPRECATED envsubst templates (rollback only)
+.gitlab/deploy/                    # CI orchestration only
+├── Deploy.nomad.gitlab-ci.yml     # Auto DevOps-shaped deploy jobs
+├── nomad-templates/               # Shared / legacy templates (non-service)
 └── scripts/
-    ├── nomad_setup.sh           # Installs nomad-pack; checks Nomad connectivity
-    ├── nomad_routing.sh         # Traefik / runtime env policy
-    └── nomad_deploy.sh          # Writes vars.hcl → nomad-pack plan/run
+    ├── nomad_setup.sh               # Installs nomad-pack; Nomad connectivity
+    ├── nomad_routing.sh             # Shared hostname / Traefik policy → pack or envsubst
+    ├── nomad_routing_pack.sh        # Pack finishers (e.g. discovery API_GATEWAY in runtime_env)
+    ├── nomad_routing_envsubst.sh    # Legacy __SERVICE_TAGS__ / Traefik-host API_GATEWAY
+    ├── nomad_deploy.sh              # Entrypoint → pack or envsubst via NOMAD_PACK_ENABLED
+    ├── nomad_deploy_pack.sh         # Writes vars.hcl → nomad-pack plan/run
+    └── nomad_deploy_envsubst.sh     # Legacy two-pass envsubst + nomad job run
+
+backend/                           # (same pattern for frontend/)
+├── .gitlab-ci.yml                 # SERVICE_NAME, NOMAD_PACK_DIR override, …
+└── deploy/                        # Service Nomad Pack root
+    ├── metadata.hcl
+    ├── variables.hcl
+    ├── templates/backend.nomad.tpl
+    └── backend.template.nomad     # Legacy envsubst (rollback only)
 ```
+
+`NOMAD_PACK_DIR` defaults to `"deploy"` in the root `.gitlab-ci.yml` (placeholder; need not exist).
+Each service overrides it in `{service}/.gitlab-ci.yml` (e.g. `backend/deploy`).
+Scripts use `$CI_PROJECT_DIR/$NOMAD_PACK_DIR`.
 
 ### Integration Approach
 
@@ -79,8 +86,9 @@ Branches map to environments:
 ## Deploy flow
 
 1. `nomad_setup.sh` — ensure `nomad-pack` on `PATH`, map `NOMAD_ADDR`/`NOMAD_TOKEN`.
-2. `nomad_routing.sh` — set `__RUNTIME_ENV__`, `__SERVICE_TAGS__`, `__HOSTNAME__`, `__API_GATEWAY__`.
-3. `nomad_deploy.sh` — write `${SERVICE_NAME}-${__ENVIRONMENT__}.vars.hcl`, `nomad-pack render` (CI artifact), `plan`, `run` with `--name=${SERVICE_NAME}-${__ENVIRONMENT__}`.
+2. `nomad_routing.sh` — shared Traefik hosts / `__HOSTNAME__` / `__ENABLE_TRAEFIK__`, then Pack or envsubst finishers (`__RUNTIME_ENV__` comes from service CI).
+3. `nomad_deploy.sh` — dispatches to `nomad_deploy_pack.sh` (default) or `nomad_deploy_envsubst.sh`.
+   Pack path: write `${SERVICE_NAME}-${__ENVIRONMENT__}.vars.hcl`, `nomad-pack render` (CI artifact), `plan`, `run` with `--name=${SERVICE_NAME}-${__ENVIRONMENT__}`.
 
 Set `NOMAD_PACK_ENABLED=false` to force the legacy `envsubst` + `.template.nomad` path (temporary rollback).
 
@@ -98,6 +106,7 @@ include:
 variables:
   NOMAD_DEPLOY_ENABLED: "true"
   SERVICE_NAME: "backend"  # or "frontend"
+  NOMAD_PACK_DIR: "backend/deploy"  # overrides root placeholder "deploy"
 ```
 
 ## Pack variables
@@ -111,9 +120,12 @@ Defaults live in each pack’s `variables.hcl`. CI overrides them through the va
 | `datacenters` | `NOMAD_DATACENTERS` / `__DATACENTERS__` (HCL list) |
 | `namespace` | `NOMAD_NAMESPACE` |
 | `image_name` / `image_tag` | registry image + commit SHA |
-| `service_tags` | built by `nomad_routing.sh` (Traefik or `["api"]`) |
-| `runtime_env` | `__RUNTIME_ENV_BACKEND__` / `__RUNTIME_ENV_FRONTEND__` (may embed pack `[[ var … ]]` snippets; expanded by `tpl`) |
+| `service_tags` | built by `nomad_routing_envsubst.sh` (legacy only; pack builds tags in `.nomad.tpl`) |
+| `service_tags` / Traefik | built in pack templates from `enable_traefik` / `hostname` / `public_domain` (frontend) |
+| `runtime_env` | `__RUNTIME_ENV__` via `{service}/.gitlab-ci.yml` ← `__RUNTIME_ENV_BACKEND__` / `__RUNTIME_ENV_FRONTEND__` (may embed pack `[[ var … ]]`; expanded by `tpl`) |
+| `runtime_secrets` | Same as `runtime_env` but for `__RUNTIME_SECRETS__` into a template file |
 | `api_gateway` / `nomad_environment_url` / `hostname` | from `nomad_routing.sh` (for `tpl` inside `runtime_env`) |
+| `enable_traefik` / `router_name` / `public_domain` | from `nomad_routing.sh` (`PUBLIC_DOMAIN` is frontend-only) |
 | `resource_cpu` / `resource_memory` / `count` | `NOMAD_RESOURCE_*` / `NOMAD_COUNT` |
 | `health_base` / `secret_encryption_key` | backend pack only |
 
@@ -130,15 +142,13 @@ Nomad interpolations such as `${meta.role}`, `${NOMAD_PORT_http}`, and `${NOMAD_
 
 ## How to add a new service pack
 
-1. Copy `.gitlab/deploy/packs/backend` (or `frontend`) to `.gitlab/deploy/packs/<service>/`.
-2. Update `metadata.hcl` `pack.name` and adjust `templates/*.nomad.tpl` (ports, health paths, secrets).
-3. Declare defaults in `variables.hcl`.
-4. Set `SERVICE_NAME: "<service>"` in that service’s `.gitlab-ci.yml` so deploy resolves `.gitlab/deploy/packs/<service>`.
-5. Dry-run locally:
+1. Create `<service>/deploy/` with `metadata.hcl`, `variables.hcl`, and `templates/*.nomad.tpl` (copy from `backend/deploy` or `frontend/deploy`).
+2. Set `SERVICE_NAME: "<service>"` and `NOMAD_PACK_DIR: "<service>/deploy"` in `<service>/.gitlab-ci.yml` (overrides root placeholder `deploy`).
+3. Dry-run locally:
 
 ```bash
-nomad-pack render .gitlab/deploy/packs/<service> \
-  --name=<service>-staging \
+nomad-pack render backend/deploy \
+  --name=backend-staging \
   --var-file=/path/to/sample.vars.hcl \
   --to-dir=/tmp/pack-out --auto-approve
 ```
@@ -157,22 +167,32 @@ Required (GitLab CI/CD settings):
 Optional:
 - `NOMAD_DEPLOY_ENABLED`: Enable Nomad deployment suite (default `true`)
 - `NOMAD_PACK_ENABLED` (default `true`; set `false` for envsubst rollback)
+- `NOMAD_PACK_DIR`: Repo-relative path to the Nomad Pack root (root default `"deploy"` placeholder; override per service)
+- `NOMAD_JOB_TEMPLATE`: Legacy envsubst template path (default `$NOMAD_PACK_DIR/$SERVICE_NAME.template.nomad`)
 - `NOMAD_PACK_VERSION` (default `0.4.2` when setup installs the binary)
 - `NOMAD_EXTERNAL_ACCESS`: Control external access per service (`true`/`false`, or unset for environment defaults)
-- `NOMAD_DATACENTERS`: Control external access per service (default: environment-based)
+- `PUBLIC_DOMAIN`: Optional extra Traefik Host for the frontend only
+- `NOMAD_DATACENTERS`: Nomad datacenters HCL list
 - `NOMAD_RESOURCE_CPU`, `NOMAD_RESOURCE_MEMORY`, `NOMAD_COUNT`
 
 ### Service-Specific Configuration
 
-Each service can override default behavior:
+Configure pack location in `{service}/.gitlab-ci.yml` (overrides root `NOMAD_PACK_DIR: "deploy"`):
+
+```yaml
+# backend/.gitlab-ci.yml
+variables:
+  SERVICE_NAME: "backend"
+  NOMAD_PACK_DIR: "backend/deploy"
+```
+
+Or override other Nomad behavior in the same file:
 
 ```yaml
 variables:
   SERVICE_NAME: "backend"
-  NOMAD_JOB_TEMPLATE: ".gitlab/deploy/nomad-templates/backend.template.nomad"
   NOMAD_RESOURCE_CPU: "1000"
   NOMAD_RESOURCE_MEMORY: "1024"
-  # Control external access per service
   NOMAD_EXTERNAL_ACCESS: "true"  # Enable external access (or "false" to disable)
 ```
 

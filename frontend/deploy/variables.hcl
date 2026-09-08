@@ -88,8 +88,14 @@ variable "runtime_env" {
   default     = ""
 }
 
+variable "runtime_secrets" {
+  description = "Newline-separated secret KEY=VALUE pairs for NOMAD_SECRETS_DIR (from __SECRETS_FRONTEND__). May contain pack [[ var … ]] snippets via tpl."
+  type        = string
+  default     = ""
+}
+
 variable "api_gateway" {
-  description = "Backend public base URL the frontend proxies /api/ to."
+  description = "Optional Traefik-host backend URL. Prefer API_GATEWAY via Nomad service discovery in the pack template; set this only for overrides (e.g. API_GATEWAY=[[ var \"api_gateway\" . ]] in runtime_env)."
   type        = string
   default     = ""
 }
