@@ -1,6 +1,6 @@
 # Component Architecture
 
-**Last updated:** 2026-08-12
+**Last updated:** 2026-09-08
 
 ## System Overview
 
@@ -35,6 +35,10 @@ graph TB
         Keycloak[Keycloak<br/>OIDC Provider<br/>Port 8080]
     end
 
+    subgraph "Bundling Layer"
+        Bundler[Bundler Service<br/>Java or Python<br/>BUNDLER_PROVIDER]
+    end
+
     subgraph "Storage Backends"
         S3[S3-Compatible<br/>Storage]
         Dummy[Dummy Storage<br/>Testing]
@@ -49,11 +53,15 @@ graph TB
     Backend -->|Delegates Access| Storage
     Storage -->|Native Presigned URLs| S3
     Storage -->|Mock Operations| Dummy
+    Backend -->|Source URLs, job status| Bundler
+    Bundler -->|Reads sources, stores ZIP| S3
+    User -.->|Downloads archive directly| S3
 
     style Backend fill:#4A90E2
     style Keycloak fill:#E94B3C
     style ReactUI fill:#61DAFB
     style Policy fill:#FFD700
+    style Bundler fill:#95E1D3
 ```
 
 ## Backend Core Components
@@ -85,6 +93,7 @@ graph LR
     subgraph "External Services"
         KeycloakSvc[Keycloak<br/>Service]
         S3Backend[S3<br/>Backend]
+        BundlerSvc[Bundler<br/>Service]
     end
 
     AuthAPI --> ConnMgr
@@ -102,6 +111,7 @@ graph LR
     PolicyMgr -.->|Casbin Rules| PolicyMgr
     UserMgr -.->|CRUD Operations| KeycloakSvc
     S3Agent -.->|Presigned URLs| S3Backend
+    AssetAPI -.->|Submit job, poll status| BundlerSvc
 
     style ConnMgr fill:#4A90E2
     style PolicyMgr fill:#FFD700
@@ -151,6 +161,16 @@ graph TB
 ## Data Flow
 
 How multiple files are packaged and downloaded through the bundler.
+
+The bundler is a standalone service that takes presigned *source* URLs from the backend,
+downloads those objects itself, writes a ZIP, and uploads it to object storage. Archive
+bytes never proxy back through the backend: the caller gets a presigned URL to the
+finished archive and fetches it from object storage directly, the same way single-file
+downloads work.
+
+Two interchangeable implementations exist, selected by `BUNDLER_PROVIDER` and defaulting
+to `java`: `java-bundler/` (Spring Boot) and `bundler/` (Python). The diagrams show a
+single "Bundler" participant because the flow is identical either way.
 
 ```mermaid
 graph LR
