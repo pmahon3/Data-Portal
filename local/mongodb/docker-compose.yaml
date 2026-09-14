@@ -1,7 +1,7 @@
 
 services:
   mongodb:
-    image: mongo:latest
+    image: mongo:8.0
     attach: false
     # container_name: mongodb
     ports:
@@ -10,6 +10,10 @@ services:
     environment:
       - MONGO_INITDB_ROOT_USERNAME=${MONGO_INITDB_ROOT_USERNAME}
       - MONGO_INITDB_ROOT_PASSWORD=${MONGO_INITDB_ROOT_PASSWORD}
+      # Workaround for SERVER-121912: MongoDB refuses to start on Linux kernels
+      # 6.19 through 7.0.13 (Docker Desktop's VM is 7.0.12-linuxkit). Remove once
+      # the VM kernel reaches 7.0.14+.
+      - GLIBC_TUNABLES=glibc.pthread.rseq=1
     healthcheck:
       test:
         - CMD-SHELL
