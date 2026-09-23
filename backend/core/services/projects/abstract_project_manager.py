@@ -2,6 +2,11 @@ from abc import ABC, abstractmethod
 from uuid import UUID
 
 
+class InvalidProjectNameError(ValueError):
+    """Raised when a project name is empty or contains a forbidden character."""
+    pass
+
+
 class ProjectAlreadyExistsError(ValueError):
     """Raised when attempting to create a project that already exists."""
     pass
@@ -43,6 +48,13 @@ class AbstractProjectManager(ABC):
     def create_project(self, project_name: str) -> str:
         """
         Create a new project with the given name.
+        """
+        pass
+
+    @abstractmethod
+    def rename_project(self, project_name: str, new_name: str) -> str:
+        """
+        Rename an existing project, preserving its members and storage instances.
         """
         pass
 

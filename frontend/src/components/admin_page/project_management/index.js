@@ -81,6 +81,28 @@ export default function ProjectManagement() {
     }
   }
 
+  async function renameProject(project, newName) {
+    setErr("");
+    try {
+      const headers = await getAuthHeaders();
+      const { data } = await http.patch(
+        `/projects/${encodeURIComponent(project.name)}`,
+        { name: newName },
+        { headers }
+      );
+
+      // Projects are addressed by name, so a rename invalidates the handle this
+      // component holds. Reload from the server instead of patching in place,
+      // and move the modal selection onto the new name.
+      await loadProjects();
+      if (selectedProjectId === project.name) {
+        setSelectedProjectId(data.name);
+      }
+    } catch (e) {
+      setErr(formatError(e));
+    }
+  }
+
   function handleManage(project) {
     setSelectedProjectId(project.name);
   }
@@ -152,6 +174,7 @@ export default function ProjectManagement() {
               deleting={deletingProjectName === project.name}
               onManage={() => handleManage(project)}
               onDelete={isAdmin ? () => deleteProject(project) : null}
+              onRename={renameProject}
             />
           ))
         )}

@@ -1,12 +1,17 @@
 import logging
 from uuid import UUID
 
-from keycloak.exceptions import KeycloakGetError
+from keycloak.exceptions import KeycloakGetError, KeycloakPutError
 from keycloak.keycloak_admin import KeycloakAdmin
 from pymongo.collection import Collection
 
 from core.services.instances import AbstractInstanceManager
-from core.services.projects import AbstractProjectManager, ProjectAlreadyExistsError, ProjectNotFoundError
+from core.services.projects import (
+    AbstractProjectManager,
+    InvalidProjectNameError,
+    ProjectAlreadyExistsError,
+    ProjectNotFoundError,
+)
 
 logger = logging.getLogger("project-manager")
 
@@ -78,6 +83,24 @@ class KeycloakProjectManager(AbstractProjectManager):
             raise
 
         return project_name
+
+    def rename_project(self, project_name: str, new_name: str) -> str:
+        new_name = new_name.strip()
+        if not new_name or "/" in new_name:
+            raise InvalidProjectNameError(new_name)
+
+        group = self._get_group(project_name)
+
+        # Renaming the group keeps its id, so the "managers" subgroup and the
+        # instance associations keyed on that id survive the rename.
+        try:
+            self.identity_manager.update_group(group["id"], {"name": new_name})
+        except KeycloakPutError as e:
+            if getattr(e, "response_code", None) == 409:
+                raise ProjectAlreadyExistsError(new_name) from e
+            raise
+
+        return new_name
 
     def delete_project(self, project_name: str) -> None:
         group = self._get_group(project_name)

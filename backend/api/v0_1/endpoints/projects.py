@@ -6,7 +6,12 @@ from api.v0_1.common.auth_dependencies import is_user_admin, require_admin, requ
 from api.v0_1.common.models import ProjectCreateRequest, ProjectResponse, ProjectStorageInstanceRequest, ProjectUserRequest
 from core.services.injectors import get_instance_manager, get_project_manager
 from core.services.instances import AbstractInstanceManager
-from core.services.projects import AbstractProjectManager, ProjectAlreadyExistsError, ProjectNotFoundError
+from core.services.projects import (
+    AbstractProjectManager,
+    InvalidProjectNameError,
+    ProjectAlreadyExistsError,
+    ProjectNotFoundError,
+)
 
 projects_router = APIRouter(prefix="/projects", tags=["Project Management"])
 logger = logging.getLogger("api.endpoints")
@@ -85,6 +90,49 @@ async def create_project(
         users=project_manager.get_project_users(project_name),
         managers=project_manager.get_project_managers(project_name),
         storageInstances=project_manager.get_project_storage_instances(project_name)
+    )
+
+
+@projects_router.patch("/{project_name}", response_model=ProjectResponse)
+async def rename_project(
+    project_name: str,
+    project_data: ProjectCreateRequest,
+    current_user: dict = Depends(require_admin_or_project_manager()),
+    project_manager: AbstractProjectManager = Depends(get_project_manager)
+) -> ProjectResponse:
+    try:
+        new_name = project_manager.rename_project(project_name, project_data.name)
+    except ProjectNotFoundError:
+        logger.error(f"Project '{project_name}' not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found"
+        )
+    except ProjectAlreadyExistsError:
+        logger.error(f"Project '{project_data.name}' already exists")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Project already exists"
+        )
+    except InvalidProjectNameError:
+        logger.error(f"Invalid project name '{project_data.name}' for rename of '{project_name}'")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Project name is required and cannot contain '/'"
+        )
+    except Exception as e:
+        logger.error(f"Failed to rename project '{project_name}': {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to rename project"
+        )
+
+    logger.info(f"Renamed project '{project_name}' to '{new_name}'")
+    return ProjectResponse(
+        name=new_name,
+        users=project_manager.get_project_users(new_name),
+        managers=project_manager.get_project_managers(new_name),
+        storageInstances=project_manager.get_project_storage_instances(new_name)
     )
 
 
