@@ -198,9 +198,11 @@ class FileService:
         logger.warning(f"File ids: {result.scalars().all()}")
 
         # Confirm and return the number of files that are actually marked complete.
-        complete_files = await self.session.execute(
+        result_complete_files = await self.session.execute(
             select(File).
-            where(File.id == any_(file_ids), File.status == "complete")).scalars().all()
+            where(File.id == any_(file_ids), File.status == "complete"))
+        complete_files = result_complete_files.scalars().all()
+
         logger.warning(f"Files: {complete_files}")
         
         assert len(complete_files) == len(file_ids), f"Expected {len(file_ids)} files to be complete, but got {len(complete_files)}"
