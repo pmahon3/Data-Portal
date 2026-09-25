@@ -173,8 +173,8 @@ class TreeService:
         # If this folder is already complete, all of its ancestors are also
         # guaranteed to be complete (they were promoted by an earlier call).
         # Skip the UPDATE entirely to avoid redundant writes
-        if folder.status == "complete":
-            return
+        # if folder.status == "complete":
+        #     return
 
         await self.session.execute(
             update(Folder)
