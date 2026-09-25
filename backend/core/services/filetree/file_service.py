@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 
 from sqlalchemy import any_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.services.filetree.models.file import File
 
+logger = logging.getLogger("file_service")
 
 @dataclass(frozen=True)
 class FileService:
@@ -191,6 +193,8 @@ class FileService:
             .values(status="complete")
         )
         await self.session.commit()
+        logger.warning(f"Marked {result.rowcount} files complete without head")
+        logger.warning(f"File ids: {result}")
         return result.rowcount or 0
 
     async def delete_file_row(self, file: File) -> None:

@@ -588,11 +588,13 @@ async def folder_upload_complete(
                 })
             completed += 1
         except HTTPException as e:
+            logger.warning(f"Folder upload complete failed: {e.detail}")
             failed.append(FolderUploadCompleteFailureOut(
                 file_id=file_id,
                 detail=str(e.detail),
             ))
         except Exception:
+            logger.warning(f"Folder upload complete failed: {e.detail}")
             failed.append(FolderUploadCompleteFailureOut(
                 file_id=file_id,
                 detail="Unable to verify uploaded object",
