@@ -193,9 +193,19 @@ class FileService:
             .values(status="complete")
         )
         await self.session.commit()
+        # 'pending' files are marked complete, the count may exclude already 'complete' files (from the storage worker)
         logger.warning(f"Marked {result.rowcount} files complete without head")
-        logger.warning(f"File ids: {result}")
-        return result.rowcount or 0
+        logger.warning(f"File ids: {result.scalars().all()}")
+
+        # Confirm and return the number of files that are actually marked complete.
+        complete_files = await self.session.execute(
+            select(File).
+            where(File.id == any_(file_ids), File.status == "complete")).scalars().all()
+        logger.warning(f"Files: {complete_files}")
+        
+        assert len(complete_files) == len(file_ids), f"Expected {len(file_ids)} files to be complete, but got {len(complete_files)}"
+
+        return len(complete_files)
 
     async def delete_file_row(self, file: File) -> None:
         """
