@@ -195,7 +195,7 @@ class FileService:
         await self.session.commit()
         # 'pending' files are marked complete, the count may exclude already 'complete' files (from the storage worker)
         logger.warning(f"Marked {result.rowcount} files complete without head")
-        logger.warning(f"File ids: {result.scalars().all()}")
+        logger.warning(f"File ids: {result.rowcount}")
 
         # Confirm and return the number of files that are actually marked complete.
         result_complete_files = await self.session.execute(
@@ -203,7 +203,7 @@ class FileService:
             where(File.id == any_(file_ids), File.status == "complete"))
         complete_files = result_complete_files.scalars().all()
 
-        logger.warning(f"Files: {complete_files}")
+        logger.warning(f"Files: {len(complete_files)}")
         
         assert len(complete_files) == len(file_ids), f"Expected {len(file_ids)} files to be complete, but got {len(complete_files)}"
 
