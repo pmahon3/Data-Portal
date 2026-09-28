@@ -25,7 +25,13 @@ If the client can resume, the bundler has no job left to do.
 ## Run it
 
 ```bash
-# 1. Mint a fresh manifest (presigned URLs expire; regenerate before each run)
+# 1. Mint a fresh manifest (presigned URLs expire; regenerate before each run).
+#    Either from the backend:
+curl -X POST http://localhost:8000/api/tree/manifest \
+    -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+    -d '{"instance_name":"qa-instance","folder_ids":[8]}' -o manifest.json
+
+#    ...or straight from MinIO, to measure transport without a backend:
 cd workstreams/data-transfer/transfer-benchmark
 .venv/bin/python setup/make_manifest.py A 7200
 
@@ -106,14 +112,24 @@ an open question, not a blocker.
 
 ## Scope
 
-Egress only. No uploads, no backend changes, no manifest format changes, no
-authority field, no audit — those are the recorded direction in
-`workstreams/data-transfer/STATUS.md`, not this build.
+Egress only. No uploads, no authority field, no audit — those are the recorded
+direction in `workstreams/data-transfer/STATUS.md`, not this build.
 
-The manifest format is the one `make_manifest.py` already produces:
+The manifest format is the backend's `POST /api/tree/manifest` response, which
+`make_manifest.py` also produces so the harness and the real endpoint are
+interchangeable:
 
 ```json
-{"cell": "A", "count": 10, "totalBytes": 1048576000, "ttlSeconds": 7200,
- "entries": [{"url": "...", "relativePath": "sub0/f0.bin",
+{"count": 10, "total_bytes": 1048576000, "expires_in": 7200,
+ "entries": [{"url": "...", "relative_path": "qa-bucket/bench-A/sub0/f0.bin",
               "size": 104857600, "etag": "2cf28998...-7"}]}
 ```
+
+Only `url` and `relative_path` are required; `size` and `etag` are used when
+present. `relative_path` is the full `bucket/key`, so a manifest spanning
+buckets cannot collide on disk. The backend additionally returns `file_id`,
+`bucket` and `key`, which the client ignores.
+
+`etag` is a change detector, not a checksum: multipart uploads yield
+`<hash>-<partcount>`, which depends on part size rather than content alone.
+Integrity is verified by byte count, per `bundle-design/DESIGN.md` 3.3.
