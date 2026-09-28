@@ -20,6 +20,18 @@ class UserAlreadyExistsError(UserCreationError):
     """Raised when attempting to create a user that already exists."""
 
 
+class InvalidUserRoleError(UserCreationError):
+    """Raised when a requested role does not exist in the auth service.
+
+    Carries only the roles the caller supplied; the set of available roles is
+    auth-service detail that is deliberately not surfaced to API clients.
+    """
+
+    def __init__(self, invalid_roles: list[str]):
+        self.invalid_roles = invalid_roles
+        super().__init__(f"Unknown role(s): {', '.join(invalid_roles)}")
+
+
 class AbstractUserManager(ABC):
     @abstractmethod
     def create_user(self, user_details: UserCreate) -> User:

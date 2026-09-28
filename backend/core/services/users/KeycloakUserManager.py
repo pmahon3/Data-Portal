@@ -8,6 +8,7 @@ from keycloak.keycloak_admin import KeycloakAdmin
 from core.services.users.abstract_user_manager import (
     AbstractUserManager,
     InvalidUserEmailError,
+    InvalidUserRoleError,
     UserAlreadyExistsError,
     UsernameRequiredError,
 )
@@ -40,6 +41,25 @@ class KeycloakUserManager(AbstractUserManager):
                 logger.error(f"Response body: {e.response_body}")
             raise
 
+    def _resolve_realm_roles(self, role_names: list[str]) -> list[dict]:
+        """Map role names to Keycloak realm roles, rejecting unknown ones.
+
+        Raises InvalidUserRoleError naming every unknown role, so the caller
+        can show an actionable message instead of a raw Keycloak 404. The
+        realm's own role list is not included: it is auth-service detail.
+        """
+        available = {
+            role["name"]: role
+            for role in self.identity_manager.get_realm_roles()
+            if not role["name"].startswith("default-roles")
+        }
+
+        invalid = [name for name in role_names if name not in available]
+        if invalid:
+            raise InvalidUserRoleError(invalid_roles=invalid)
+
+        return [available[name] for name in role_names]
+
     def create_user(self, user_details: UserCreate) -> User:
         if not user_details.username.strip():
             raise UsernameRequiredError("Username is required")
@@ -51,6 +71,10 @@ class KeycloakUserManager(AbstractUserManager):
 
         if self.user_exists(user_details.username):
             raise UserAlreadyExistsError(user_details.username)
+
+        # Resolve roles before creating the user so an unknown role does not
+        # leave an orphaned, role-less account behind in Keycloak.
+        roles_info = self._resolve_realm_roles(user_details.roles)
 
         # Create user in Keycloak
         user_payload = {
@@ -79,12 +103,7 @@ class KeycloakUserManager(AbstractUserManager):
 
         user_info = self.identity_manager.get_user(user_id=user_uuid)
 
-        # Add roles to the user
-        try:
-            roles_info = [self.identity_manager.get_realm_role(role) for role in user_details.roles]
-        except Exception as e:
-            raise ValueError(f"Failed to get roles: {e}")
-
+        # Add roles to the user (already validated above)
         self.identity_manager.assign_realm_roles(
             user_id=user_uuid,
             roles=roles_info

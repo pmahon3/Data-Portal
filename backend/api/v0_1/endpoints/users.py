@@ -22,6 +22,7 @@ from core.services.policies import CasbinPolicyManager
 from core.services.users import (
     AbstractUserManager,
     InvalidUserEmailError,
+    InvalidUserRoleError,
     UserAlreadyExistsError,
     UsernameRequiredError,
 )
@@ -182,9 +183,23 @@ async def create_user(
     except UserAlreadyExistsError as e:
         logger.error(f"User '{user_data.username}' already exists: {e}")
         raise HTTPException(status_code=409, detail="User already exists")
+    except InvalidUserRoleError as e:
+        logger.error(
+            f"Invalid role(s) for user '{user_data.username}': {e.invalid_roles}"
+        )
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Unknown role(s): {', '.join(e.invalid_roles)}. "
+                "Check the role names and try again."
+            )
+        )
     except Exception as e:
-        logger.error(f"Failed to create user '{user_data.username}': {e}")
-        raise HTTPException(status_code=400, detail=f"Failed to create user: {e}")
+        logger.exception(f"Failed to create user '{user_data.username}': {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to create user due to an internal error."
+        )
 
     user_details = user_manager.get_user(uuid)
     logger.info(f"Created user '{user_data.username}'")

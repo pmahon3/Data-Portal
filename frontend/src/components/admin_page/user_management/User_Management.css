@@ -68,6 +68,19 @@
   /* Error */
   .um-error {
     color: #b91c1c;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+    /* Long messages must wrap rather than overflow the card. */
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+
+  /* Inside the form grid the gap already provides spacing. */
+  .um-form .um-error {
+    margin-bottom: 0;
   }
   
   /* DataGrid wrapper */
