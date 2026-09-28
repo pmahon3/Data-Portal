@@ -241,7 +241,8 @@ export async function uploadFolderFiles(http, endpointName, bucket, folderId, fi
     throw new Error(`Folder upload complete failed for ${completeResp.data.failed.length} file(s).`);
   }
 
-  return realFiles.length;
+  // Return the backend-confirmed completed count; `?.` reads safely and `??` keeps the old fallback.
+  return completeResp.data?.completed ?? realFiles.length;
 }
 
 /**

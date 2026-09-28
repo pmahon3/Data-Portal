@@ -213,9 +213,7 @@ class StorageEventProcessor:
         existing = await self.get_folder(bucket, full_path)
         if existing is not None:
             if existing["status"] != "complete":
-                await self.session.execute(
-                    update(folders).where(folders.c.id == existing["id"]).values(status="complete")
-                )
+                await self.mark_folder_ancestors_complete(bucket, existing["path"])
                 existing["status"] = "complete"
             return existing
 
@@ -252,6 +250,24 @@ class StorageEventProcessor:
         )
         row = result.mappings().one_or_none()
         return dict(row) if row is not None else None
+
+    async def mark_folder_ancestors_complete(self, bucket: str, folder_path: Ltree) -> None:
+        """Mark an existing folder and its ancestors complete.
+
+        Folder uploads create nested folder rows as pending before object bytes
+        arrive. If the storage-event worker later observes a file in a deep
+        pending folder, every pending ancestor must become complete too, or the
+        DB-backed lazy tree will hide the branch above that file.
+        """
+        await self.session.execute(
+            update(folders)
+            .where(
+                folders.c.bucket == bucket,
+                folders.c.path.op("@>")(folder_path),
+                folders.c.status != "complete",
+            )
+            .values(status="complete")
+        )
 
 
 async def log_status(session: AsyncSession) -> None:

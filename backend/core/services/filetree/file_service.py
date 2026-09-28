@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import logging
 
-from sqlalchemy import any_, select, update
+from sqlalchemy import any_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.services.filetree.models.file import File
@@ -148,6 +148,17 @@ class FileService:
             select(File).where(File.id == any_(file_ids), File.status == "pending")
         )).scalars().all())
 
+    async def get_files_for_upload_completion(self, file_ids: list[int]) -> list[File]:
+        """Retrieve pending or already-complete file rows for upload completion.
+
+        Object-storage events can complete rows before the browser calls the
+        batch complete endpoint. Treating those rows as missing makes a
+        successful upload look failed, so the endpoint needs both statuses.
+        """
+        return list((await self.session.execute(
+            select(File).where(File.id == any_(file_ids), File.status.in_(["pending", "complete"]))
+        )).scalars().all())
+
     async def update_from_head(self, file: File, head: dict) -> None:
         """Update file metadata from an S3/MinIO HEAD-object response.
 
@@ -208,6 +219,15 @@ class FileService:
         assert len(complete_files) == len(file_ids), f"Expected {len(file_ids)} files to be complete, but got {len(complete_files)}"
 
         return len(complete_files)
+
+    async def count_completed_files(self, file_ids: list[int]) -> int:
+        """Count requested file rows that are currently complete."""
+        if not file_ids:
+            return 0
+
+        return int((await self.session.execute(
+            select(func.count(File.id)).where(File.id == any_(file_ids), File.status == "complete")
+        )).scalar_one())
 
     async def delete_file_row(self, file: File) -> None:
         """

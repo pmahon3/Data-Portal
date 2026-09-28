@@ -545,21 +545,23 @@ async def folder_upload_complete(
     instance_uuid, agent = get_instance_agent(instance_manager, payload.instance_name)
 
     file_svc = FileService(session)
-    # Only pending files can be completed here.
-    files = await file_svc.get_files_for_completion(payload.file_ids)
+    # Storage events can mark files complete before this endpoint runs, so this
+    # endpoint is intentionally idempotent for already-complete file ids.
+    files = await file_svc.get_files_for_upload_completion(payload.file_ids)
     file_by_id = {file.id: file for file in files}
     failed: list[FolderUploadCompleteFailureOut] = []
     completed = 0
+    already_complete_file_ids: list[int] = []
     skip_head_file_ids: list[int] = []
     head_updates: list[dict] = []
 
     for file_id in payload.file_ids:
         file = file_by_id.get(file_id)
         if not file:
-            # Example: bad id, already complete id, or id from another upload.
+            # Example: bad id, deleted row, or id from another upload.
             failed.append(FolderUploadCompleteFailureOut(
                 file_id=file_id,
-                detail="Pending file not found",
+                detail="File not found",
             ))
             continue
 
@@ -572,7 +574,9 @@ async def folder_upload_complete(
         try:
             # Make sure the user can still write this file key.
             policy_or_403(policy_manager, policy)
-            if FOLDER_UPLOAD_SKIP_HEAD_CHECK:
+            if file.status == "complete":
+                already_complete_file_ids.append(file.id)
+            elif FOLDER_UPLOAD_SKIP_HEAD_CHECK:
                 # Trust the browser PUT result and batch-complete these rows later.
                 skip_head_file_ids.append(file.id)
             else:
@@ -586,24 +590,25 @@ async def folder_upload_complete(
                     "content_type": head.get("ContentType", file.content_type),
                     "status": "complete",
                 })
-            completed += 1
         except HTTPException as e:
             logger.warning(f"Folder upload complete failed: {e.detail}")
             failed.append(FolderUploadCompleteFailureOut(
                 file_id=file_id,
                 detail=str(e.detail),
             ))
-        except Exception:
-            logger.warning(f"Folder upload complete failed: {e.detail}")
+        except Exception as exc:
+            logger.warning("Folder upload complete failed: %s", exc)
             failed.append(FolderUploadCompleteFailureOut(
                 file_id=file_id,
                 detail="Unable to verify uploaded object",
             ))
 
     if skip_head_file_ids:
-        completed = await file_svc.mark_files_complete_without_head(skip_head_file_ids)
-    elif head_updates:
-        completed = await file_svc.update_many_from_head(head_updates)
+        await file_svc.mark_files_complete_without_head(skip_head_file_ids)
+    if head_updates:
+        await file_svc.update_many_from_head(head_updates)
+
+    completed = await file_svc.count_completed_files(payload.file_ids)
 
     if failed:
         # Log one summary instead of one line per file. Large folder uploads can
@@ -618,10 +623,13 @@ async def folder_upload_complete(
     if completed:
         tree_svc = TreeService(session)
         completed_folders_by_bucket: dict[str, set[int]] = {}
+        already_complete_file_id_set = set(already_complete_file_ids)
         skip_head_file_id_set = set(skip_head_file_ids)
         head_update_file_id_set = {update_item["id"] for update_item in head_updates}
         for file in files:
-            if FOLDER_UPLOAD_SKIP_HEAD_CHECK:
+            if file.id in already_complete_file_id_set:
+                completed_folders_by_bucket.setdefault(file.bucket, set()).add(file.folder_id)
+            elif FOLDER_UPLOAD_SKIP_HEAD_CHECK:
                 if file.id in skip_head_file_id_set:
                     completed_folders_by_bucket.setdefault(file.bucket, set()).add(file.folder_id)
             elif file.id in head_update_file_id_set:
