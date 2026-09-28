@@ -38,6 +38,9 @@ variables:
 
   # Nomad deployment configuration
   SERVICE_NAME: "frontend"
+  NOMAD_PACK_DIR: "frontend/deploy"
+  __RUNTIME_ENV__: ${__RUNTIME_ENV_FRONTEND__}
+  __RUNTIME_SECRETS__: ${__SECRETS_FRONTEND__}
   NOMAD_DEPLOY_ENABLED: "${NOMAD_DEPLOY_ENABLED}"
   NOMAD_EXTERNAL_ACCESS: "true"  # Frontend always needs external access
   

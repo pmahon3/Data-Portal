@@ -4,17 +4,36 @@
 
 echo "===== Starting nomad-setup.sh ====="
 
+# Ensure wget/unzip exist before any downloads (hashicorp/nomad image is minimal).
+# Used by both envsubst (legacy) and nomad-pack install paths below.
+ensure_download_tools() {
+  if command -v wget > /dev/null 2>&1 && command -v unzip > /dev/null 2>&1; then
+    return 0
+  fi
+  echo "Installing download tools (wget, unzip)..."
+  if command -v apk > /dev/null 2>&1; then
+    apk add --no-cache wget unzip ca-certificates >/dev/null 2>&1 || true
+  elif command -v apt-get > /dev/null 2>&1; then
+    apt-get update -qq && apt-get install -y -qq wget unzip ca-certificates >/dev/null 2>&1 || true
+  fi
+  if ! command -v wget > /dev/null 2>&1; then
+    echo "Error - wget is required but could not be installed"
+    exit 1
+  fi
+}
+
 # Install GNU gettext-base envsubst binary (not included in hashicorp/nomad image)
 # Still required for NOMAD_PACK_ENABLED=false (legacy envsubst deploy path).
 if ! command -v envsubst > /dev/null 2>&1; then
   echo "Installing GNU gettext-base envsubst binary..."
+  ensure_download_tools
 
   # Determine architecture (assume correct)
   ARCH=$(uname -m)
   [ "$ARCH" = "x86_64" ] && DEB_ARCH="amd64" || DEB_ARCH="arm64"
 
   # Download gettext-base .deb package from Debian repository
-  GETTEXT_VERSION="0.21-4"
+  GETTEXT_VERSION="${GETTEXT_VERSION:-0.21-4}"
   DEB_URL="http://ftp.debian.org/debian/pool/main/g/gettext/gettext-base_${GETTEXT_VERSION}_${DEB_ARCH}.deb"
 
   cd /tmp
@@ -44,6 +63,7 @@ echo "✓ envsubst = $(envsubst --version 2>&1 | head -1)"
 # Used by the default Nomad Pack deploy path (NOMAD_PACK_ENABLED=true).
 if ! command -v nomad-pack > /dev/null 2>&1; then
   echo "Installing nomad-pack..."
+  ensure_download_tools
 
   ARCH=$(uname -m)
   case "$ARCH" in
@@ -51,13 +71,6 @@ if ! command -v nomad-pack > /dev/null 2>&1; then
     aarch64|arm64) PACK_ARCH="arm64" ;;
     *) echo "Error - Unsupported architecture: $ARCH"; exit 1 ;;
   esac
-
-  # Ensure download tools exist (hashicorp/nomad image is minimal)
-  if command -v apk > /dev/null 2>&1; then
-    apk add --no-cache wget unzip ca-certificates >/dev/null 2>&1 || true
-  elif command -v apt-get > /dev/null 2>&1; then
-    apt-get update -qq && apt-get install -y -qq wget unzip ca-certificates >/dev/null 2>&1 || true
-  fi
 
   # Pin a known release; override with NOMAD_PACK_VERSION if needed
   NOMAD_PACK_VERSION="${NOMAD_PACK_VERSION:-0.4.2}"
@@ -109,7 +122,7 @@ export NOMAD_NAMESPACE="${NOMAD_NAMESPACE:-${__NAMESPACE__:-default}}"
 
 # Service and runtime variables (__SERVICE__, __IMAGE_NAME__, __IMAGE_TAG__, etc.) are
 # set by the GitLab CI variables block (.deploy). Only __API_GATEWAY__ default is set
-# here; nomad_routing.sh always sets __RUNTIME_ENV__ and gates Traefik on NOMAD_EXTERNAL_ACCESS.
+# here; __RUNTIME_ENV__ comes from {service}/.gitlab-ci.yml; nomad_routing.sh gates Traefik on NOMAD_EXTERNAL_ACCESS.
 export __API_GATEWAY__="http://backend-${CI_COMMIT_REF_SLUG}.${NOMAD_DOMAIN:-example.com}"
 
 echo "===== nomad-setup.sh completed successfully ====="

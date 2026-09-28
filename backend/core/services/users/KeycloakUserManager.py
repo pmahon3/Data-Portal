@@ -61,7 +61,7 @@ class KeycloakUserManager(AbstractUserManager):
                 {
                     "type": "password",
                     "value": user_details.password,
-                    "temporary": False
+                    "temporary": True
                 }
             ]
         }

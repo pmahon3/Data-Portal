@@ -4,7 +4,7 @@ function LandingPage() {
   return (
     <div style={styles.page}>
       <div style={styles.card}>
-        <h1>Welcome to INN Application</h1>
+        <h1>Welcome to the INN Data Portal Application</h1>
         <p>Please login to continue.</p>
       </div>
     </div>
