@@ -22,7 +22,8 @@ export default function UserManagement() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
-  const [err, setErr] = useState('');
+  const [err, setErr] = useState('');       // create/update form errors
+  const [listErr, setListErr] = useState(''); // errors from loading or deleting
 
   // form state
   const [username, setUsername] = useState('');
@@ -52,7 +53,7 @@ export default function UserManagement() {
         const data = await apiListUsers();
         if (Array.isArray(data)) setUsers(data);
       } catch (e) {
-        setErr(formatError(e));
+        setListErr(formatError(e));
       } finally {
         setLoading(false);
       }
@@ -99,13 +100,13 @@ export default function UserManagement() {
 
   const handleDelete = useCallback(async (u) => {
     if (!window.confirm(`Delete user "${u.username}"?`)) return;
-    setErr('');
+    setListErr('');
     try {
       await apiDeleteUser(u.username);
       setUsers(prev => prev.filter(x => x.username !== u.username));
       alert(`Deleted ${u.username}`);
     } catch (e) {
-      setErr(formatError(e));
+      setListErr(formatError(e));
     }
   }, []);
 
@@ -179,17 +180,27 @@ export default function UserManagement() {
             <input value={rolesText} onChange={e => setRolesText(e.target.value)} placeholder="admin, user" />
           </label>
 
+          {err && (
+            <div className="um-error" role="alert">
+              {err}
+            </div>
+          )}
+
           <div className="um-actions">
             <button className="um-btn um-btn-primary" type="submit" disabled={creating}>
               {creating ? <CircularProgress size={20} color="inherit" /> : "Create User"}
             </button>
-            {err && <div className="um-error">{err}</div>}
           </div>
         </form>
       </section>
 
       <section className="um-card">
         <h3>Users</h3>
+        {listErr && (
+          <div className="um-error" role="alert">
+            {listErr}
+          </div>
+        )}
         {loading ? (
           <p>Loading users…</p>
         ) : users.length === 0 ? (
