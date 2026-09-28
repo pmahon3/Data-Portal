@@ -269,8 +269,16 @@ sequenceDiagram
     end
 ```
 
-Each entry carries `file_id`, `bucket`, `key`, `relative_path`, `size` and `url`, so a
-client can reconstruct the tree it asked for without a second call.
+Each entry carries `file_id`, `bucket`, `key`, `relative_path`, `size`, `etag` and
+`url`, so a client can reconstruct the tree it asked for without a second call.
+
+`relative_path` is the full `bucket/key`, so a manifest spanning buckets cannot collide
+on disk. `etag` is a change detector rather than a checksum - a multipart upload yields
+`<hash>-<partcount>`, which depends on part size rather than content alone - so a client
+verifies by byte count and uses the etag only to notice that an object changed.
+
+Only `url` and `relative_path` are needed to perform the transfer; the rest is
+information the caller may or may not use.
 
 ### Denied files: 403 or skipped
 
@@ -281,6 +289,65 @@ because a folder the caller can partly read should return the readable part.
 
 Both paths go through `resolve_authorized_files`, which the bundle endpoint also uses,
 so a manifest and a bundle of the same selection make the same authorization decision.
+
+### Redeeming a manifest: resumable transfer
+
+A manifest is data, not a transfer. Something else redeems it - `protocol/client/fetch.py`
+is the reference implementation, but the format is deliberately plain enough that a job
+on the destination cluster or a container the receiving institution runs could do the
+same.
+
+What makes an unattended move of a large dataset possible is that **the partial files on
+disk are the entire state**. The resume offset is the size of the file already there, so
+there is no journal to corrupt and no sidecar to fall out of sync; an interrupt at any
+moment leaves something valid to continue from.
+
+```mermaid
+sequenceDiagram
+    actor Operator
+    participant Client as Transfer client
+    participant Disk
+    participant S3Storage
+
+    Operator->>Client: fetch.py manifest.json --dest DIR
+
+    loop For each entry
+        Client->>Disk: stat(DIR/relative_path)
+
+        alt Size already equals entry.size
+            Note over Client,Disk: Complete - skipped, so a rerun<br/>costs only the unfinished tail
+        else Partial file present
+            Disk-->>Client: offset = bytes on disk
+            Client->>S3Storage: GET url<br/>Range: bytes=offset-
+            alt 206 Partial Content
+                S3Storage-->>Client: remaining bytes
+                Client->>Disk: append
+            else 200 OK (Range ignored)
+                S3Storage-->>Client: whole object
+                Client->>Disk: truncate, then write
+            end
+        else Nothing on disk
+            Client->>S3Storage: GET url
+            S3Storage-->>Client: object
+            Client->>Disk: write
+        end
+    end
+
+    Client->>Disk: Re-stat every entry against the manifest
+    Client-->>Operator: Report, or list what is still short
+```
+
+The backend is absent from this diagram, which is the point: it issued the references
+and is out of the data path. Bytes move between storage and the destination over 443,
+so no component has to be installed inside the network holding the data.
+
+Two consequences worth stating, because they bound what this design gives you:
+
+- **A presigned URL expires.** The TTL is fixed when the manifest is minted, so a
+  transfer longer than that window needs a fresh manifest rather than a longer wait.
+  Re-minting mid-transfer, against current policy, is the recorded direction in
+  `workstreams/data-transfer/STATUS.md`; it is not implemented here.
+- **Integrity is byte count, not content.** See the etag note above.
 
 ## Storage Instance Creation
 

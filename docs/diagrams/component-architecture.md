@@ -160,17 +160,33 @@ graph TB
 
 ## Data Flow
 
-How multiple files are packaged and downloaded through the bundler.
+There are two ways to take many files out of the system, and they differ in whether a
+server touches the bytes.
 
-The bundler is a standalone service that takes presigned *source* URLs from the backend,
-downloads those objects itself, writes a ZIP, and uploads it to object storage. Archive
-bytes never proxy back through the backend: the caller gets a presigned URL to the
-finished archive and fetches it from object storage directly, the same way single-file
-downloads work.
+**Manifest + client (no proxy).** `POST /api/tree/manifest` returns one presigned URL
+per authorized file and nothing else; a client redeems them and fetches objects straight
+from storage. The backend is out of the data path entirely, and an interrupted transfer
+resumes per file. See *Bulk Manifest* and *Redeeming a manifest* in
+`sequence-storage-access.md`.
 
-Two interchangeable implementations exist, selected by `BUNDLER_PROVIDER` and defaulting
-to `java`: `java-bundler/` (Spring Boot) and `bundler/` (Python). The diagrams show a
-single "Bundler" participant because the flow is identical either way.
+**Bundler (server-side assembly).** For callers that need a single artifact - a browser
+cannot write many files to a directory - the bundler takes presigned *source* URLs from
+the backend, downloads those objects itself, writes a ZIP, and uploads it to object
+storage.
+
+Two implementations are selected by `BUNDLER_PROVIDER`, defaulting to `java`, and they
+are **not** equivalent:
+
+- `java-bundler/` (Spring Boot) presigns the finished archive, so the caller fetches it
+  from object storage directly and archive bytes do not proxy back through a server.
+  This is what the diagram below shows.
+- `bundler/` (Python) returns the archive as a response body
+  (`default_api_impl.py`), which streams the whole ZIP through the application server
+  and holds it in memory. It also returns bytes where the backend's
+  `/tree/bundle/{id}/download` expects JSON, so that endpoint is effectively java-only.
+
+Either way the bundler downloads every source object before it can produce anything, so
+it is unsuited to large transfers: use the manifest path for those.
 
 ```mermaid
 graph LR
@@ -190,6 +206,23 @@ graph LR
     style Backend fill:#4A90E2
     style Casbin fill:#FFD700
     style Bundler fill:#95E1D3
+    style S3 fill:#FF9900
+```
+
+The manifest path has no equivalent middle. The backend issues references and stops:
+
+```mermaid
+graph LR
+    Operator -->|Request manifest + JWT| Backend
+    Backend -->|Check access| Casbin
+    Backend -->|Create URLs| StorageAgent
+    StorageAgent -->|Presigned URLs| Backend
+    Backend -->|Manifest| Client["Transfer client"]
+    Client <-->|GET w/ Range, resume| S3
+
+    style Backend fill:#4A90E2
+    style Casbin fill:#FFD700
+    style Client fill:#95E1D3
     style S3 fill:#FF9900
 ```
 
