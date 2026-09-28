@@ -581,7 +581,10 @@ async def folder_upload_complete(
                 head_updates.append({
                     "id": file.id,
                     "size": head.get("ContentLength", file.size),
-                    "etag": head.get("ETag", file.etag),
+                    # S3 returns the etag quoted. Sync strips the quotes
+                    # (object_storage_sync.py), so strip them here too: the two
+                    # write paths must agree before anything compares the value.
+                    "etag": head.get("ETag", file.etag or "").strip('"') or file.etag,
                     "last_modified": head.get("LastModified", file.last_modified),
                     "content_type": head.get("ContentType", file.content_type),
                     "status": "complete",
@@ -976,6 +979,7 @@ async def create_manifest(
             key=f.key,
             relative_path=f"{f.bucket}/{f.key}",
             size=f.size,
+            etag=f.etag,
             url=url,
         )
         for f, url in zip(files, urls)

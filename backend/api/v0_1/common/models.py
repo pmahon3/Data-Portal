@@ -31,6 +31,11 @@ class ManifestEntry(BaseModel):
     key: str = Field(..., description="The object key within the bucket.")
     relative_path: str = Field(..., description="Path to reconstruct on the client, as bucket/key.")
     size: Union[int, None] = Field(default=None, description="Size in bytes, if known.")
+    etag: Union[str, None] = Field(
+        default=None,
+        description="The object's etag, if known. A change detector, not a content hash: "
+                    "multipart uploads yield '<hash>-<partcount>', which depends on part size.",
+    )
     url: str = Field(..., description="Presigned GET URL for the object.")
 
 

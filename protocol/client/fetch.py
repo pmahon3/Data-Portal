@@ -11,10 +11,16 @@ only issues the references -- so nothing needs to be installed inside the
 network holding the data. A transfer that survives interruption is what makes
 an unattended 100 GB move possible without a server in the middle.
 
-Manifest format is the one produced by transfer-benchmark/setup/make_manifest.py:
+Manifest format is the one returned by the backend's POST /api/tree/manifest,
+and produced by transfer-benchmark/setup/make_manifest.py:
 
-    {"cell":..., "count":..., "totalBytes":..., "ttlSeconds":...,
-     "entries": [{"url":..., "relativePath":..., "size":..., "etag":...}]}
+    {"count":..., "total_bytes":..., "expires_in":...,
+     "entries": [{"url":..., "relative_path":..., "size":..., "etag":...}]}
+
+Only url and relative_path are required; size, etag and the envelope fields are
+used when present. relative_path is the path to create under --dest, and the
+backend sends the full "bucket/key" so a manifest spanning buckets cannot
+collide.
 
 Usage:
     python3 fetch.py <manifest.json> --dest <dir> [--workers 8] [--verbose]
@@ -88,6 +94,22 @@ class PermanentError(Exception):
     """Retrying will not help: the request is wrong, not unlucky."""
 
 
+def entry_path(entry):
+    """The destination path for an entry, named so a bad manifest says so.
+
+    A missing key here used to raise a bare KeyError from inside a worker
+    thread, which reported the symptom rather than the cause -- a manifest in
+    the wrong shape looked like a transfer failure.
+    """
+    try:
+        return entry["relative_path"]
+    except KeyError:
+        raise PermanentError(
+            "manifest entry has no 'relative_path' "
+            f"(keys: {', '.join(sorted(entry)) or 'none'})"
+        ) from None
+
+
 def _open(url, offset):
     """GET url, starting at offset. Returns (response, total_size, resumed).
 
@@ -130,7 +152,7 @@ def fetch_one(entry, dest, verbose=False):
 
     Returns a dict describing what happened. Raises on unrecoverable failure.
     """
-    rel = entry["relativePath"]
+    rel = entry_path(entry)
     expected = entry.get("size")
     path = Path(dest) / rel
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -243,16 +265,30 @@ def main():
         print("manifest has no entries", file=sys.stderr)
         return 2
 
+    # Check the shape before transferring anything. A manifest in the wrong
+    # format should say so up front rather than failing partway through a
+    # transfer that has already written files.
+    try:
+        for e in entries:
+            entry_path(e)
+            if "url" not in e:
+                raise PermanentError(
+                    f"manifest entry has no 'url' (keys: {', '.join(sorted(e))})"
+                )
+    except PermanentError as exc:
+        print(f"unusable manifest: {exc}", file=sys.stderr)
+        return 2
+
     dest = Path(args.dest)
     dest.mkdir(parents=True, exist_ok=True)
 
-    total_bytes = manifest.get("totalBytes") or sum(e.get("size") or 0 for e in entries)
+    total_bytes = manifest.get("total_bytes") or sum(e.get("size") or 0 for e in entries)
 
     # Bytes already on disk, so the run reports what it actually transferred
     # rather than what the manifest describes.
     already = 0
     for e in entries:
-        p = dest / e["relativePath"]
+        p = dest / entry_path(e)
         if p.exists():
             already += min(p.stat().st_size, e.get("size") or p.stat().st_size)
 
@@ -272,8 +308,9 @@ def main():
                 try:
                     results.append(fut.result())
                 except Exception as exc:
-                    failures.append((entry["relativePath"], exc))
-                    log(f"  FAILED   {entry['relativePath']}: {exc}")
+                    rel = entry_path(entry)
+                    failures.append((rel, exc))
+                    log(f"  FAILED   {rel}: {exc}")
         except KeyboardInterrupt:
             # Cancel what has not started; in-flight writes keep whatever they
             # have already flushed, which is exactly what the next run resumes
@@ -304,13 +341,14 @@ def main():
     # Verify against the manifest rather than trusting the loop above.
     incomplete = []
     for e in entries:
-        p = dest / e["relativePath"]
+        rel = entry_path(e)
+        p = dest / rel
         want = e.get("size")
         if want is None:
             continue
         got = p.stat().st_size if p.exists() else 0
         if got != want:
-            incomplete.append((e["relativePath"], got, want))
+            incomplete.append((rel, got, want))
 
     if incomplete:
         log(f"\nINCOMPLETE: {len(incomplete)} file(s) do not match the manifest")
