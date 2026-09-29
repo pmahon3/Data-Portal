@@ -1,8 +1,10 @@
 .im-root { display: grid; gap: 16px; }
 .im-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
 .im-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
-.im-head { display:flex; align-items:center; justify-content: space-between; margin-bottom: 8px; }
-.im-title { display:flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.im-head { display:flex; align-items:center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+/* min-width:0 lets the title shrink instead of pushing the right-hand actions
+   out of the card when its contents are wider than the available space. */
+.im-title { display:flex; gap: 8px; align-items: center; flex-wrap: wrap; min-width: 0; flex: 1 1 auto; }
 .im-chip { padding: 2px 8px; border: 1px solid #e5e7eb; border-radius: 999px; background:#fff; font-size: 12px; }
 .im-meta { font-size: 14px; color:#374151; margin-bottom: 8px; }
 .im-key { color:#6b7280; margin-right: 6px; }
@@ -34,7 +36,17 @@
 .im-project-option input[type="checkbox"] { width:16px; height:16px; padding:0; }
 
 .im-actions { display:flex; gap:10px; align-items:center; flex-wrap: wrap; }
-.im-actions-right { display:flex; gap:8px; }
+.im-actions-right { display:flex; gap:8px; flex: 0 0 auto; }
+
+/* Inline rename controls on a storage card. The input flexes so a long name
+   scrolls within it rather than widening the row, and the spacer pushes
+   Save/Cancel to the right edge, away from the flavour chip. */
+.im-edit-label { color:#6b7280; font-size: 13px; }
+.im-edit-row { display:flex; gap:8px; align-items:center; flex-wrap: wrap; width:100%; margin-top: 2px; }
+.im-edit-row input { flex: 1 1 140px; min-width: 0; padding: 4px 6px; border: 1px solid #ccc; border-radius: 4px; }
+.im-edit-spacer { flex: 1 1 auto; }
+/* Instance-level actions while renaming, matching .im-actions-right alignment. */
+.im-card-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:12px; padding-top:12px; border-top:1px solid #e5e7eb; }
 
 .im-btn { padding: 8px 12px; border:1px solid #e5e7eb; border-radius: 8px; background:#fff; cursor:pointer; }
 .im-btn:disabled { opacity:.65; cursor:not-allowed; }
