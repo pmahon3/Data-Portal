@@ -40,74 +40,89 @@ export default function StorageInstanceCard({ instance: i, onDelete, onUpdate, o
     }
   }
 
+  // Sync and Delete act on the instance itself, so they are rendered once and
+  // simply move between the header (display mode) and a dedicated actions row
+  // (edit mode), where the rename controls need the full width of the header.
+  const instanceActions = ((onSync && i.flavour === "s3") || onDelete) && (
+    <>
+      {onSync && i.flavour === "s3" && (
+        <button className="im-btn" disabled={syncing} onClick={handleSync}>
+          {syncing ? "Syncing..." : "Sync"}
+        </button>
+      )}
+      {onDelete && (
+        <button className="im-btn im-btn-danger" disabled={deleting} onClick={() => onDelete(i)}>
+          {deleting ? "Deleting..." : "Delete"}
+        </button>
+      )}
+    </>
+  );
+
   return (
     <div className="im-card">
-      <div className="im-head">
-        <div className="im-title">
-          {isEditing ? (
-            /* --- EDIT MODE UI --- */
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <input 
-                type="text" 
-                value={editingName} 
-                onChange={e => setEditingName(e.target.value)}
-                placeholder="Instance name"
-                style={{ padding: '4px 6px', border: '1px solid #ccc', borderRadius: '4px' }}
-              />
-              <button 
-                className="im-btn im-btn-primary" 
-                style={{ padding: '4px 8px', fontSize: '12px' }}
-                onClick={handleSave}
-              >
-                Save
-              </button>
-              <button 
-                className="im-btn" 
-                style={{ padding: '4px 8px', fontSize: '12px' }}
-                onClick={() => {
-                  setIsEditing(false);
-                  setEditingName(i.name);
-                  setLocalErr("");
-                }}
-              >
-                Cancel
-              </button>
+      {isEditing ? (
+        /* --- EDIT MODE UI --- */
+        <>
+          <div className="im-head">
+            <div className="im-title">
+              <span className="im-edit-label">Rename endpoint</span>
             </div>
-          ) : (
-            /* --- DISPLAY MODE UI --- */
-            <>
-              <strong>{i.name}</strong>
-              <button 
-                title="Edit name"
-                style={{ background: 'none', border: 'none', borderRadius: 8, cursor: 'pointer', padding: '0 4px', fontSize: '14px', color: '#666' }}
-                onClick={() => {
-                  setIsEditing(true);
-                  setEditingName(i.name);
-                }}
-              >
-                ✎
-              </button>
-            </>
-          )}
-          <span className="im-chip">{i.flavour}</span>
-        </div>
-        {((onSync && i.flavour === "s3") || onDelete) && (
-          <div className="im-actions-right">
-            {onSync && i.flavour === "s3" && (
-              <button className="im-btn" disabled={syncing} onClick={handleSync}>
-                {syncing ? "Syncing..." : "Sync"}
-              </button>
-            )}
-            {onDelete && (
-              <button className="im-btn im-btn-danger" disabled={deleting} onClick={() => onDelete(i)}>
-                {deleting ? "Deleting..." : "Delete"}
-              </button>
-            )}
           </div>
-        )}
-      </div>
+          <div className="im-edit-row">
+            <input
+              type="text"
+              value={editingName}
+              onChange={e => setEditingName(e.target.value)}
+              placeholder="Instance name"
+            />
+            <span className="im-chip">{i.flavour}</span>
+            <span className="im-edit-spacer" />
+            <button
+              className="im-btn im-btn-primary"
+              style={{ padding: '4px 8px', fontSize: '12px' }}
+              onClick={handleSave}
+            >
+              Save
+            </button>
+            <button
+              className="im-btn"
+              style={{ padding: '4px 8px', fontSize: '12px' }}
+              onClick={() => {
+                setIsEditing(false);
+                setEditingName(i.name);
+                setLocalErr("");
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </>
+      ) : (
+        /* --- DISPLAY MODE UI --- */
+        <div className="im-head">
+          <div className="im-title">
+            <strong>{i.name}</strong>
+            <button
+              title="Edit name"
+              style={{ background: 'none', border: 'none', borderRadius: 8, cursor: 'pointer', padding: '0 4px', fontSize: '14px', color: '#666' }}
+              onClick={() => {
+                setIsEditing(true);
+                setEditingName(i.name);
+              }}
+            >
+              ✎
+            </button>
+            <span className="im-chip">{i.flavour}</span>
+          </div>
+          {instanceActions && <div className="im-actions-right">{instanceActions}</div>}
+        </div>
+      )}
 
       {localErr && <div className="im-error" style={{ fontSize: '12px', marginTop: '4px' }}>{localErr}</div>}
+
+      {isEditing && instanceActions && (
+        <div className="im-card-actions">{instanceActions}</div>
+      )}
 
       {/* --- CONFIGURATION DETAILS --- */}
       {i.config && configEntries.length > 0 && (
