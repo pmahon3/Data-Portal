@@ -206,6 +206,41 @@ def policy_or_403(policy_manager: CasbinPolicyManager, policy: Policy) -> None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied by policy")
 
 
+def keys_or_403(
+    policy_manager: CasbinPolicyManager,
+    user_uuid,
+    instance_uuid,
+    bucket: str,
+    keys: list[str],
+    action: str,
+    labels: dict[str, str] | None = None,
+) -> None:
+    """Check `action` on every key a bulk operation touches; raise 403 if any is denied.
+
+    A permission on a folder doesn't imply the same permission on every file in it, so
+    bulk operations (folder upload, folder delete) must check each key before acting on
+    any of them. `labels` maps keys to the names shown in the error (e.g. upload paths).
+    """
+    denied = [
+        key for key in keys
+        if not policy_manager.validate_policy(Policy(
+            user_uuid=user_uuid,
+            instance_uuid=instance_uuid,
+            resource=resource_for_key(bucket, key),
+            action=action,
+        ))
+    ]
+    if denied:
+        shown = [(labels or {}).get(key, key) for key in denied]
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "message": f"Access denied by policy for {len(denied)} of {len(keys)} file(s).",
+                "denied": shown[:20],
+            },
+        )
+
+
 def get_instance_agent(instance_manager: AbstractInstanceManager, instance_name: str):
     """Resolve an instance UUID and its storage agent by name."""
     instance_uuid = instance_manager.get_instance_uuid(instance_name)
@@ -431,6 +466,11 @@ async def folder_upload_init(
     # For now, browser folder selections are assumed to be unique.
     relative_path_by_key = {file["key"]: file["relative_path"] for file in planned_files}
     keys = list(relative_path_by_key.keys())
+
+    # The folder check above doesn't cover every file: check write on each target key,
+    # including files this upload would replace, before creating anything.
+    keys_or_403(policy_manager, user_uuid, instance_uuid, payload.bucket, keys, "write",
+                labels=relative_path_by_key)
 
     # Find existing completed files that this upload would conflict with.
     existing_files = list((await session.execute(
@@ -820,6 +860,11 @@ async def delete_folder(
     prefix = normalize_folder_full_path(folder.full_path).lstrip("/")
     # TODO: Move prefix listing behind the storage agent abstraction.
     keys = list_keys_under_prefix(agent.s3_client, bucket, prefix)
+
+    # The folder check above doesn't cover every file: check delete on each key, and
+    # refuse the whole delete if any is denied, before removing anything.
+    keys_or_403(policy_manager, user_uuid, instance_uuid, bucket, keys, "delete")
+
     if keys:
         agent.delete_objects([resource_for_key(bucket, key) for key in keys])
 
