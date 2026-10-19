@@ -3,10 +3,11 @@ from uuid import UUID
 
 from casbin import Enforcer
 from casbin_pymongo_adapter import Adapter
-import casbin.util
 
 from core.db import get_mongo_database
+from core.db.mongodb.mongo_client import POLICY_RULE_COLLECTION
 from core.services.policies.models import Policy, Agreement
+from core.services.policies.rules import Checker, Rule
 
 
 class CasbinPolicyManager:
@@ -32,7 +33,8 @@ class CasbinPolicyManager:
 
         # Create Casbin MongoDB adapter using an existing client
         database = get_mongo_database()
-        adapter = Adapter(client=database.client, db_name=database.name)
+        adapter = Adapter(client=database.client, db_name=database.name, collection=POLICY_RULE_COLLECTION)
+        self._rules = database[POLICY_RULE_COLLECTION]
 
         # Pass the adapter to the Enforcer so it owns policy persistence
         self.enforcer = Enforcer(os.environ['ENFORCER_MODEL'], adapter, enable_log=False)
@@ -187,50 +189,26 @@ class CasbinPolicyManager:
         self.enforcer.remove_filtered_policy(0, user_uuid.__str__())
         return True
 
+    def checker(self, user_uuid: UUID, instance_uuid: UUID) -> Checker:
+        """
+        The user's rules on one storage instance, read from MongoDB with one indexed query.
+
+        Decisions are made from these rules (core/services/policies/rules.py), not by Casbin's
+        enforcer, so a policy change applies to the next request in every backend process.
+        Build one checker per request and reuse it for every path the request checks.
+        """
+        rows = self._rules.find(
+            {"ptype": "p", "v0": str(user_uuid), "v1": str(instance_uuid)},
+            {"_id": 0, "v2": 1, "v3": 1},
+        )
+        return Checker(Rule(row.get("v2", ""), row.get("v3", "")) for row in rows)
+
     def validate_policy(self, policy: Policy) -> bool:
         """
-        Validate user access based on the provided parameters.
+        May the policy's user do its action on its resource?
         """
-
-        user_uuid = policy.user_uuid.__str__()
-        instance_uuid = policy.instance_uuid.__str__()
-        resource = policy.resource
-        action = policy.action
-
-        return self.enforcer.enforce(user_uuid, instance_uuid, resource, action)
-
-    def get_allowed_actions(
-        self,
-        user_uuid: UUID,
-        instance_uuid: UUID,
-        resource: str,
-        actions_to_check: list[str] | None = None,
-    ) -> list[str]:
-        """
-        Given this user and resource, return what actions they are allowed
-        """
-        if actions_to_check is None:
-            actions_to_check = self._actions
-            
-        user_uuid_str = str(user_uuid)
-        instance_uuid_str = str(instance_uuid)
-        
-        # Get all policies for the user and instance
-        policies = self.enforcer.get_filtered_policy(0, user_uuid_str, instance_uuid_str)
-        
-        allowed_actions = set()
-        
-        for p in policies:
-            p_sub, p_dom, p_obj, p_act = p[0], p[1], p[2], p[3]
-            
-            # Pattern matching for resource: (regexMatch(r.obj, p.obj) || regexMatch(p.obj, r.obj + ".*"))
-            if casbin.util.regex_match(resource, p_obj) or casbin.util.regex_match(p_obj, resource + ".*"):
-                # Check which specific allowed actions match the p_act regex
-                for action in actions_to_check:
-                    if casbin.util.regex_match(action, p_act):
-                        allowed_actions.add(action)
-                        
-        return list(allowed_actions)
+        checker = self.checker(policy.user_uuid, policy.instance_uuid)
+        return checker.allows(policy.resource, policy.action)
 
     def create_agreement(self, agreement: Agreement) -> bool:
         """

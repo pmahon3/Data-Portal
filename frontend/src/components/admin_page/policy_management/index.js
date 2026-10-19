@@ -186,7 +186,7 @@ export default function PolicyManagement() {
             <input
               value={resource}
               onChange={e => setResource(e.target.value)}
-              placeholder="/bucket/prefix/.* or exact path"
+              placeholder="bucket/folder/* or bucket/path/file.ext"
             />
           </label>
 

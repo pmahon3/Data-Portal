@@ -8,7 +8,11 @@ import logging
 
 from pymongo import ASCENDING, IndexModel
 
-from .mongo_client import get_instance_collection, get_project_instance_association_collection
+from .mongo_client import (
+    get_instance_collection,
+    get_policy_rule_collection,
+    get_project_instance_association_collection,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +36,11 @@ PROJECT_INSTANCE_ASSOCIATION_INDEXES = [
     ),
 ]
 
+# Each request reads one user's rules on one instance (policy type, user, instance)
+POLICY_RULE_INDEXES = [
+    IndexModel([("ptype", ASCENDING), ("v0", ASCENDING), ("v1", ASCENDING)]),
+]
+
 
 def ensure_instance_indexes() -> None:
     """
@@ -53,3 +62,14 @@ def ensure_project_instance_association_indexes() -> None:
     logger.info("Ensuring MongoDB project-instance association indexes")
     collection.create_indexes(PROJECT_INSTANCE_ASSOCIATION_INDEXES)
     logger.info("MongoDB project-instance association indexes are ready")
+
+
+def ensure_policy_rule_indexes() -> None:
+    """
+    Ensure the index used to load a user's policy rules exists.
+    """
+    collection = get_policy_rule_collection()
+
+    logger.info("Ensuring MongoDB policy rule indexes")
+    collection.create_indexes(POLICY_RULE_INDEXES)
+    logger.info("MongoDB policy rule indexes are ready")
