@@ -104,6 +104,13 @@ export default function Tree({
     isPatternValid,
   ]);
 
+  // Under a filter (a path search or "Find in selection") the tree shows only part of
+  // each folder, so clicking a folder can't mean "everything in it", and selection
+  // mustn't spread up to parent folders. So while a filter is active, files are
+  // selected one at a time and folders can't be selected (requirement AC-4,
+  // docs/requirements/access-control.md).
+  const filterActive = filterState.hasActiveFilter;
+
   const applyFilter = async () => {
     if (!isPatternValid) return;
 
@@ -259,8 +266,8 @@ export default function Tree({
                     selected={selected}
                     onChange={onChange}
                     disableFileSelection={disableFileSelection}
-                    disableFolderSelection={disableFolderSelection}
-                    disableCascade={disableCascade}
+                    disableFolderSelection={disableFolderSelection || filterActive}
+                    disableCascade={disableCascade || filterActive}
                     onToggleExpand={toggleExpand}
                     isLoading={loadingNodeIds.has(String(node.id))}
                     hasSelectedDescendant={selectedAncestorIds.has(
