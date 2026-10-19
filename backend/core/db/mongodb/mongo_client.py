@@ -19,6 +19,9 @@ logger = logging.getLogger('policy-manager')
 
 _mongo_client: MongoClient | None = None
 
+# The Casbin adapter's default collection name
+POLICY_RULE_COLLECTION = "casbin_rule"
+
 def get_mongo_client() -> MongoClient:
     """
     Return a shared MongoClient
@@ -68,6 +71,14 @@ def get_instance_collection() -> Collection:
     """
     db = get_mongo_database()
     return db[os.getenv("MONGO_INSTANCE_COLLECTION", "connection-storage-instances")]
+
+
+def get_policy_rule_collection() -> Collection:
+    """
+    Return the MongoDB collection the Casbin adapter stores policy rules in.
+    """
+    db = get_mongo_database()
+    return db[POLICY_RULE_COLLECTION]
 
 
 def get_project_instance_association_collection() -> Collection:

@@ -7,7 +7,6 @@ read-only endpoints require standard authentication.
 """
 
 import logging
-import re
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -19,6 +18,7 @@ from core.services.injectors import get_user_manager, get_policy_manager, get_in
 from core.services.instances import AbstractInstanceManager
 from core.services.policies import CasbinPolicyManager
 from core.services.policies import Policy
+from core.services.policies.rules import normalize_rule_path, validate_rule_action
 from core.services.projects import AbstractProjectManager
 from core.services.users import AbstractUserManager
 from api.v0_1.common.models import (
@@ -178,10 +178,12 @@ async def create_policy(
         HTTPException: 404 if user or instance not found
         HTTPException: 400 if policy creation fails
     """
+    # Policy paths are literal (core/services/policies/rules.py); save them in normal form
     try:
-        re.compile(new_policy.resource)
-    except re.error:
-        raise HTTPException(status_code=400, detail="Invalid regular expression syntax.")
+        new_policy.resource = normalize_rule_path(new_policy.resource)
+        new_policy.action = validate_rule_action(new_policy.action)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     # Get user and instance UUIDs
     try:

@@ -1,4 +1,8 @@
-from core.db.mongodb.init_db import ensure_instance_indexes, ensure_project_instance_association_indexes
+from core.db.mongodb.init_db import (
+    ensure_instance_indexes,
+    ensure_policy_rule_indexes,
+    ensure_project_instance_association_indexes,
+)
 from core.db.postgres.init_db import ensure_roots_for_instances
 from core.db.postgres.session import AsyncSessionMaker
 from core.services.injectors import get_instance_manager
@@ -11,6 +15,7 @@ logger = logging.getLogger(__name__)
 def init_mongo_indexes():
     ensure_instance_indexes()
     ensure_project_instance_association_indexes()
+    ensure_policy_rule_indexes()
 
 #DB init for s3
 async def init_db_roots():
