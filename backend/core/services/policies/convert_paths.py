@@ -34,6 +34,8 @@ class Conversion(NamedTuple):
 
 def convert(path: str, action: str) -> Conversion:
     """How one stored policy's path and action convert."""
+    if _already_literal(path, action):
+        return Conversion(UNCHANGED, path, action, "already in the literal format")
     new_action, action_note = _convert_action(action)
     if new_action is None:
         return Conversion(REVIEW, path, action, action_note)
@@ -68,8 +70,17 @@ def convert(path: str, action: str) -> Conversion:
     )
 
 
+def _already_literal(path: str, action: str) -> bool:
+    """A row this script has already converted: "*", or a folder path ending in "/*" with no
+    other pattern characters, and an action that is "*" or a plain name. So the script can
+    be run again safely."""
+    path_literal = path == ALL or (path.endswith("/*") and not PATTERN_CHARACTERS & set(path[:-1]))
+    action_literal = action == ALL or (action.isalpha() and action.islower())
+    return path_literal and action_literal
+
+
 def _convert_action(action: str) -> tuple[str | None, str]:
-    if action == ".*":
+    if action in (".*", ALL):
         return ALL, "every action"
     if PATTERN_CHARACTERS & set(action) or "." in action:
         return None, "the action is a pattern"
