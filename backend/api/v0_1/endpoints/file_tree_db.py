@@ -93,6 +93,8 @@ async def dashboard_db(
     user_uuid = user_manager.get_user_uuid(token_payload["preferred_username"])
     instance = instance_manager.get_instance_by_uuid(UUID(instance_uuid))
     agent = instance.agent
+    # The user's rules, loaded once for every check in this request
+    check = policy_manager.checker(user_uuid, UUID(instance_uuid))
 
     # Identify buckets associated with the instance agent
     try:
@@ -117,8 +119,8 @@ async def dashboard_db(
     for root in roots:
         root_res = resource_for_folder(root.bucket, root.full_path)
         
-        # Determine user's base permissions for this root/bucket
-        root_allowed_access = policy_manager.get_allowed_actions(user_uuid, UUID(instance_uuid), root_res, access_types)
+        # Show the bucket if the user can act on it or on something inside it
+        root_allowed_access = [a for a in access_types if check.shows_folder(root_res, a)]
         
         # Skip processing if user has no access to the root
         if not root_allowed_access:
@@ -175,7 +177,7 @@ async def dashboard_db(
                 continue
 
             res = resource_for_folder(f.bucket, f.full_path)
-            allowed_actions_for_folder = policy_manager.get_allowed_actions(user_uuid, UUID(instance_uuid), res, valid_accesses)
+            allowed_actions_for_folder = [a for a in valid_accesses if check.shows_folder(res, a)]
             
             for access_key in allowed_actions_for_folder:
                 # Add this folder to list of allowed folders
@@ -207,7 +209,7 @@ async def dashboard_db(
                 continue
 
             res = resource_for_key(file.bucket, file.key)
-            allowed_actions_for_file = policy_manager.get_allowed_actions(user_uuid, UUID(instance_uuid), res, valid_accesses)
+            allowed_actions_for_file = [a for a in valid_accesses if check.allows(res, a)]
             
             for access_key in allowed_actions_for_file:
                 # Add this file to results
@@ -238,6 +240,8 @@ async def dashboard_children_db(
     """
     user_uuid = user_manager.get_user_uuid(token_payload["preferred_username"])
     instance_uuid_obj = UUID(instance_uuid)
+    # The user's rules, loaded once for every check in this request
+    check = policy_manager.checker(user_uuid, instance_uuid_obj)
     instance = instance_manager.get_instance_by_uuid(instance_uuid_obj)
     agent = instance.agent
     try:
@@ -245,7 +249,6 @@ async def dashboard_children_db(
     except Exception as e:
         logger.error(f"Failed to fetch allowed buckets: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Unable to retrieve bucket information from storage. Please try again later.")
-    access_types = [access]
     assets: list[dict] = []
 
     # If parent_id is none return roots
@@ -262,13 +265,7 @@ async def dashboard_children_db(
 
         for root in roots:
             root_res = resource_for_folder(root.bucket, root.full_path)
-            root_allowed_access = policy_manager.get_allowed_actions(
-                user_uuid,
-                instance_uuid_obj,
-                root_res,
-                access_types,
-            )
-            if not root_allowed_access:
+            if not check.shows_folder(root_res, access):
                 continue
 
             assets.append(folder_node(
@@ -291,13 +288,7 @@ async def dashboard_children_db(
     if parent is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Folder not found")
 
-    parent_allowed_access = policy_manager.get_allowed_actions(
-        user_uuid,
-        instance_uuid_obj,
-        resource_for_folder(parent.bucket, parent.full_path),
-        access_types,
-    )
-    if not parent_allowed_access:
+    if not check.shows_folder(resource_for_folder(parent.bucket, parent.full_path), access):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied by policy")
 
     # Get immediate childen
@@ -320,15 +311,9 @@ async def dashboard_children_db(
         .order_by(File.name)
     )).scalars().all())
 
-    # Check permissions through casbin
+    # Folders appear if the user can act on them or on something inside; files if allowed
     for folder in folders:
-        folder_allowed_access = policy_manager.get_allowed_actions(
-            user_uuid,
-            instance_uuid_obj,
-            resource_for_folder(folder.bucket, folder.full_path),
-            access_types,
-        )
-        if folder_allowed_access:
+        if check.shows_folder(resource_for_folder(folder.bucket, folder.full_path), access):
             assets.append(folder_node(
                 folder,
                 str(parent.id),
@@ -336,13 +321,7 @@ async def dashboard_children_db(
             ))
 
     for file in files:
-        file_allowed_access = policy_manager.get_allowed_actions(
-            user_uuid,
-            instance_uuid_obj,
-            resource_for_key(file.bucket, file.key),
-            access_types,
-        )
-        if file_allowed_access:
+        if check.allows(resource_for_key(file.bucket, file.key), access):
             assets.append({
                 "id": f"file-{file.id}",
                 "parent": str(file.folder_id),
