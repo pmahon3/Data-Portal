@@ -24,6 +24,7 @@ from core.services.injectors import get_instance_manager, get_policy_manager, ge
 from core.services.instances import AbstractInstanceManager
 from core.services.policies import CasbinPolicyManager
 from core.services.policies import Policy
+from core.services.policies.rules import Checker
 from core.services.users import AbstractUserManager
 from core.services.filetree.models.file import File
 from core.services.filetree.models.folder import Folder
@@ -203,6 +204,12 @@ class BundleStatusOut(BaseModel):
 def policy_or_403(policy_manager: CasbinPolicyManager, policy: Policy) -> None:
     """Validate a policy and raise 403 if denied."""
     if not policy_manager.validate_policy(policy):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied by policy")
+
+
+def allowed_or_403(check: Checker, resource: str, action: str) -> None:
+    """Raise 403 unless the user may do `action` on `resource`."""
+    if not check.allows(resource, action):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied by policy")
 
 
@@ -558,6 +565,7 @@ async def folder_upload_complete(
     skip_head_file_ids: list[int] = []
     head_updates: list[dict] = []
 
+    check = policy_manager.checker(user_uuid, instance_uuid)
     for file_id in payload.file_ids:
         file = file_by_id.get(file_id)
         if not file:
@@ -568,15 +576,9 @@ async def folder_upload_complete(
             ))
             continue
 
-        policy = Policy(
-            user_uuid=user_uuid,
-            instance_uuid=instance_uuid,
-            resource=resource_for_key(file.bucket, file.key),
-            action="write",
-        )
         try:
             # Make sure the user can still write this file key.
-            policy_or_403(policy_manager, policy)
+            allowed_or_403(check, resource_for_key(file.bucket, file.key), "write")
             if file.status == "complete":
                 already_complete_file_ids.append(file.id)
             elif FOLDER_UPLOAD_SKIP_HEAD_CHECK:
@@ -952,15 +954,11 @@ async def create_asset_bundle(
             for file in folder_files:
                 files_to_bundle.setdefault(file.id, file)
 
-    # Get presigned urls for each file
+    # Get presigned urls for each file the user may read. Files from a selected folder that
+    # the user can't read are skipped; an explicitly selected one refuses the request.
+    check = policy_manager.checker(user_uuid, instance_uuid)
     for file in files_to_bundle.values():
-        policy = Policy(
-            user_uuid=user_uuid,
-            instance_uuid=instance_uuid,
-            resource=resource_for_key(file.bucket, file.key),
-            action="read"
-        )
-        if not policy_manager.validate_policy(policy):
+        if not check.allows(resource_for_key(file.bucket, file.key), "read"):
             if file.id in explicit_file_ids:
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied by policy")
             continue

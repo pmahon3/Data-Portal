@@ -20,7 +20,8 @@ the user holds; tests check that the two agree.
 Requirements AC-1, AC-2, AC-3 and AC-5 in docs/requirements/access-control.md.
 """
 from collections import defaultdict
-from typing import Iterable, NamedTuple
+from collections.abc import Iterable
+from typing import NamedTuple
 
 from casbin.util.builtin_operators import key_match
 
