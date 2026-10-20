@@ -17,7 +17,8 @@ class CasbinPolicyManager:
     Class that provides methods for managing user policies and permissions.
 
     Attributes:
-        enforcer (Enforcer): An instance of the Enforcer class for enforcing access control policies. Uses casbin-pymongo adapter
+        enforcer (Enforcer): Stores and manages policies through the casbin-pymongo adapter.
+            Permission decisions are made by checker() (core/services/policies/rules.py).
         _actions (list): A list of actions that can be performed on resources.
     """
 

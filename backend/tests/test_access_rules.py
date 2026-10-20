@@ -4,9 +4,11 @@ Steps for features/access_rules.feature, plus property tests for the decision la
 Every check runs through both the definition (rule_allows, rule_shows_folder) and the indexed
 Checker, so the scenarios also test that the two agree.
 """
-from hypothesis import given, settings, strategies as st
 import pytest
-from pytest_bdd import given as bdd_given, parsers, scenarios, then, when
+from hypothesis import given, settings
+from hypothesis import strategies as st
+from pytest_bdd import given as bdd_given
+from pytest_bdd import parsers, scenarios, then, when
 
 from core.services.policies.rules import (
     Checker,
