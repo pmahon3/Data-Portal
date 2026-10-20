@@ -52,6 +52,15 @@ same complete-tree cache.
 When **Selected only** is enabled, a node must also be selected to match. Parent
 folders remain visible for context, but unselected descendants are not added.
 
+## Selecting while a filter is active
+
+While a path search or **Selected only** is active, the tree shows only part of
+each folder. So folders can't be selected, and selecting a file doesn't select
+the folders above it, even when it's the only visible file in them. Download and
+delete then act only on the files the user picked, never on files the filter hid
+(requirement AC-4 in `docs/requirements/access-control.md`; INN-295). Without a
+filter, selecting a folder selects everything in it, as before.
+
 ## Clearing search
 
 Clearing a path search:
