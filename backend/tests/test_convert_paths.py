@@ -1,7 +1,13 @@
 """The one-off conversion of stored policies to literal paths (INN-297)."""
 import pytest
 
-from core.services.policies.convert_paths import CONVERT, NARROWS, REVIEW, UNCHANGED, convert
+from core.services.policies.convert_paths import (
+    CONVERT,
+    NARROWS,
+    REVIEW,
+    UNCHANGED,
+    convert,
+)
 
 
 @pytest.mark.parametrize("path, action, kind, new_path, new_action", [
