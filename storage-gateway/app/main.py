@@ -17,6 +17,7 @@ from fastapi.responses import StreamingResponse
 from app.auth import KeyResolver, check_token, jwks_key_resolver, token_from_request
 from app.config import Settings
 from app.files import BadPath, etag, file_headers, parse_range, read_chunks, resolve
+from app.logs import install_token_redaction
 
 logger = logging.getLogger("storage-gateway")
 
@@ -139,6 +140,7 @@ def create_app(settings: Settings, resolve_key: KeyResolver | None = None) -> Fa
 def app_from_env() -> FastAPI:
     """Entry point for uvicorn (``--factory``)."""
     logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
+    install_token_redaction()
     settings = Settings.from_env()
     logger.info("Serving namespace %r from %s", settings.namespace, settings.root)
     return create_app(settings)

@@ -197,3 +197,17 @@ def test_refusal_comes_before_existence(client):
     # A bad token on a missing file says "unauthorized", not "not found": no probing for files.
     r = client.get(f"/v1/files/{NS}/study/missing.nii.gz", params={"token": token(FILE, "read")})
     assert r.status_code == 403
+
+
+def test_tokens_are_redacted_from_access_logs():
+    import logging
+
+    from app.logs import RedactTokens
+
+    # The shape of uvicorn's access log record: the path with its query string is an argument.
+    record = logging.LogRecord("uvicorn.access", logging.INFO, __file__, 1, '%s - "%s %s HTTP/%s" %d',
+                               ("10.0.0.1:5000", "GET", f"/v1/files/{FILE}?token=eyJabc.def.ghi&x=1", "1.1", 200), None)
+    RedactTokens().filter(record)
+    line = record.getMessage()
+    assert "eyJabc" not in line
+    assert "token=[redacted]&x=1" in line
