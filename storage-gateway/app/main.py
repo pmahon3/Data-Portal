@@ -17,7 +17,6 @@ from fastapi.responses import StreamingResponse
 from app.auth import KeyResolver, check_token, jwks_key_resolver, token_from_request
 from app.config import Settings
 from app.files import BadPath, etag, file_headers, parse_range, read_chunks, resolve
-from app.logs import install_token_redaction
 
 logger = logging.getLogger("storage-gateway")
 
@@ -39,9 +38,24 @@ def create_app(settings: Settings, resolve_key: KeyResolver | None = None) -> Fa
             expose_headers=["ETag", "Content-Length", "Content-Range", "Accept-Ranges"],
         )
 
+    @app.middleware("http")
+    async def access_log(request: Request, call_next):
+        """
+        One line per request, built without the query string, so a link's token is never logged
+        (a logged link is usable until it expires). The link ID ties the line to the issued link.
+        uvicorn's own access log is turned off (``--no-access-log``).
+        """
+        request.state.link_id = "-"
+        response = await call_next(request)
+        response.headers["Referrer-Policy"] = "no-referrer"
+        logger.info(
+            "%s %s %s link=%s", request.method, request.url.path, response.status_code, request.state.link_id
+        )
+        return response
+
     def authorize(request: Request, resource: str) -> Path:
         """Check the request's token, then map the resource to a path under the root."""
-        check_token(
+        claims = check_token(
             token_from_request(request),
             resolve_key,
             namespace=settings.namespace,
@@ -49,6 +63,7 @@ def create_app(settings: Settings, resolve_key: KeyResolver | None = None) -> Fa
             path=resource,
             method=request.method,
         )
+        request.state.link_id = claims["jti"]
         try:
             return resolve(settings.root, settings.namespace, resource)
         except BadPath:
@@ -140,7 +155,6 @@ def create_app(settings: Settings, resolve_key: KeyResolver | None = None) -> Fa
 def app_from_env() -> FastAPI:
     """Entry point for uvicorn (``--factory``)."""
     logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
-    install_token_redaction()
     settings = Settings.from_env()
     logger.info("Serving namespace %r from %s", settings.namespace, settings.root)
     return create_app(settings)

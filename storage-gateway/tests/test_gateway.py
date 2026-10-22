@@ -199,15 +199,21 @@ def test_refusal_comes_before_existence(client):
     assert r.status_code == 403
 
 
-def test_tokens_are_redacted_from_access_logs():
+
+def test_tokens_are_never_logged(client, caplog):
     import logging
 
-    from app.logs import RedactTokens
+    t = token(FILE, "read")
+    with caplog.at_level(logging.INFO, logger="storage-gateway"):
+        client.get(f"/v1/files/{FILE}", params={"token": t, "x": "1"})
+        client.get(f"/v1/files/{FILE}", params={"token": "not-a-token"})
+    lines = [r.getMessage() for r in caplog.records]
+    assert len(lines) == 2
+    assert not any("token" in line or t in line or "not-a-token" in line for line in lines)
+    link_id = jwt.decode(t, options={"verify_signature": False})["jti"]
+    assert lines[0] == f"GET /v1/files/{FILE} 200 link={link_id}"
+    assert lines[1] == f"GET /v1/files/{FILE} 401 link=-"
 
-    # The shape of uvicorn's access log record: the path with its query string is an argument.
-    record = logging.LogRecord("uvicorn.access", logging.INFO, __file__, 1, '%s - "%s %s HTTP/%s" %d',
-                               ("10.0.0.1:5000", "GET", f"/v1/files/{FILE}?token=eyJabc.def.ghi&x=1", "1.1", 200), None)
-    RedactTokens().filter(record)
-    line = record.getMessage()
-    assert "eyJabc" not in line
-    assert "token=[redacted]&x=1" in line
+
+def test_responses_ask_browsers_not_to_pass_links_on(client):
+    assert get(client, FILE).headers["referrer-policy"] == "no-referrer"
