@@ -256,3 +256,13 @@ def test_a_single_posix_file_still_downloads_directly(signer, monkeypatch):
     response = bundle_request(monkeypatch, signer, [1])
     assert response.bundle_id == "single-file"
     assert urlparse(response.single_file_url).path == f"/v1/files/{NAMESPACE}/f1.nii.gz"
+
+
+def test_the_agent_recovers_after_being_closed(signer):
+    # Instance wrappers close their agent when garbage-collected, while the instance manager keeps
+    # using it (seen end to end: upload completion failed with "client has been closed").
+    agent = make_agent(signer, lambda request: httpx.Response(204))
+    agent.close()
+    assert agent._client.is_closed
+    assert not agent._http().is_closed
+    agent.close()

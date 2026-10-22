@@ -42,17 +42,16 @@ class PosixStorageAgent(AbstractStorageAgent):
     def connect(self):
         """Check the signing key is configured and the file service is reachable."""
         self._signer = get_link_signer()
-        self._client = httpx.Client(timeout=httpx.Timeout(10.0))
         try:
-            response = self._client.get(f"{self.instance_url}/v1/health")
+            response = self._http().get(f"{self.instance_url}/v1/health")
         except httpx.HTTPError as e:
             logger.exception(f"POSIX file service unreachable at {self.instance_url}")
-            self._client.close()
+            self.close()
             raise ConnectionError(
                 "Unable to reach the POSIX file service. Please verify that the URL is correct and the service is running."
             ) from e
         if response.status_code != 200:
-            self._client.close()
+            self.close()
             raise ConnectionError(
                 f"The POSIX file service at {self.instance_url} is not healthy (HTTP {response.status_code})."
             )
@@ -128,7 +127,7 @@ class PosixStorageAgent(AbstractStorageAgent):
         self._check_resource(resource)
         token = self._signer.sign(self.namespace, resource, operation, SERVICE_CALL_TTL_SECONDS)
         try:
-            return self._client.request(
+            return self._http().request(
                 http_method,
                 self._file_url(resource),
                 headers={"Authorization": f"Bearer {token}"},
@@ -145,9 +144,20 @@ class PosixStorageAgent(AbstractStorageAgent):
                 f"The POSIX file service returned HTTP {response.status_code} for {resource}."
             )
 
+    def _http(self) -> httpx.Client:
+        """
+        The HTTP client, reopened if it was closed. Instance wrappers close their agent when they're
+        garbage-collected while the instance manager still uses it; S3's client recovers the same way.
+        """
+        client = getattr(self, "_client", None)
+        if client is None or client.is_closed:
+            client = self._client = httpx.Client(timeout=httpx.Timeout(10.0))
+        return client
+
     def close(self):
-        if hasattr(self, "_client"):
-            self._client.close()
+        client = getattr(self, "_client", None)
+        if client is not None:
+            client.close()
 
     def __str__(self):
         return f"PosixStorageAgent(instance_url={self.instance_url}, namespace={self.namespace})"
