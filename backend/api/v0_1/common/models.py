@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, create_model
 from core.storage_agents import AVAILABLE_FLAVOURS
 from core.storage_agents.s3_agent import S3StorageAgent
 from core.storage_agents.dummy_agent import DummyStorageAgent
+from core.storage_agents.posix_agent import PosixStorageAgent
 from core.services.policies import Policy
 from core.services.users.models import User
 
@@ -155,9 +156,16 @@ DummyInstanceCreate = create_model(
     **{name: (typ, ...) for name, typ in DummyStorageAgent.CONFIG.items()}
 )
 
+PosixInstanceCreate = create_model(
+    "PosixInstanceCreate",
+    __base__=InstanceBase,
+    flavour=(Literal[PosixStorageAgent.FLAVOUR], ...),
+    **{name: (typ, ...) for name, typ in PosixStorageAgent.CONFIG.items()}
+)
+
 # discriminated union:
 InstanceCreate = Annotated[
-    Union[S3InstanceCreate, DummyInstanceCreate],
+    Union[S3InstanceCreate, DummyInstanceCreate, PosixInstanceCreate],
     Field(discriminator="flavour")
 ]
 
