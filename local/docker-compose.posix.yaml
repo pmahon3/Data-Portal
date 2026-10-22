@@ -1,0 +1,82 @@
+# Local POSIX test setup, run beside the main stack (`docker compose -f local/docker-compose.yaml up`).
+#
+#   docker compose -p ams-posix -f local/docker-compose.posix.yaml up -d --build
+#
+# Adds two containers on the main stack's network, sharing its Keycloak, MongoDB and Postgres:
+#   - posix-gateway: the POSIX file service, serving storage-gateway/data as namespace "inn-posix"
+#   - ams-backend-posix: a backend built from this checkout, on port 8001, with link signing configured
+# The main backend (port 8000) is left as it is.
+#
+# The file service is reachable as http://posix-gateway.localhost:9100 from both the host and the
+# containers, so signed links work in both places. Use that as the POSIX instance's URL.
+#
+# Needs a signing key: backend/data/keys/storage-links.pem
+#   openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out backend/data/keys/storage-links.pem
+
+services:
+  posix-gateway:
+    container_name: posix-gateway
+    build:
+      context: ../storage-gateway
+    environment:
+      GATEWAY_ROOT: /data
+      GATEWAY_NAMESPACE: inn-posix
+      GATEWAY_JWKS_URL: http://ams-backend-posix:8000/api/storage-links/jwks.json
+      GATEWAY_CORS_ORIGINS: http://localhost:3000,http://localhost:3001
+    volumes:
+      - ../storage-gateway/data:/data
+    ports:
+      - "9100:9100"
+    networks:
+      ams-portal_ams-network:
+        aliases:
+          - posix-gateway.localhost
+
+  backend-posix:
+    container_name: ams-backend-posix
+    image: ams-portal-backend
+    platform: linux/amd64
+    environment:
+      KEYCLOAK_DOMAIN: http://keycloak:8080
+      KEYCLOAK_REALM: ams-portal
+      KEYCLOAK_UI_CLIENT_ID: ams-portal-ui
+      KEYCLOAK_ADMIN_CLIENT_ID: ams-portal-admin
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin123
+      KEYCLOAK_ADMIN_CLIENT_SECRET: ${KEYCLOAK_ADMIN_CLIENT_SECRET}
+      KEYCLOAK_TOKEN_ISSUER: http://localhost:8080/realms/ams-portal
+      KEYCLOAK_EXTERNAL_ISSUER: http://localhost:8080/realms/ams-portal
+      AMS_HOST: 0.0.0.0
+      AMS_PORT: "8000"
+      AMS_RELOAD: "false"
+      SYSTEM_RESET: "false"
+      SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-JzATRY8v4ztexRVDLlqpaOBm8AfGvwwtC2NU47diyE0=}
+      LOG_LEVEL: INFO
+      LOG_DIR: /app/data/logs
+      API_VERSION: "0_1"
+      ENFORCER_MODEL: /app/core/services/policies/casbin/model.conf
+      ENFORCER_POLICY: /app/core/services/policies/casbin/policy.csv
+      INSTANCE_CONFIGS: /app/data/configs
+      BACKEND_BASE_URL: http://localhost:8001
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-objtree_app}:${POSTGRES_PASSWORD:-1q2w3e4r}@postgres:5432/${POSTGRES_DB:-inn_objtree}
+      MONGO_HOST: mongodb
+      MONGO_PORT: "27017"
+      MONGO_INIT_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:-admin}
+      MONGO_INIT_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:-1q2w3e4r}
+      MONGO_DB: ${MONGO_DB:-inn_mongo}
+      BUNDLER_PROVIDER: java
+      JAVA_BUNDLER_URL: http://java-bundler:8888
+      RUN_SMOKE_TESTS: "false"
+      STORAGE_LINK_SIGNING_KEY_FILE: /app/data/keys/storage-links.pem
+    command: ["python", "server.py"]
+    ports:
+      - "8001:8000"
+    volumes:
+      - ../backend:/app
+    working_dir: /app
+    networks:
+      - ams-portal_ams-network
+
+networks:
+  ams-portal_ams-network:
+    external: true
