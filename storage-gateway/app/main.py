@@ -14,6 +14,7 @@ from fastapi.responses import StreamingResponse
 
 from app.auth import KeyResolver, check_token, jwks_key_resolver, token_from_request
 from app.config import Settings
+from app.broker import DirectAccess, HelperAccess
 from app.files import BadPath, Root, etag, file_headers, parse_range, read_chunks, split_key
 
 logger = logging.getLogger("storage-gateway")
@@ -25,7 +26,7 @@ def create_app(settings: Settings, resolve_key: KeyResolver | None = None) -> Fa
     :param resolve_key: Returns the key that verifies a token; defaults to the portal's published keys.
     """
     resolve_key = resolve_key or jwks_key_resolver(settings.jwks_url)
-    root = Root(settings.root)
+    access = _file_access(settings)
     app = FastAPI(title="POSIX file service", docs_url=None, redoc_url=None)
 
     if settings.cors_origins:
@@ -68,11 +69,6 @@ def create_app(settings: Settings, resolve_key: KeyResolver | None = None) -> Fa
         except BadPath:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Bad path")
 
-    def refused(error: Exception) -> HTTPException:
-        if isinstance(error, BadPath):
-            return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Bad path")
-        return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-
     @app.get("/v1/health")
     def health():
         if not settings.root.is_dir():
@@ -82,19 +78,13 @@ def create_app(settings: Settings, resolve_key: KeyResolver | None = None) -> Fa
     @app.head("/v1/files/{resource:path}")
     def file_metadata(resource: str, request: Request):
         parts = authorize(request, resource)
-        try:
-            st = root.stat_file(parts)
-        except (BadPath, FileNotFoundError) as e:
-            raise refused(e)
+        st = access.stat(token_from_request(request), resource, parts)
         return Response(status_code=status.HTTP_200_OK, headers=file_headers(parts[-1], st))
 
     @app.get("/v1/files/{resource:path}")
     def download(resource: str, request: Request):
         parts = authorize(request, resource)
-        try:
-            fd, st = root.open_file(parts)
-        except (BadPath, FileNotFoundError) as e:
-            raise refused(e)
+        fd, st = access.open_read(token_from_request(request), resource, parts)
         headers = file_headers(parts[-1], st)
 
         range_header = request.headers.get("range")
@@ -122,14 +112,10 @@ def create_app(settings: Settings, resolve_key: KeyResolver | None = None) -> Fa
     @app.put("/v1/files/{resource:path}")
     async def upload(resource: str, request: Request):
         parts = authorize(request, resource)
-        try:
-            pending = root.begin_write(parts)
-        except IsADirectoryError:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A folder exists at this path")
-        except (BadPath, FileNotFoundError) as e:
-            raise refused(e)
+        pending = access.begin_write(token_from_request(request), resource, parts)
 
-        # Write beside the target and rename, so a failed upload never leaves a partial file in place.
+        # Write beside the target (or into the link's staging area) and move it into place on commit,
+        # so a failed upload never leaves a partial file in place.
         try:
             async for chunk in request.stream():
                 pending.write(chunk)
@@ -145,13 +131,32 @@ def create_app(settings: Settings, resolve_key: KeyResolver | None = None) -> Fa
     @app.delete("/v1/files/{resource:path}")
     def delete(resource: str, request: Request):
         parts = authorize(request, resource)
-        try:
-            root.delete_file(parts)
-        except (BadPath, FileNotFoundError) as e:
-            raise refused(e)
+        access.delete(token_from_request(request), resource, parts)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     return app
+
+
+def _file_access(settings: Settings):
+    """
+    Choose how files are reached. With a helper, this service must not be able to read the data
+    itself: it checks that at startup by trying to read the helper's canary file, and refuses to start
+    if it can. Without a helper, only local unit tests may run (``require_isolation`` is off).
+    """
+    if settings.helper_socket:
+        from app.helper import CANARY
+
+        try:
+            fd = os.open(settings.root / CANARY, os.O_RDONLY)
+        except PermissionError:
+            return HelperAccess(settings.helper_socket)
+        except FileNotFoundError:
+            raise RuntimeError("The helper's canary file is missing; can't confirm this service is isolated from the data")
+        os.close(fd)
+        raise RuntimeError("This service can read the data directly; refusing to start (it must only reach files through the helper)")
+    if settings.require_isolation:
+        raise RuntimeError("GATEWAY_REQUIRE_ISOLATION is set but no helper socket is configured")
+    return DirectAccess(Root(settings.root))
 
 
 def app_from_env() -> FastAPI:
