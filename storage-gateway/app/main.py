@@ -7,8 +7,6 @@ resume), upload, metadata and delete.
 """
 import logging
 import os
-import tempfile
-from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,7 +14,7 @@ from fastapi.responses import StreamingResponse
 
 from app.auth import KeyResolver, check_token, jwks_key_resolver, token_from_request
 from app.config import Settings
-from app.files import BadPath, etag, file_headers, parse_range, read_chunks, resolve
+from app.files import BadPath, Root, etag, file_headers, parse_range, read_chunks, split_key
 
 logger = logging.getLogger("storage-gateway")
 
@@ -27,6 +25,7 @@ def create_app(settings: Settings, resolve_key: KeyResolver | None = None) -> Fa
     :param resolve_key: Returns the key that verifies a token; defaults to the portal's published keys.
     """
     resolve_key = resolve_key or jwks_key_resolver(settings.jwks_url)
+    root = Root(settings.root)
     app = FastAPI(title="POSIX file service", docs_url=None, redoc_url=None)
 
     if settings.cors_origins:
@@ -53,8 +52,8 @@ def create_app(settings: Settings, resolve_key: KeyResolver | None = None) -> Fa
         )
         return response
 
-    def authorize(request: Request, resource: str) -> Path:
-        """Check the request's token, then map the resource to a path under the root."""
+    def authorize(request: Request, resource: str) -> list[str]:
+        """Check the request's token, then split the resource into path components under the root."""
         claims = check_token(
             token_from_request(request),
             resolve_key,
@@ -65,18 +64,14 @@ def create_app(settings: Settings, resolve_key: KeyResolver | None = None) -> Fa
         )
         request.state.link_id = claims["jti"]
         try:
-            return resolve(settings.root, settings.namespace, resource)
+            return split_key(settings.namespace, resource)
         except BadPath:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Bad path")
 
-    def existing_file(path: Path) -> os.stat_result:
-        try:
-            stat = path.stat()
-        except FileNotFoundError:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-        if not path.is_file():
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-        return stat
+    def refused(error: Exception) -> HTTPException:
+        if isinstance(error, BadPath):
+            return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Bad path")
+        return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
 
     @app.get("/v1/health")
     def health():
@@ -86,15 +81,21 @@ def create_app(settings: Settings, resolve_key: KeyResolver | None = None) -> Fa
 
     @app.head("/v1/files/{resource:path}")
     def file_metadata(resource: str, request: Request):
-        path = authorize(request, resource)
-        stat = existing_file(path)
-        return Response(status_code=status.HTTP_200_OK, headers=file_headers(path, stat))
+        parts = authorize(request, resource)
+        try:
+            st = root.stat_file(parts)
+        except (BadPath, FileNotFoundError) as e:
+            raise refused(e)
+        return Response(status_code=status.HTTP_200_OK, headers=file_headers(parts[-1], st))
 
     @app.get("/v1/files/{resource:path}")
     def download(resource: str, request: Request):
-        path = authorize(request, resource)
-        stat = existing_file(path)
-        headers = file_headers(path, stat)
+        parts = authorize(request, resource)
+        try:
+            fd, st = root.open_file(parts)
+        except (BadPath, FileNotFoundError) as e:
+            raise refused(e)
+        headers = file_headers(parts[-1], st)
 
         range_header = request.headers.get("range")
         # If-Range: only send part of the file if it hasn't changed since the client started.
@@ -102,51 +103,52 @@ def create_app(settings: Settings, resolve_key: KeyResolver | None = None) -> Fa
         if range_header and if_range and if_range not in (headers["ETag"], headers["Last-Modified"]):
             range_header = None
         try:
-            byte_range = parse_range(range_header, stat.st_size)
+            byte_range = parse_range(range_header, st.st_size)
         except ValueError:
+            os.close(fd)
             return Response(
                 status_code=416,  # Range Not Satisfiable
-                headers={"Content-Range": f"bytes */{stat.st_size}"},
+                headers={"Content-Range": f"bytes */{st.st_size}"},
             )
 
         if byte_range is None:
-            start, end, code = 0, stat.st_size - 1, status.HTTP_200_OK
+            start, end, code = 0, st.st_size - 1, status.HTTP_200_OK
         else:
             (start, end), code = byte_range, status.HTTP_206_PARTIAL_CONTENT
-            headers["Content-Range"] = f"bytes {start}-{end}/{stat.st_size}"
+            headers["Content-Range"] = f"bytes {start}-{end}/{st.st_size}"
             headers["Content-Length"] = str(end - start + 1)
-        return StreamingResponse(
-            read_chunks(path, start, end, settings.chunk_size), status_code=code, headers=headers
-        )
+        return StreamingResponse(read_chunks(fd, start, end, settings.chunk_size), status_code=code, headers=headers)
 
     @app.put("/v1/files/{resource:path}")
     async def upload(resource: str, request: Request):
-        path = authorize(request, resource)
-        if path.is_dir():
+        parts = authorize(request, resource)
+        try:
+            pending = root.begin_write(parts)
+        except IsADirectoryError:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A folder exists at this path")
-        existed = path.exists()
-        path.parent.mkdir(parents=True, exist_ok=True)
+        except (BadPath, FileNotFoundError) as e:
+            raise refused(e)
 
         # Write beside the target and rename, so a failed upload never leaves a partial file in place.
-        fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=".upload-")
         try:
-            with os.fdopen(fd, "wb") as f:
-                async for chunk in request.stream():
-                    f.write(chunk)
-            os.replace(tmp_name, path)
+            async for chunk in request.stream():
+                pending.write(chunk)
+            st = pending.commit()
         except BaseException:
-            Path(tmp_name).unlink(missing_ok=True)
+            pending.abort()
             raise
         return Response(
-            status_code=status.HTTP_200_OK if existed else status.HTTP_201_CREATED,
-            headers={"ETag": etag(path.stat())},
+            status_code=status.HTTP_200_OK if pending.existed else status.HTTP_201_CREATED,
+            headers={"ETag": etag(st)},
         )
 
     @app.delete("/v1/files/{resource:path}")
     def delete(resource: str, request: Request):
-        path = authorize(request, resource)
-        existing_file(path)
-        path.unlink()
+        parts = authorize(request, resource)
+        try:
+            root.delete_file(parts)
+        except (BadPath, FileNotFoundError) as e:
+            raise refused(e)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     return app

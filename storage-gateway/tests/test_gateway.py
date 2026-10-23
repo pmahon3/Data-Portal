@@ -173,11 +173,11 @@ def test_unsafe_paths_are_refused_even_with_a_matching_token(client, path):
 
 
 @pytest.mark.parametrize("key", ["study/../study/scan.nii.gz", "./study/scan.nii.gz", "study//scan.nii.gz", "", "../x"])
-def test_raw_unsafe_keys_never_resolve(root, key):
-    from app.files import BadPath, resolve
+def test_raw_unsafe_keys_never_resolve(key):
+    from app.files import BadPath, split_key
 
     with pytest.raises(BadPath):
-        resolve(root, NS, f"{NS}/{key}")
+        split_key(NS, f"{NS}/{key}")
 
 
 def test_symlinks_cant_escape_the_root(client, root, tmp_path_factory):
@@ -217,3 +217,79 @@ def test_tokens_are_never_logged(client, caplog):
 
 def test_responses_ask_browsers_not_to_pass_links_on(client):
     assert get(client, FILE).headers["referrer-policy"] == "no-referrer"
+
+
+# --- Symlinks: never followed, at any component, including when swapped in mid-request ---
+
+@pytest.fixture
+def outside(tmp_path_factory):
+    d = tmp_path_factory.mktemp("outside")
+    (d / "scan.nii.gz").write_bytes(b"SECRET OUTSIDE THE ROOT")
+    return d
+
+
+def test_a_symlink_is_refused_even_when_it_points_inside_the_root(client, root):
+    (root / "alias.nii.gz").symlink_to(root / "study" / "scan.nii.gz")
+    assert get(client, f"{NS}/alias.nii.gz").status_code == 400
+
+
+def test_a_symlinked_folder_is_refused(client, root, outside):
+    (root / "linked").symlink_to(outside)
+    assert get(client, f"{NS}/linked/scan.nii.gz").status_code == 400
+    (root / "inner").symlink_to(root / "study")
+    assert get(client, f"{NS}/inner/scan.nii.gz").status_code == 400
+
+
+def test_uploads_never_write_through_a_symlink(client, root, outside):
+    (root / "linked").symlink_to(outside)
+    path = f"{NS}/linked/new.csv"
+    r = client.put(f"/v1/files/{path}", params={"token": token(path, "write")}, content=b"x")
+    assert r.status_code == 400
+    assert not (outside / "new.csv").exists()
+
+    (root / "study" / "target.csv").symlink_to(outside / "scan.nii.gz")
+    path = f"{NS}/study/target.csv"
+    r = client.put(f"/v1/files/{path}", params={"token": token(path, "write")}, content=b"overwrite")
+    assert r.status_code == 400
+    assert (outside / "scan.nii.gz").read_bytes() == b"SECRET OUTSIDE THE ROOT"
+
+
+def test_deleting_a_symlink_never_deletes_its_target(client, root, outside):
+    (root / "study" / "gone.nii.gz").symlink_to(outside / "scan.nii.gz")
+    path = f"{NS}/study/gone.nii.gz"
+    r = client.delete(f"/v1/files/{path}", headers={"Authorization": f"Bearer {token(path, 'delete')}"})
+    assert r.status_code == 400
+    assert (outside / "scan.nii.gz").exists()
+
+
+def test_a_folder_swapped_for_a_symlink_mid_request_doesnt_redirect_the_read(client, root, outside, monkeypatch):
+    """
+    The race: the path is checked, then someone on the machine replaces a folder with a symlink
+    to elsewhere before the file is opened. Reading through the already-open folder handle means
+    the swap can't redirect the read.
+    """
+    import app.files as files
+
+    real_open = files.os.open
+    swapped = []
+
+    def open_and_swap(path, flags, *args, dir_fd=None, **kwargs):
+        if path == "scan.nii.gz" and not swapped:
+            (root / "study").rename(root / "study.real")
+            (root / "study").symlink_to(outside)
+            swapped.append(True)
+        return real_open(path, flags, *args, dir_fd=dir_fd, **kwargs)
+
+    monkeypatch.setattr(files.os, "open", open_and_swap)
+    r = get(client, FILE)
+    assert swapped
+    assert r.status_code == 200
+    assert r.content == (root / "study.real" / "scan.nii.gz").read_bytes()
+    assert b"SECRET" not in r.content
+
+
+def test_a_fifo_is_not_found_and_doesnt_hang(client, root):
+    import os
+
+    os.mkfifo(root / "study" / "pipe")
+    assert get(client, f"{NS}/study/pipe").status_code == 404
