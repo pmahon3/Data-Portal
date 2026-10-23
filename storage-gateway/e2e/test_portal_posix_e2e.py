@@ -5,7 +5,7 @@ from urllib.parse import urlparse
 import pytest
 import requests
 
-from portal import BACKEND, DATA, NAMESPACE, TIMEOUT, delete_file, download_url, root_id, unique_name, upload
+from portal import BACKEND, NAMESPACE, TIMEOUT, data_exists, data_read, delete_file, download_url, root_id, unique_name, upload
 
 
 @pytest.fixture(scope="module")
@@ -13,11 +13,11 @@ def uploaded(admin, instance):
     content = os.urandom(300_000)
     name = unique_name()
     file_id, key = upload(admin, instance, name, content)
-    return {"id": file_id, "key": key, "content": content, "path": DATA / key}
+    return {"id": file_id, "key": key, "content": content}
 
 
 def test_upload_lands_on_the_posix_machine(uploaded):
-    assert uploaded["path"].read_bytes() == uploaded["content"]
+    assert data_read(uploaded["key"]) == uploaded["content"]
 
 
 def test_uploaded_file_is_listed(admin, instance, uploaded):
@@ -56,4 +56,4 @@ def test_multi_file_downloads_are_refused(admin, instance, uploaded):
 def test_delete_through_the_portal(admin, instance, uploaded):
     r = delete_file(admin, instance, uploaded["id"])
     assert r.status_code == 200, r.text
-    assert not uploaded["path"].exists()
+    assert not data_exists(uploaded["key"])

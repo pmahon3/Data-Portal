@@ -3,7 +3,10 @@
 #   docker compose -p ams-posix -f local/docker-compose.posix.yaml up -d --build
 #
 # Adds two containers on the main stack's network, sharing its Keycloak, MongoDB and Postgres:
-#   - posix-gateway: the POSIX file service, serving storage-gateway/data as namespace "inn-posix"
+#   - posix-gateway: the POSIX file service for namespace "inn-posix", on the posix-data volume. A privileged
+#     helper gives each approved link a temporary user ID that alone can read its file; the web service
+#     itself can't read the data. A volume, not a host folder: Mac shared folders don't enforce Linux
+#     permissions or ACLs.
 #   - ams-backend-posix: a backend built from this checkout, on port 8001, with link signing configured
 # The main backend (port 8000) is left as it is.
 #
@@ -19,12 +22,11 @@ services:
     build:
       context: ../storage-gateway
     environment:
-      GATEWAY_ROOT: /data
       GATEWAY_NAMESPACE: inn-posix
       GATEWAY_JWKS_URL: http://ams-backend-posix:8000/api/storage-links/jwks.json
       GATEWAY_CORS_ORIGINS: http://localhost:3000,http://localhost:3001
     volumes:
-      - ../storage-gateway/data:/data
+      - posix-data:/srv/posix
     ports:
       - "9100:9100"
     networks:
@@ -91,3 +93,6 @@ services:
 networks:
   ams-portal_ams-network:
     external: true
+
+volumes:
+  posix-data:

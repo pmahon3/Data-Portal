@@ -1,7 +1,7 @@
 """Helpers for driving the portal API and the POSIX file service in end-to-end tests."""
 import os
+import subprocess
 import uuid
-from pathlib import Path
 
 import pytest
 import requests
@@ -9,7 +9,8 @@ import requests
 BACKEND = os.getenv("E2E_BACKEND_URL", "http://localhost:8001")
 KEYCLOAK = os.getenv("E2E_KEYCLOAK_URL", "http://localhost:8080")
 GATEWAY = os.getenv("E2E_GATEWAY_URL", "http://posix-gateway.localhost:9100")
-DATA = Path(os.getenv("E2E_GATEWAY_DATA", Path(__file__).resolve().parents[1] / "data"))
+GATEWAY_CONTAINER = os.getenv("E2E_GATEWAY_CONTAINER", "posix-gateway")
+DATA_ROOT = "/srv/posix/data"
 NAMESPACE = "inn-posix"
 TIMEOUT = 15
 
@@ -59,3 +60,29 @@ def delete_file(headers, instance, file_id):
 
 def unique_name(suffix=".bin"):
     return f"e2e-{uuid.uuid4().hex[:8]}{suffix}"
+
+
+# The data lives on a Docker volume (the file service's Linux permissions and ACLs need a real Linux
+# filesystem), so tests look at it through the container, as root.
+
+def _in_gateway(*command, stdin=None):
+    return subprocess.run(["docker", "exec", "-i", GATEWAY_CONTAINER, *command], input=stdin, capture_output=True)
+
+
+def data_read(key):
+    r = _in_gateway("cat", f"{DATA_ROOT}/{key}")
+    return r.stdout if r.returncode == 0 else None
+
+
+def data_exists(key):
+    return _in_gateway("test", "-e", f"{DATA_ROOT}/{key}").returncode == 0
+
+
+def data_overwrite(key, content):
+    """Rewrite a file in place (same inode, owner and mode), as a process on the machine would."""
+    assert _in_gateway("sh", "-c", f"cat > '{DATA_ROOT}/{key}'", stdin=content).returncode == 0
+
+
+def upload_leftovers():
+    r = _in_gateway("find", "/srv/posix", "-name", ".upload-*")
+    return [line for line in r.stdout.decode().splitlines() if line]

@@ -36,7 +36,7 @@ def split_key(namespace: str, resource: str) -> list[str]:
     return parts
 
 
-_DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+_O_PATH = getattr(os, "O_PATH", 0)  # Linux only
 # O_NONBLOCK so opening a FIFO planted in the root can't hang the request; it doesn't affect
 # reads of regular files.
 _FILE_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
@@ -59,13 +59,26 @@ def _refusal(error: OSError, name: str, dir_fd: int) -> Exception:
 
 
 class Root:
-    """The directory this service serves."""
+    """
+    The directory this service serves.
 
-    def __init__(self, path: Path):
+    :param path_only: Open folders with ``O_PATH`` (Linux), so walking needs only permission to pass
+        through each folder, not to list it. Used by the opener running as a link's temporary ID.
+    :param dir_owner: (uid, gid) for folders created by uploads; with ``dir_mode``. Used by the helper.
+    """
+
+    def __init__(self, path: Path, path_only: bool = False, dir_owner: tuple[int, int] | None = None,
+                 dir_mode: int = 0o750):
+        if path_only and not _O_PATH:
+            raise RuntimeError("path_only needs O_PATH (Linux)")
         self.path = path
+        self.dir_owner = dir_owner
+        self.dir_mode = dir_mode
+        self._base = _O_PATH if path_only else os.O_RDONLY
+        self._dir_flags = self._base | os.O_DIRECTORY | os.O_NOFOLLOW
 
     def _open_root(self) -> int:
-        return os.open(self.path, os.O_RDONLY | os.O_DIRECTORY)
+        return os.open(self.path, self._base | os.O_DIRECTORY)
 
     def _open_dir(self, parts: list[str], create: bool = False) -> int:
         """Open the directory ``parts`` under the root, component by component, never following symlinks."""
@@ -73,15 +86,18 @@ class Root:
         try:
             for name in parts:
                 try:
-                    next_fd = os.open(name, _DIR_FLAGS, dir_fd=fd)
+                    next_fd = os.open(name, self._dir_flags, dir_fd=fd)
                 except FileNotFoundError:
                     if not create:
                         raise
                     try:
-                        os.mkdir(name, 0o750, dir_fd=fd)
+                        os.mkdir(name, self.dir_mode, dir_fd=fd)
                     except FileExistsError:
                         pass
-                    next_fd = os.open(name, _DIR_FLAGS, dir_fd=fd)
+                    next_fd = os.open(name, self._dir_flags, dir_fd=fd)
+                    if self.dir_owner is not None:
+                        os.fchown(next_fd, *self.dir_owner)
+                        os.fchmod(next_fd, self.dir_mode)
                 except OSError as e:
                     raise _refusal(e, name, fd) from e
                 os.close(fd)

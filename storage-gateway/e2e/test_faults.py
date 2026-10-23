@@ -5,14 +5,13 @@ Setup: see conftest.py; Toxiproxy is part of local/docker-compose.posix.yaml.
 """
 import hashlib
 import os
-import subprocess
 import time
 from urllib.parse import urlparse
 
 import pytest
 import requests
 
-from portal import DATA, TIMEOUT, delete_file, download_url, upload, unique_name
+from portal import TIMEOUT, data_exists, data_overwrite, delete_file, download_url, upload, upload_leftovers, unique_name
 
 TOXIPROXY = os.getenv("E2E_TOXIPROXY_URL", "http://localhost:8474")
 PROXIED = os.getenv("E2E_PROXIED_GATEWAY", "http://localhost:9101")
@@ -106,12 +105,7 @@ def test_a_file_changed_between_attempts_restarts_instead_of_mixing(admin, insta
     _, headers, first = partial_get(url)
     toxic.remove(cut)
     replacement = os.urandom(SIZE)
-    # Rewritten in place, same size, by a process on the machine (inside the container, so this tests
-    # the file service and not the host's file sharing, which can briefly serve cached attributes).
-    (DATA / ".replacement").write_bytes(replacement)
-    subprocess.run(["docker", "exec", "posix-gateway", "python", "-c",
-                    f"import shutil; shutil.copyfile('/data/.replacement', '/data/{key}')"], check=True)
-    (DATA / ".replacement").unlink()
+    data_overwrite(key, replacement)  # rewritten in place, same size, by a process on the machine
 
     status, _, body = partial_get(url, {"Range": f"bytes={len(first)}-", "If-Range": headers["etag"]})
     assert status == 200  # whole new file, not the rest of the old one
@@ -131,10 +125,10 @@ def test_a_cut_upload_leaves_no_partial_file(admin, instance, toxic):
     toxic.remove(cut)
 
     deadline = time.time() + 10
-    while time.time() < deadline and list(DATA.rglob(".upload-*")):
+    while time.time() < deadline and upload_leftovers():
         time.sleep(0.2)
-    assert not (DATA / init["key"]).exists()
-    assert not list(DATA.rglob(".upload-*"))
+    assert not data_exists(init["key"])
+    assert not upload_leftovers()
     delete_file(admin, instance, init["file_id"])
 
 
