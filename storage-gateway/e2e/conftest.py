@@ -7,10 +7,14 @@ A POSIX instance is created for the session and removed afterwards.
 
     uv run --no-project --with pytest --with requests pytest storage-gateway/e2e -q
 """
+import sys
 import uuid
+from pathlib import Path
 
 import pytest
 import requests
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # doccheck
 
 from portal import BACKEND, GATEWAY, NAMESPACE, TIMEOUT, login
 

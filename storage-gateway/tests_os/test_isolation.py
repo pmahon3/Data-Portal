@@ -32,7 +32,8 @@ if sys.platform != "linux" or os.geteuid() != 0:
 
 from app import acl  # noqa: E402
 from app.broker import HelperAccess  # noqa: E402
-from app.helper import CANARY, HelperSettings, serve  # noqa: E402
+from app.config import CANARY  # noqa: E402
+from app.helper import HelperSettings, serve  # noqa: E402
 
 NS = "inn-posix"
 KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)

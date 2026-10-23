@@ -41,13 +41,13 @@ from fastapi import HTTPException
 
 from app import acl
 from app.auth import check_token, jwks_key_resolver
+from app.config import CANARY
 from app.files import BadPath, Root, split_key
 
 logger = logging.getLogger("storage-gateway.helper")
 # One line per grant, placement, delete and expiry: temporary ID -> link -> portal user.
 audit = logging.getLogger("storage-gateway.audit")
 SERVICE_DIR = str(Path(__file__).resolve().parents[1])
-CANARY = ".gateway-canary"
 # Isolated mode (-I) ignores PYTHONPATH, so the service's code path is passed in directly.
 _OPENER = f"import sys; sys.path.insert(0, {SERVICE_DIR!r}); from app.opener import main; main()"
 
@@ -119,8 +119,10 @@ class LinkIds:
             link = self.state["links"].get(jti)
             if link:
                 return link["uid"]
+            now = time.time()
             in_use = ({link["uid"] for link in self.state["links"].values()}
-                      | {int(u) for u in self.state["quarantine"]} | {int(u) for u in self.state["retired"]})
+                      | {int(u) for u, until in self.state["quarantine"].items() if until > now}
+                      | {int(u) for u in self.state["retired"]})
             for step in range(self.s.id_count):
                 candidate = self.s.id_start + (self.state["cursor"] + step) % self.s.id_count
                 if candidate not in in_use:
@@ -128,6 +130,7 @@ class LinkIds:
             else:
                 raise Refused(503)
             self.state["cursor"] = (candidate - self.s.id_start + 1) % self.s.id_count
+            self.state["quarantine"].pop(str(candidate), None)
             self.state["links"][jti] = {"uid": candidate, "exp": exp, "user": user, "files": []}
             self._save()
             return candidate
@@ -212,7 +215,8 @@ class Helper:
             os.close(fd)
 
     def stat(self, token: str, path: str) -> dict:
-        _, parts = self._verify(token, path, "HEAD")
+        claims, parts = self._verify(token, path, "HEAD")
+        audit.info("stat link=%s user=%s path=%s", claims["jti"], claims.get("sub", "-"), path)
         try:
             fd, st = self.tree.open_file(parts)
         except BadPath as e:
@@ -251,7 +255,12 @@ class Helper:
         """Open the link's staging folder and file without following symlinks; check ownership."""
         if "/" in name or not name.startswith(".upload-"):
             raise Refused(400)
-        dir_fd = os.open(self.s.staging_root / str(uid), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            dir_fd = os.open(self.s.staging_root / str(uid), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        except FileNotFoundError as e:
+            raise Refused(404) from e
+        except OSError as e:  # a symlink or not a folder
+            raise Refused(400) from e
         try:
             fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dir_fd)
         except FileNotFoundError as e:
@@ -432,7 +441,10 @@ def make_server(helper: Helper) -> socketserver.ThreadingUnixStreamServer:
                 data += chunk
             fds: list[int] = []
             try:
-                req = _validated(json.loads(data))
+                try:
+                    req = _validated(json.loads(data))
+                except ValueError as e:  # not JSON
+                    raise Refused(400) from e
                 op, token, path = req["op"], req["token"], req["path"]
                 if op == "open":
                     fds = [helper.open_read(token, path)]
