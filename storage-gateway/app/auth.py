@@ -12,6 +12,7 @@ import jwt
 from fastapi import HTTPException, Request, status
 
 ALGORITHMS = ["RS256"]
+REQUIRED_CLAIMS = ["exp", "iat", "jti", "op", "path"]  # plus iss and aud, always checked
 
 # GET downloads, PUT uploads, HEAD reads metadata, DELETE removes.
 OPERATION_BY_METHOD = {"GET": "read", "PUT": "write", "HEAD": "stat", "DELETE": "delete"}
@@ -63,7 +64,7 @@ def check_token(
             algorithms=ALGORITHMS,
             audience=namespace,
             issuer=issuer,
-            options={"require": ["exp", "iat", "jti", "op", "path"]},
+            options={"require": REQUIRED_CLAIMS},
         )
     except jwt.PyJWTError as e:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token") from e
