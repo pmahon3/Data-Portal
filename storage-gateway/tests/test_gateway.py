@@ -317,3 +317,51 @@ def test_if_range_catches_contents_replaced_with_size_and_mtime_kept(client, roo
     resumed = get(client, FILE, headers={"Range": "bytes=10-", "If-Range": first.headers["etag"]})
     assert resumed.status_code == 200
     assert resumed.content == f.read_bytes()
+
+
+# --- Gaps found by mutation testing (TESTING-STRATEGY.md, layer 10) ---
+
+def test_uploaded_files_are_not_readable_by_other_accounts(client, root):
+    path = f"{NS}/private/new.csv"
+    assert client.put(f"/v1/files/{path}", params={"token": token(path, "write")}, content=b"x").status_code == 201
+    assert (root / "private" / "new.csv").stat().st_mode & 0o007 == 0
+
+
+def test_deep_paths_can_be_deleted_and_symlinks_deep_down_are_refused(client, root, tmp_path_factory):
+    deep = root / "a" / "b" / "c"
+    deep.mkdir(parents=True)
+    (deep / "f.txt").write_text("x")
+    path = f"{NS}/a/b/c/f.txt"
+    assert client.delete(f"/v1/files/{path}", headers={"Authorization": f"Bearer {token(path, 'delete')}"}).status_code == 204
+    assert not (deep / "f.txt").exists()
+
+    outside = tmp_path_factory.mktemp("deep-outside")
+    (outside / "f.txt").write_text("keep")
+    (deep / "link").symlink_to(outside)
+    path = f"{NS}/a/b/c/link/f.txt"
+    assert client.delete(f"/v1/files/{path}", headers={"Authorization": f"Bearer {token(path, 'delete')}"}).status_code == 400
+    assert (outside / "f.txt").exists()
+
+
+@pytest.mark.parametrize("method", ["get", "head", "put", "delete"])
+def test_a_path_through_a_file_is_not_found(client, method):
+    path = f"{NS}/study/scan.nii.gz/inner.txt"
+    op = {"get": "read", "head": "stat", "put": "write", "delete": "delete"}[method]
+    t = token(path, op)
+    if method == "get":
+        r = client.get(f"/v1/files/{path}", params={"token": t})
+    elif method == "put":
+        r = client.put(f"/v1/files/{path}", params={"token": t}, content=b"x")
+    else:
+        r = getattr(client, method)(f"/v1/files/{path}", headers={"Authorization": f"Bearer {t}"})
+    assert r.status_code == 404
+
+
+def test_an_abandoned_upload_leaves_nothing_behind(root):
+    from app.files import Root
+
+    pending = Root(root).begin_write(["study", "half.bin"])
+    pending.write(b"partial")
+    pending.abort()
+    assert not (root / "study" / "half.bin").exists()
+    assert not [p for p in (root / "study").iterdir() if p.name.startswith(".upload-")]

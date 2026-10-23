@@ -1,0 +1,9 @@
+# Mutation testing of the security-critical modules (TESTING-STRATEGY.md, layer 10):
+#   uv run --no-project --with-requirements requirements-test.txt --with mutmut mutmut run
+#   mutmut results
+# The generated-input suites (properties, fuzzing) are left out of each mutant's run to keep it practical.
+[tool.mutmut]
+source_paths = ["app/auth.py", "app/files.py"]
+also_copy = ["app/__init__.py", "app/config.py", "app/main.py", "app/zipstream.py", "contract/"]
+pytest_add_cli_args_test_selection = ["tests/"]
+pytest_add_cli_args = ["-p", "no:cacheprovider", "--ignore=tests/test_properties.py", "--ignore=tests/test_fuzz.py"]
