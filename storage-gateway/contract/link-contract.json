@@ -1,0 +1,73 @@
+{
+  "_about": "The link contract between the portal's POSIX connector and the file service (STREAMING-SPEC.md, 'File service contract'). Both test suites check against this file.",
+  "namespace": "inn-posix",
+  "issuer": "inn-portal",
+  "algorithm": "RS256",
+  "required_claims": [
+    "exp",
+    "iat",
+    "jti",
+    "op",
+    "path"
+  ],
+  "operation_by_method": {
+    "GET": "read",
+    "PUT": "write",
+    "HEAD": "stat",
+    "DELETE": "delete"
+  },
+  "link_operation_by_access": {
+    "read": "read",
+    "write": "write"
+  },
+  "token_in": {
+    "links": "query parameter 'token'",
+    "service_calls": "Authorization: Bearer"
+  },
+  "resources": [
+    {
+      "resource": "inn-posix/study 1/scan.nii.gz",
+      "url_path": "/v1/files/inn-posix/study%201/scan.nii.gz"
+    },
+    {
+      "resource": "inn-posix/a#b?c.txt",
+      "url_path": "/v1/files/inn-posix/a%23b%3Fc.txt"
+    },
+    {
+      "resource": "inn-posix/über/ñ.csv",
+      "url_path": "/v1/files/inn-posix/%C3%BCber/%C3%B1.csv"
+    },
+    {
+      "resource": "inn-posix/100%.txt",
+      "url_path": "/v1/files/inn-posix/100%25.txt"
+    },
+    {
+      "resource": "inn-posix/a+b.txt",
+      "url_path": "/v1/files/inn-posix/a%2Bb.txt"
+    },
+    {
+      "resource": "inn-posix/semi;colon,comma.tsv",
+      "url_path": "/v1/files/inn-posix/semi%3Bcolon%2Ccomma.tsv"
+    },
+    {
+      "resource": "inn-posix/x=y&z.json",
+      "url_path": "/v1/files/inn-posix/x%3Dy%26z.json"
+    }
+  ],
+  "refused_resources": [
+    "other-namespace/a.txt",
+    "inn-posix",
+    "inn-posix/",
+    "inn-posix/../x",
+    "inn-posix/a//b",
+    "inn-posix/./a",
+    "inn-posix/a/..",
+    "inn-posix/a\u0000b"
+  ],
+  "metadata_headers": {
+    "Content-Length": "ContentLength",
+    "ETag": "ETag",
+    "Last-Modified": "LastModified",
+    "Content-Type": "ContentType"
+  }
+}
