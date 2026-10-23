@@ -17,7 +17,9 @@ the web service can't widen a grant), then:
 
 Each link (token ``jti``) gets its own ID from a reserved range on first use. When the link
 expires, a sweeper removes its ACL entries and staging files and quarantines the ID before reuse,
-so audit records never mix two links. Downloads already running keep their open descriptor and
+so audit records never mix two links. Each grant records the file's identity (device, inode): if a
+granted file was moved or replaced on the machine and its entry can't be found to remove, the ID is
+retired for good rather than handed to another link, and logged for an administrator. Downloads already running keep their open descriptor and
 finish. See STREAMING-SPEC.md and STATUS.md (decisions of 2026-10-23).
 """
 import json
@@ -103,6 +105,7 @@ class LinkIds:
             self.state = json.loads(settings.state_file.read_text())
         except FileNotFoundError:
             self.state = {"links": {}, "quarantine": {}, "cursor": 0}
+        self.state.setdefault("retired", {})
 
     def _save(self) -> None:
         tmp = self.s.state_file.with_suffix(".tmp")
@@ -114,7 +117,8 @@ class LinkIds:
             link = self.state["links"].get(jti)
             if link:
                 return link["uid"]
-            in_use = {link["uid"] for link in self.state["links"].values()} | {int(u) for u in self.state["quarantine"]}
+            in_use = ({link["uid"] for link in self.state["links"].values()}
+                      | {int(u) for u in self.state["quarantine"]} | {int(u) for u in self.state["retired"]})
             for step in range(self.s.id_count):
                 candidate = self.s.id_start + (self.state["cursor"] + step) % self.s.id_count
                 if candidate not in in_use:
@@ -126,21 +130,32 @@ class LinkIds:
             self._save()
             return candidate
 
-    def record_file(self, jti: str, parts: list[str]) -> None:
+    def record_file(self, jti: str, parts: list[str], st: os.stat_result) -> None:
+        """Remember a grant with the file's identity, so expiry revokes it on the same file."""
         with self.lock:
             files = self.state["links"][jti]["files"]
-            if parts not in files:
-                files.append(parts)
+            entry = [parts, st.st_dev, st.st_ino]
+            if entry not in files:
+                files.append(entry)
                 self._save()
 
     def expired(self, now: float) -> list[tuple[str, dict]]:
         with self.lock:
             return [(jti, dict(link)) for jti, link in self.state["links"].items() if link["exp"] < now]
 
-    def retire(self, jti: str, uid: int, now: float) -> None:
+    def retire(self, jti: str, uid: int, now: float, leftovers: list) -> None:
+        """
+        Release a link's ID: into quarantine if every grant was revoked, otherwise retired for good
+        (an ACL entry may remain on a file that was moved), so it never reaches another link.
+        """
         with self.lock:
             self.state["links"].pop(jti, None)
-            self.state["quarantine"][str(uid)] = now + self.s.quarantine_seconds
+            if leftovers:
+                self.state["retired"][str(uid)] = {"jti": jti, "files": leftovers, "at": now}
+                logger.warning("retired id %s: grants on moved or replaced files could not be revoked: %s",
+                               uid, leftovers)
+            else:
+                self.state["quarantine"][str(uid)] = now + self.s.quarantine_seconds
             self.state["quarantine"] = {u: t for u, t in self.state["quarantine"].items() if t > now}
             self._save()
 
@@ -181,17 +196,17 @@ class Helper:
 
     def _grant_read(self, uid: int, jti: str, parts: list[str]) -> None:
         try:
-            fd, _ = self.tree.open_file(parts)
+            fd, st = self.tree.open_file(parts)
         except BadPath as e:
             raise Refused(400) from e
         except FileNotFoundError as e:
             raise Refused(404) from e
         try:
+            self.ids.record_file(jti, parts, st)  # recorded first, so a crash can't leave an unrecorded grant
             with self.acl_lock:
                 acl.grant_user(fd, uid, acl.READ)
         finally:
             os.close(fd)
-        self.ids.record_file(jti, parts)
 
     def stat(self, token: str, path: str) -> dict:
         _, parts = self._verify(token, path, "HEAD")
@@ -271,6 +286,10 @@ class Helper:
                 os.fsync(fd)
                 os.replace(name, parts[-1], src_dir_fd=staging_dir, dst_dir_fd=target_dir)
                 st = os.fstat(fd)
+                placed = os.stat(parts[-1], dir_fd=target_dir, follow_symlinks=False)
+                if (placed.st_dev, placed.st_ino) != (st.st_dev, st.st_ino):
+                    logger.error("upload to %s was replaced after placement; refusing", path)
+                    raise Refused(500)
             finally:
                 os.close(target_dir)
         finally:
@@ -324,29 +343,41 @@ class Helper:
     # --- expiry ---
 
     def sweep(self, now: float | None = None) -> int:
-        """Revoke expired links: ACL entries, staging files; quarantine their IDs. Returns how many."""
+        """
+        Revoke expired links: ACL entries (on the same files they were granted on), staging files;
+        then release or retire their IDs. A link that fails is logged and retried next time, and its ID
+        stays out of the pool; it never stops the others. Returns how many links were finished.
+        """
         now = time.time() if now is None else now
         swept = 0
         for jti, link in self.ids.expired(now):
             uid = link["uid"]
-            for parts in link["files"]:
-                try:
-                    fd, _ = self.tree.open_file(parts)
-                except (BadPath, FileNotFoundError):
-                    continue
-                try:
-                    with self.acl_lock:
-                        acl.revoke_user(fd, uid)
-                finally:
-                    os.close(fd)
-            staging = self.s.staging_root / str(uid)
-            if staging.is_dir() and not staging.is_symlink():
-                for entry in os.scandir(staging):
-                    if entry.is_file(follow_symlinks=False) or entry.is_symlink():
-                        os.unlink(entry.path)
-                os.rmdir(staging)
-            self.ids.retire(jti, uid, now)
-            swept += 1
+            try:
+                leftovers = []
+                for entry in link["files"]:
+                    parts, dev, ino = (entry, None, None) if isinstance(entry[0], str) else entry
+                    try:
+                        fd, st = self.tree.open_file(parts)
+                    except (BadPath, FileNotFoundError):
+                        leftovers.append(parts)  # moved or removed on the machine
+                        continue
+                    try:
+                        if (st.st_dev, st.st_ino) != (dev, ino):
+                            leftovers.append(parts)  # a different file is there now
+                            continue
+                        with self.acl_lock:
+                            acl.revoke_user(fd, uid)
+                    finally:
+                        os.close(fd)
+                staging = self.s.staging_root / str(uid)
+                if staging.is_dir() and not staging.is_symlink():
+                    for item in os.scandir(staging):
+                        os.unlink(item.path)
+                    os.rmdir(staging)
+                self.ids.retire(jti, uid, now, leftovers)
+                swept += 1
+            except Exception:
+                logger.exception("could not revoke link %s (id %s); will retry", jti, uid)
         return swept
 
     def write_canary(self) -> None:
