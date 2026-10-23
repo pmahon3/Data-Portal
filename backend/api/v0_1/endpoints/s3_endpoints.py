@@ -514,6 +514,7 @@ async def folder_upload_init(
             resource_for_key(payload.bucket, key),
             "write",
             FOLDER_UPLOAD_PUT_EXPIRATION_SECONDS,
+            subject=str(user_uuid),
         )
         prepared_files.append(FolderUploadPreparedFileOut(
             file_id=file.id,
@@ -682,7 +683,7 @@ async def upload_init(
             detail=f"File '{payload.filename}' already exists in folder",
         )
 
-    urls, _paths = agent.generate_access_link(resource_for_key(payload.bucket, key), "write", 900)
+    urls, _paths = agent.generate_access_link(resource_for_key(payload.bucket, key), "write", 900, subject=str(user_uuid))
     return UploadInitOut(file_id=file.id, key=key, url=urls[0])
 
 #################################################################################### it verifies the upload succeeded and syncs metadata into the DB.
@@ -740,7 +741,7 @@ async def download_url(
     policy = Policy(user_uuid=user_uuid, instance_uuid=instance_uuid, resource=resource_for_key(file.bucket, file.key), action="read")
     policy_or_403(policy_manager, policy)
 
-    urls, _paths = agent.generate_access_link(resource_for_key(file.bucket, file.key), "read", 900)
+    urls, _paths = agent.generate_access_link(resource_for_key(file.bucket, file.key), "read", 900, subject=str(user_uuid))
     return {"url": urls[0]}
 
 #################################################################################### It deletes the object from S3 and then deletes the DB row
@@ -766,7 +767,7 @@ async def delete_file(
     policy = Policy(user_uuid=user_uuid, instance_uuid=instance_uuid, resource=resource_for_key(file.bucket, file.key), action="delete")
     policy_or_403(policy_manager, policy)
 
-    agent.delete_object(resource_for_key(file.bucket, file.key))
+    agent.delete_object(resource_for_key(file.bucket, file.key), subject=str(user_uuid))
 
     await file_svc.delete_file_row(file)
     return {"deleted": True, "file_id": file_id}
@@ -968,6 +969,7 @@ async def create_asset_bundle(
                 resource_for_key(file.bucket, file.key),
                 "read",
                 BUNDLE_SOURCE_URL_EXPIRATION_SECONDS,
+                subject=str(user_uuid),
             )
             url = urls[0]
             all_presigned_urls.append(url)

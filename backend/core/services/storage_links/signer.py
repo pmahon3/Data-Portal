@@ -41,7 +41,7 @@ class LinkSigner:
             raise TypeError("Storage link signing key must be an RSA private key")
         return cls(key)
 
-    def sign(self, namespace: str, path: str, operation: str, ttl: int) -> str:
+    def sign(self, namespace: str, path: str, operation: str, ttl: int, subject: str | None = None) -> str:
         """
         Sign a token for one operation on one path.
 
@@ -49,6 +49,8 @@ class LinkSigner:
         :param path: The resource, ``namespace/key``.
         :param operation: One of ``read``, ``write``, ``stat``, ``delete``.
         :param ttl: Lifetime in seconds.
+        :param subject: The portal user the link is issued to (``sub``), so the file service can record
+            which person each link, and its temporary user ID, served.
         :return: The signed token.
         """
         if operation not in OPERATIONS:
@@ -65,6 +67,8 @@ class LinkSigner:
             "op": operation,
             "path": path,
         }
+        if subject is not None:
+            claims["sub"] = subject
         return jwt.encode(claims, self._private_key, algorithm=ALGORITHM, headers={"kid": self.key_id})
 
     def jwks(self) -> dict[str, Any]:

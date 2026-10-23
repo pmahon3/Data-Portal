@@ -353,3 +353,16 @@ def test_an_upload_replaced_after_placement_is_refused(env, monkeypatch):
     with pytest.raises(HTTPException) as refused:
         upload(env, f"{NS}/study/swapped.csv", b"x")
     assert refused.value.status_code == 500
+
+
+def test_each_temporary_id_is_recorded_with_its_link_and_user(env, caplog):
+    import logging
+
+    now = int(time.time())
+    t = jwt.encode({"iss": "inn-portal", "aud": NS, "jti": "link-1", "iat": now, "exp": now + 60, "op": "read",
+                    "path": f"{NS}/study/a.nii.gz", "sub": "user-42"}, KEY, algorithm="RS256")
+    with caplog.at_level(logging.INFO, logger="storage-gateway.audit"):
+        os.close(env["access"].open_read(t, f"{NS}/study/a.nii.gz", None)[0])
+    link = env["helper"].ids.state["links"]["link-1"]
+    assert link["user"] == "user-42"
+    assert f"read link=link-1 id={link['uid']} user=user-42 path={NS}/study/a.nii.gz" in caplog.messages
