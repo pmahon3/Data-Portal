@@ -44,6 +44,8 @@ from app.auth import check_token, jwks_key_resolver
 from app.files import BadPath, Root, split_key
 
 logger = logging.getLogger("storage-gateway.helper")
+# One line per grant, placement, delete and expiry: temporary ID -> link -> portal user.
+audit = logging.getLogger("storage-gateway.audit")
 SERVICE_DIR = str(Path(__file__).resolve().parents[1])
 CANARY = ".gateway-canary"
 # Isolated mode (-I) ignores PYTHONPATH, so the service's code path is passed in directly.
@@ -112,7 +114,7 @@ class LinkIds:
         tmp.write_text(json.dumps(self.state))
         os.replace(tmp, self.s.state_file)
 
-    def uid_for(self, jti: str, exp: int) -> int:
+    def uid_for(self, jti: str, exp: int, user: str | None = None) -> int:
         with self.lock:
             link = self.state["links"].get(jti)
             if link:
@@ -126,7 +128,7 @@ class LinkIds:
             else:
                 raise Refused(503)
             self.state["cursor"] = (candidate - self.s.id_start + 1) % self.s.id_count
-            self.state["links"][jti] = {"uid": candidate, "exp": exp, "files": []}
+            self.state["links"][jti] = {"uid": candidate, "exp": exp, "user": user, "files": []}
             self._save()
             return candidate
 
@@ -186,8 +188,9 @@ class Helper:
 
     def open_read(self, token: str, path: str) -> int:
         claims, parts = self._verify(token, path, "GET")
-        uid = self.ids.uid_for(claims["jti"], claims["exp"])
+        uid = self.ids.uid_for(claims["jti"], claims["exp"], claims.get("sub"))
         self._grant_read(uid, claims["jti"], parts)
+        audit.info("read link=%s id=%s user=%s path=%s", claims["jti"], uid, claims.get("sub", "-"), path)
         results, fds = self._as_link(uid, {"mode": "read", "root": str(self.s.data_root), "paths": [parts]},
                                      extra_groups=[self.s.traverse_gid])
         if not results[0]["ok"]:
@@ -236,7 +239,8 @@ class Helper:
 
     def begin_write(self, token: str, path: str) -> tuple[str, int]:
         claims, _ = self._verify(token, path, "PUT")
-        uid = self.ids.uid_for(claims["jti"], claims["exp"])
+        uid = self.ids.uid_for(claims["jti"], claims["exp"], claims.get("sub"))
+        audit.info("write link=%s id=%s user=%s path=%s", claims["jti"], uid, claims.get("sub", "-"), path)
         name = f".upload-{uuid.uuid4().hex}"
         results, fds = self._as_link(uid, {"mode": "create", "dir": str(self._staging_dir(uid)), "name": name})
         if not results[0]["ok"]:
@@ -295,6 +299,7 @@ class Helper:
         finally:
             os.close(fd)
             os.close(staging_dir)
+        audit.info("placed link=%s id=%s user=%s path=%s", claims["jti"], uid, claims.get("sub", "-"), path)
         return _stat_fields(st) | {"existed": existing is not None}
 
     def abort(self, token: str, path: str, name: str) -> None:
@@ -310,7 +315,8 @@ class Helper:
     # --- deletes ---
 
     def delete(self, token: str, path: str) -> None:
-        _, parts = self._verify(token, path, "DELETE")
+        claims, parts = self._verify(token, path, "DELETE")
+        audit.info("delete link=%s user=%s path=%s", claims["jti"], claims.get("sub", "-"), path)
         try:
             self.tree.delete_file(parts)
         except BadPath as e:
@@ -375,6 +381,7 @@ class Helper:
                         os.unlink(item.path)
                     os.rmdir(staging)
                 self.ids.retire(jti, uid, now, leftovers)
+                audit.info("expired link=%s id=%s %s", jti, uid, "retired" if leftovers else "quarantined")
                 swept += 1
             except Exception:
                 logger.exception("could not revoke link %s (id %s); will retry", jti, uid)
@@ -398,6 +405,16 @@ def _stat_fields(st: os.stat_result) -> dict:
 _OPS = {"open", "stat", "begin_write", "commit", "abort", "delete"}
 
 
+def _validated(req) -> dict:
+    """A request has a known op and string token and path (and staging name for commit/abort)."""
+    if not isinstance(req, dict) or req.get("op") not in _OPS:
+        raise Refused(400)
+    needed = ["token", "path"] + (["staging"] if req["op"] in ("commit", "abort") else [])
+    if not all(isinstance(req.get(name), str) for name in needed):
+        raise Refused(400)
+    return req
+
+
 def make_server(helper: Helper) -> socketserver.ThreadingUnixStreamServer:
     class Handler(socketserver.BaseRequestHandler):
         def handle(self):
@@ -415,11 +432,8 @@ def make_server(helper: Helper) -> socketserver.ThreadingUnixStreamServer:
                 data += chunk
             fds: list[int] = []
             try:
-                req = json.loads(data)
-                op = req.get("op")
-                if op not in _OPS:
-                    raise Refused(400)
-                token, path = req["token"], req["path"]
+                req = _validated(json.loads(data))
+                op, token, path = req["op"], req["token"], req["path"]
                 if op == "open":
                     fds = [helper.open_read(token, path)]
                     reply = {"ok": True}
