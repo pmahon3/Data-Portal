@@ -75,7 +75,7 @@ sequenceDiagram
     participant Opener as Opener (link's ID)
 
     Browser->>Backend: POST /api/tree/files/upload/init
-    Note over Backend: checks write access; creates a pending file row<br/>signs a link: path, op write, sub = user
+    Note over Backend: checks write access, creates a pending file row<br/>signs a link: path, op write, sub = user
     Backend-->>Browser: file id, signed link
 
     Browser->>FileService: PUT /v1/files/{path} → 201

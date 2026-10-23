@@ -31,6 +31,14 @@ Storage operations and access control:
 - Instance creation/deletion
 - Access control patterns
 
+### 🗄️ POSIX Storage
+Access to data on researcher-owned POSIX machines; overview and decisions in [docs/posix](../posix/README.md).
+Diagrams marked *checked* are verified against the build by tests.
+- [Components](./posix-components.md): system overview; file service and backend modules (checked)
+- [Deployment](./posix-deployment.md): processes, accounts and permissions on the machine (checked)
+- [Sequences](./posix-sequences.md): download, resume, upload, delete (checked); expiry
+- [Temporary ID lifecycle](./posix-link-lifecycle.md) (checked)
+
 ---
 
 ## Viewing the Diagrams
