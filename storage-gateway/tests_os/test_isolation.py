@@ -57,8 +57,7 @@ def can_read(uid, path, groups=()):
     return as_user(uid, f"open({str(path)!r}, 'rb').read()", groups)[0] == 0
 
 
-@pytest.fixture
-def env():
+def make_env(**overrides):
     base = Path("/srv") / f"osb-{uuid.uuid4().hex[:8]}"
     data, staging, outside = base / "data", base / "staging", base / "outside"
     for d in (base, data, staging, outside, data / "study"):
@@ -74,17 +73,36 @@ def env():
         os.chown(f, DATA_OWNER, DATA_OWNER)
         os.chmod(f, 0o600)
     (outside / "secret.txt").write_bytes(b"SECRET")
-    s = HelperSettings(socket_path=str(base / "helper.sock"), data_root=data, staging_root=staging,
-                       state_file=base / "state.json", namespace=NS, jwks_url="unused",
-                       client_uids={0, WEB}, id_start=2_000_000, id_count=1000, traverse_gid=TRAVERSE,
-                       data_uid=DATA_OWNER, data_gid=DATA_OWNER, quarantine_seconds=3600, sweep_seconds=3600)
+    options = dict(socket_path=str(base / "helper.sock"), data_root=data, staging_root=staging,
+                   state_file=base / "state.json", namespace=NS, jwks_url="unused",
+                   client_uids={0, WEB}, id_start=2_000_000, id_count=1000, traverse_gid=TRAVERSE,
+                   data_uid=DATA_OWNER, data_gid=DATA_OWNER, quarantine_seconds=3600, sweep_seconds=3600)
+    s = HelperSettings(**(options | overrides))
     helper, server = serve(s, resolve_key=lambda t: KEY.public_key(), socket_mode=0o666)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    yield {"base": base, "data": data, "staging": staging, "outside": outside, "helper": helper,
-           "access": HelperAccess(s.socket_path)}
-    server.shutdown()
-    server.server_close()
-    shutil.rmtree(base)
+    return {"base": base, "data": data, "staging": staging, "outside": outside, "helper": helper,
+            "access": HelperAccess(s.socket_path), "server": server}
+
+
+def close_env(e):
+    e["server"].shutdown()
+    e["server"].server_close()
+    shutil.rmtree(e["base"])
+
+
+@pytest.fixture
+def env():
+    e = make_env()
+    yield e
+    close_env(e)
+
+
+@pytest.fixture
+def small_env():
+    """Two IDs, no quarantine: an ID is reused as soon as it's released."""
+    e = make_env(id_count=2, quarantine_seconds=0)
+    yield e
+    close_env(e)
 
 
 def uid_of_only_link(helper):
@@ -278,3 +296,60 @@ def test_any_grants_then_revoking_all_restore_the_file(ops, mode):
     finally:
         os.close(fd)
         path.unlink()
+
+
+# --- expiry when files move, and when one link can't be revoked ---
+
+def test_a_file_moved_on_the_machine_never_reaches_a_reused_id(small_env):
+    e = small_env
+    fd, _ = e["access"].open_read(token(f"{NS}/study/a.nii.gz", "read", ttl=60), f"{NS}/study/a.nii.gz", None)
+    os.close(fd)
+    first = uid_of_only_link(e["helper"])
+    os.rename(e["data"] / "study" / "a.nii.gz", e["data"] / "study" / "moved.nii.gz")  # scrubbing moves it
+
+    e["helper"].sweep(now=time.time() + 120)
+    for _ in range(2):  # use up the pool: the ID that may still hold access must never come back
+        fd, _ = e["access"].open_read(token(f"{NS}/study/b.nii.gz", "read"), f"{NS}/study/b.nii.gz", None)
+        os.close(fd)
+        e["helper"].sweep(now=time.time() + 600)
+    issued = {link["uid"] for link in e["helper"].ids.state["links"].values()}
+    assert first not in issued
+    assert str(first) in e["helper"].ids.state["retired"]
+
+
+def test_one_link_that_cannot_be_revoked_does_not_block_the_others(env, monkeypatch):
+    for name in ("a.nii.gz", "b.nii.gz"):
+        fd, _ = env["access"].open_read(token(f"{NS}/study/{name}", "read", ttl=60), f"{NS}/study/{name}", None)
+        os.close(fd)
+    links = env["helper"].ids.state["links"]
+    stuck = next(link["uid"] for link in links.values() if link["files"][0][0] == ["study", "a.nii.gz"])
+    real_revoke = acl.revoke_user
+
+    def failing_revoke(fd, uid):
+        if uid == stuck:
+            raise OSError("simulated failure")
+        real_revoke(fd, uid)
+
+    monkeypatch.setattr(acl, "revoke_user", failing_revoke)
+    assert env["helper"].sweep(now=time.time() + 120) == 1
+    remaining = {link["uid"] for link in env["helper"].ids.state["links"].values()}
+    assert remaining == {stuck}  # kept, to retry; its ID is not released
+    assert str(stuck) not in env["helper"].ids.state["quarantine"]
+    assert not can_read(next(iter(set(range(2_000_000, 2_000_002)) - {stuck})),
+                        env["data"] / "study" / "b.nii.gz", groups=[TRAVERSE])
+
+
+def test_an_upload_replaced_after_placement_is_refused(env, monkeypatch):
+    import app.helper as helper_module
+
+    real_replace = helper_module.os.replace
+
+    def replace_then_swap(src, dst, *, src_dir_fd=None, dst_dir_fd=None):
+        real_replace(src, dst, src_dir_fd=src_dir_fd, dst_dir_fd=dst_dir_fd)
+        os.unlink(dst, dir_fd=dst_dir_fd)
+        os.close(os.open(dst, os.O_WRONLY | os.O_CREAT, 0o600, dir_fd=dst_dir_fd))  # someone else's file
+
+    monkeypatch.setattr(helper_module.os, "replace", replace_then_swap)
+    with pytest.raises(HTTPException) as refused:
+        upload(env, f"{NS}/study/swapped.csv", b"x")
+    assert refused.value.status_code == 500
