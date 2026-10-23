@@ -177,6 +177,22 @@ backend-autodevops:
 
 
 
+# POSIX file service: tests, OS-boundary tests, diagram checks; only when its code or docs change.
+storage-gateway:
+  stage: triggers
+  trigger:
+    include:
+      - local: 'storage-gateway/.gitlab-ci.yml'
+    strategy: depend
+  rules:
+    - changes:
+        - storage-gateway/**/*
+        - backend/core/storage_agents/**/*
+        - backend/core/services/storage_links/**/*
+        - docs/posix/**/*
+        - docs/diagrams/posix-*.md
+      when: on_success
+
 # # Use native Auto DevOps jobs (Auto Build/Test/Security/Deploy)
 # include:
 #   # - template: Auto-DevOps.gitlab-ci.yml

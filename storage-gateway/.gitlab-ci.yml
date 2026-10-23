@@ -1,0 +1,55 @@
+# POSIX file service (storage-gateway): tests, diagram checks and an image build.
+# Triggered from the root .gitlab-ci.yml when storage-gateway/, the backend's POSIX code or the POSIX
+# docs change. Deployment isn't here: the file service runs on the POSIX machines themselves, not on
+# the Nomad cluster, and how it's hosted there is still to be decided (see docs/posix/README.md).
+
+stages:
+  - test
+  - build
+
+variables:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+# File service unit, property, contract, fuzz, streaming-ZIP and diagram-vs-import tests,
+# plus import-linter (the web side never imports the privileged side).
+storage-gateway:unit:
+  stage: test
+  image: python:3.12-slim
+  script:
+    - cd storage-gateway
+    - pip install -q -r requirements-test.txt
+    - python -m pytest tests -q -p no:cacheprovider
+    - lint-imports
+
+# The operating-system boundary: needs Linux, root and a filesystem with POSIX ACLs. Job containers
+# run as root on a Docker executor; the first test fails loudly if permissions aren't enforced.
+storage-gateway:os-boundary:
+  stage: test
+  image: python:3.12-slim
+  script:
+    - cd storage-gateway
+    - pip install -q -r requirements-test.txt
+    - python -m pytest tests_os -q -p no:cacheprovider
+
+# Every POSIX diagram must render (a syntax error would break it in GitLab's viewer).
+docs:posix-diagrams-render:
+  stage: test
+  image:
+    name: ghcr.io/mermaid-js/mermaid-cli/mermaid-cli:10.9.1
+    entrypoint: [""]
+  script:
+    - for f in docs/diagrams/posix-*.md; do /home/mermaidcli/node_modules/.bin/mmdc -p /puppeteer-config.json -i "$f" -o "/tmp/$(basename "$f")" || exit 1; done
+
+# Image build, manual until hosting on the POSIX machines is decided. Uses the runner's Docker socket,
+# as the other pipelines do.
+storage-gateway:image:
+  stage: build
+  image: docker:27
+  needs: ["storage-gateway:unit", "storage-gateway:os-boundary"]
+  rules:
+    - when: manual
+      allow_failure: true
+  script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - docker build -t "$CI_REGISTRY_IMAGE/storage-gateway:$CI_COMMIT_SHORT_SHA" storage-gateway
+    - docker push "$CI_REGISTRY_IMAGE/storage-gateway:$CI_COMMIT_SHORT_SHA"
