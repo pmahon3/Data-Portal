@@ -115,7 +115,9 @@ docker compose -p ams-posix -f local/docker-compose.posix.yaml up -d --build
 
 This adds the file service (`posix-gateway`, port 9100, reachable as `http://posix-gateway.localhost:9100`
 from both the host and containers), a backend built from this checkout (`ams-backend-posix`, port
-8001) sharing the main stack's Keycloak, MongoDB and Postgres, and Toxiproxy for fault tests. Data is
+8001) and Toxiproxy for fault tests. The second backend shares the main stack's Keycloak users and
+Postgres file tree, but keeps instances and policies in its own MongoDB database (`inn_mongo`; the main
+backend uses `ams_portal`), so POSIX test instances never land in the main stack's data. Data is
 on the `posix-data` Docker volume: Mac shared folders don't enforce Linux permissions or ACLs. Create a
 POSIX instance through the API on port 8001 (the UI on port 3000 talks to the main backend).
 
