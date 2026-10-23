@@ -301,3 +301,19 @@ def test_a_fifo_is_not_found_and_doesnt_hang(client, root):
 
     os.mkfifo(root / "study" / "pipe")
     assert get(client, f"{NS}/study/pipe").status_code == 404
+
+
+def test_if_range_catches_contents_replaced_with_size_and_mtime_kept(client, root):
+    # rsync -t and cp -p keep size and modification time; the change time can't be set back.
+    import os
+
+    f = root / "study" / "scan.nii.gz"
+    first = get(client, FILE)
+    old = f.stat()
+    f.write_bytes(bytes(reversed(f.read_bytes())))
+    os.utime(f, ns=(old.st_atime_ns, old.st_mtime_ns))
+    assert f.stat().st_size == old.st_size and f.stat().st_mtime_ns == old.st_mtime_ns
+
+    resumed = get(client, FILE, headers={"Range": "bytes=10-", "If-Range": first.headers["etag"]})
+    assert resumed.status_code == 200
+    assert resumed.content == f.read_bytes()

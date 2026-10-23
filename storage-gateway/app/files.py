@@ -195,8 +195,12 @@ class PendingWrite:
 
 
 def etag(st: os.stat_result) -> str:
-    """A validator that changes whenever the file's size or modification time changes."""
-    return f'"{st.st_mtime_ns:x}-{st.st_size:x}"'
+    """
+    A validator for If-Range: changes when the file is replaced (inode), written or re-stamped
+    (ctime, which tools like ``rsync -t`` or ``cp -p`` can't set back), or changes size or
+    modification time.
+    """
+    return f'"{st.st_ino:x}-{st.st_ctime_ns:x}-{st.st_mtime_ns:x}-{st.st_size:x}"'
 
 
 def file_headers(name: str, st: os.stat_result) -> dict[str, str]:

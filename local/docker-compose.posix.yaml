@@ -32,6 +32,17 @@ services:
         aliases:
           - posix-gateway.localhost
 
+  # Fault injection for tests (storage-gateway/e2e/test_faults.py): proxies :9101 to the file service
+  # and can cut, slow or reset connections on command through its API on :8474.
+  toxiproxy:
+    container_name: posix-toxiproxy
+    image: ghcr.io/shopify/toxiproxy:2.9.0
+    ports:
+      - "8474:8474"
+      - "9101:9101"
+    networks:
+      - ams-portal_ams-network
+
   backend-posix:
     container_name: ams-backend-posix
     image: ams-portal-backend
