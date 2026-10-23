@@ -75,11 +75,19 @@ def test_byte_ranges_resume_a_download(client, root, header, start, end):
     assert r.headers["content-length"] == str(end - start + 1)
 
 
-@pytest.mark.parametrize("header", ["bytes=1024-", "bytes=50-10", "bytes=-0", "items=0-1", "bytes=a-b"])
+@pytest.mark.parametrize("header", ["bytes=1024-", "bytes=5000-6000", "bytes=-0"])
 def test_unsatisfiable_ranges(client, header):
     r = get(client, FILE, headers={"Range": header})
     assert r.status_code == 416
     assert r.headers["content-range"] == "bytes */1024"
+
+
+@pytest.mark.parametrize("header", ["items=0-1", "bytes=a-b", "bytes=50-10", "bytes=", "bytes=0-1,5-6"])
+def test_unknown_or_malformed_ranges_are_ignored(client, header):
+    # RFC 9110 §14.2: an unknown range unit MUST be ignored; invalid ranges MAY be. The whole file is sent.
+    r = get(client, FILE, headers={"Range": header})
+    assert r.status_code == 200
+    assert len(r.content) == 1024
 
 
 def test_if_range_restarts_when_the_file_changed(client, root):

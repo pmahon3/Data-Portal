@@ -213,34 +213,40 @@ def file_headers(name: str, st: os.stat_result) -> dict[str, str]:
 
 def parse_range(header: str | None, size: int) -> tuple[int, int] | None:
     """
-    Parse a single ``Range: bytes=…`` header into an inclusive (start, end) pair.
+    Parse a single ``Range: bytes=…`` header into an inclusive (start, end) pair (RFC 9110 §14).
 
-    :return: None to serve the whole file (no header, or several ranges, which are allowed to be
-        ignored).
-    :raises ValueError: If the range is malformed or can't be satisfied.
+    :return: None to serve the whole file: no header, a unit other than bytes (which must be
+        ignored), a malformed or invalid range, or several ranges (which may be ignored).
+    :raises ValueError: If the range is well formed but can't be satisfied (answered with 416).
     """
     if not header:
         return None
-    unit, _, spec = header.partition("=")
-    if unit.strip().lower() != "bytes" or not spec:
-        raise ValueError(header)
-    if "," in spec:
+    unit, eq, spec = header.partition("=")
+    if unit.strip().lower() != "bytes" or not eq or not spec or "," in spec:
         return None
     first, dash, last = spec.strip().partition("-")
     if not dash:
-        raise ValueError(header)
+        return None
     if first == "":
         # Suffix range: the last N bytes.
-        if not last.isdigit() or int(last) == 0 or size == 0:
+        if not _digits(last):
+            return None
+        if int(last) == 0 or size == 0:
             raise ValueError(header)
         return max(size - int(last), 0), size - 1
-    if not first.isdigit() or (last and not last.isdigit()):
-        raise ValueError(header)
+    if not _digits(first) or (last and not _digits(last)):
+        return None
     start = int(first)
-    end = min(int(last), size - 1) if last else size - 1
-    if start >= size or end < start:
+    if last and int(last) < start:
+        return None  # invalid range: last before first
+    if start >= size:
         raise ValueError(header)
+    end = min(int(last), size - 1) if last else size - 1
     return start, end
+
+
+def _digits(text: str) -> bool:
+    return text != "" and all(c in "0123456789" for c in text)
 
 
 def read_chunks(fd: int, start: int, end: int, chunk_size: int) -> Iterator[bytes]:
