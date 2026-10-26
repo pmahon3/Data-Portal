@@ -241,7 +241,6 @@ def test_a_grant_written_with_a_leading_slash_gives_access(make_user, tree, port
 
 # --------------------------------------- one file never opens the folders above it
 
-@INN_293
 def test_a_file_grant_does_not_allow_deleting_the_folder_above(make_user, tree, portal):
     """AC-2. Delete on del/one.nii doesn't allow deleting del/, and nothing is deleted."""
     user = make_user(("delete", "del/one.nii"))
@@ -250,7 +249,6 @@ def test_a_file_grant_does_not_allow_deleting_the_folder_above(make_user, tree, 
     assert portal.stored("del/") == before
 
 
-@INN_293
 def test_a_file_grant_does_not_allow_replacing_other_files_by_folder_upload(make_user, tree, portal):
     """AC-2. Write on over/mine.csv doesn't allow a folder upload that replaces
     over/theirs.csv and over/sub/other.csv."""
