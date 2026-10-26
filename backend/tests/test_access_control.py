@@ -21,10 +21,6 @@ import pytest
 
 from portal_stack import Portal, StackUnavailable, Tree, browsed, key_in_url, listed
 
-INN_289 = pytest.mark.xfail(strict=True, reason="INN-289: a file name with a bracket breaks permission checks")
-INN_291 = pytest.mark.xfail(strict=True, reason="INN-291: a grant written with a leading '/' grants nothing")
-INN_292 = pytest.mark.xfail(strict=True, reason="INN-292: a grant covers paths that only start with the same text")
-INN_293 = pytest.mark.xfail(strict=True, reason="INN-293: access to one file allows acting on the folders above it")
 INN_294 = pytest.mark.xfail(strict=True, reason="INN-294: folder listings show files the user can't access")
 
 # Every file in the test bucket. Tests that change files work in a folder of their own.
@@ -180,28 +176,24 @@ def test_a_download_refuses_a_selected_file_the_user_may_not_read(make_user, tre
 
 # ------------------------------------------------- a grant covers exactly what it names
 
-@INN_292
 def test_a_file_grant_does_not_cover_longer_names(make_user, tree):
     """AC-5. Read on shared/notes.txt gives nothing on shared/notes.txt.secret."""
     user = make_user(("read", "shared/notes.txt"))
     assert user.download_url(tree.file("shared/notes.txt.secret")).status_code == 403
 
 
-@INN_292
 def test_a_file_grant_does_not_allow_creating_longer_names(make_user, tree):
     """AC-5. Write on data/report.csv.bak doesn't allow creating data/report.csv.bak.evil."""
     user = make_user(("write", "data/report.csv.bak"))
     assert user.upload_init(tree.folder("data/"), "report.csv.bak.evil").status_code == 403
 
 
-@INN_292
 def test_a_dot_in_a_grant_is_just_a_dot(make_user, tree):
     """AC-5. Write on data/report.csv.bak doesn't allow writing data/reportXcsv.bak."""
     user = make_user(("write", "data/report.csv.bak"))
     assert user.upload_init(tree.folder("data/"), "reportXcsv.bak").status_code == 403
 
 
-@INN_292
 def test_a_folder_grant_does_not_cover_folders_sharing_its_name(make_user, tree):
     """AC-5. Read on fold/* gives nothing in folder-secret/."""
     user = make_user(("read", "fold/*"))
@@ -209,7 +201,6 @@ def test_a_folder_grant_does_not_cover_folders_sharing_its_name(make_user, tree)
     assert user.download_url(tree.file("folder-secret/x.txt")).status_code == 403
 
 
-@INN_289
 def test_a_folder_holding_a_file_named_with_a_bracket_can_be_browsed(make_user, tree):
     """AC-1. The page's file tree for brackets/ answers normally and shows only the user's
     file, although the folder also holds brackets/a[b.bin."""
@@ -219,7 +210,6 @@ def test_a_folder_holding_a_file_named_with_a_bracket_can_be_browsed(make_user, 
     assert browsed(r) == (set(), {"brackets/ok.txt"})
 
 
-@INN_289
 def test_a_grant_on_a_file_named_with_a_bracket_gives_access_to_it(make_user, tree):
     """AC-5. Read on brackets/a[b.bin can be granted, and shows and reads that file."""
     user = make_user(("read", "brackets/a[b.bin"))
@@ -230,7 +220,6 @@ def test_a_grant_on_a_file_named_with_a_bracket_gives_access_to_it(make_user, tr
     assert user.download_url(file_id).status_code == 200
 
 
-@INN_291
 def test_a_grant_written_with_a_leading_slash_gives_access(make_user, tree, portal):
     """AC-5. A grant entered as "/bucket/slash/notes.txt", the form the policy screen
     suggested, gives read on that file."""
@@ -275,7 +264,6 @@ def test_deleting_a_folder_never_removes_a_file_the_user_could_not_delete(make_u
         assert portal.stored("box/") == before
 
 
-@INN_293
 @pytest.mark.parametrize("parent", ["", "data/"])
 def test_a_file_grant_does_not_allow_creating_folders_above_it(make_user, tree, parent):
     """AC-2. Write on data/report.csv.bak doesn't allow creating folders in data/ or at the
