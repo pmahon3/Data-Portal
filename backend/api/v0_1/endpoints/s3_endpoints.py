@@ -213,9 +213,9 @@ def allowed_or_403(check: Checker, resource: str, action: str) -> None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied by policy")
 
 
-def folder_shown_or_403(policy_manager: CasbinPolicyManager, user_uuid, instance_uuid, resource: str) -> None:
+def folder_shown_or_403(check: Checker, resource: str) -> None:
     """Raise 403 unless the user can read the folder or something inside it (browsing only)."""
-    if not policy_manager.checker(user_uuid, instance_uuid).shows_folder(resource, "read"):
+    if not check.shows_folder(resource, "read"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied by policy")
 
 
@@ -312,7 +312,7 @@ async def get_root(
     """Return the root folder for a bucket (creating it if needed)."""
     user_uuid = user_manager.get_user_uuid(user["preferred_username"])
     instance_uuid, _agent = get_instance_agent(instance_manager, q.instance_name)
-    folder_shown_or_403(policy_manager, user_uuid, instance_uuid, resource_for_folder(q.bucket, "/"))
+    folder_shown_or_403(policy_manager.checker(user_uuid, instance_uuid), resource_for_folder(q.bucket, "/"))
 
     tree_svc = TreeService(session)
     root = await tree_svc.get_root(q.bucket)
@@ -336,10 +336,14 @@ async def list_children(
     folder = (await session.execute(
         select(Folder).where(Folder.id == folder_id, Folder.bucket == q.bucket)
     )).scalar_one()
-    folder_shown_or_403(policy_manager, user_uuid, instance_uuid, resource_for_folder(q.bucket, folder.full_path))
+    check = policy_manager.checker(user_uuid, instance_uuid)
+    folder_shown_or_403(check, resource_for_folder(q.bucket, folder.full_path))
 
     tree_svc = TreeService(session)
     folders, files = await tree_svc.list_children(q.bucket, folder_id)
+    # Only list what the user can see: folders on the way to their files, and their files
+    folders = [f for f in folders if check.shows_folder(resource_for_folder(q.bucket, f.full_path), "read")]
+    files = [x for x in files if check.allows(resource_for_key(q.bucket, x.key), "read")]
 
     return {
         "folder_id": folder_id,
