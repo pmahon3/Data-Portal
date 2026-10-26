@@ -166,10 +166,18 @@ class Portal:
     def grant(self, user: "User", resource: str, action: str) -> str:
         """Add a policy through the policy API, as an administrator would. Returns the
         resource as the portal stored it."""
+        stored = self.try_grant(user, resource, action)
+        assert stored is not None, f"the portal refused a grant of {action} on {resource!r}"
+        return stored
+
+    def try_grant(self, user: "User", resource: str, action: str) -> str | None:
+        """Like grant, but returns None if the portal refuses the policy."""
         r = requests.post(f"{self.backend}/api/policies/", headers=self.admin_headers(), timeout=TIMEOUT, json={
             "username": user.username, "instance_name": self.instance,
             "resource": resource, "action": action})
-        assert r.status_code in (200, 201), f"the portal refused a grant of {action} on {resource!r}: {r.status_code} {r.text}"
+        if r.status_code not in (200, 201):
+            print(f"policy refused: {action} on {resource!r}: {r.status_code} {r.text}")
+            return None
         stored = r.json()["details"][0]["resource"]
         user.grants.append((stored, action))
         return stored

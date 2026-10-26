@@ -53,6 +53,9 @@ FILES = [
     "held/sub/b.txt",
     "own/del-me.txt",
     "own/keep.txt",
+    "box/a.txt",
+    "box/c.txt",
+    "box/sub/b.txt",
 ]
 # The browsing user never lists brackets/: on the current code that listing fails (INN-289).
 BROWSABLE = [key for key in FILES if not key.startswith("brackets/") or key == "brackets/ok.txt"]
@@ -256,6 +259,22 @@ def test_a_file_grant_does_not_allow_replacing_other_files_by_folder_upload(make
     r = user.folder_upload_init(tree.folder("over/"), ["theirs.csv", "sub/other.csv"], on_conflict="replace")
     assert r.status_code == 403, r.text
     assert portal.stored("over/") == before
+
+
+def test_deleting_a_folder_never_removes_a_file_the_user_could_not_delete(make_user, tree, portal):
+    """AC-2. A grant entered on the bare folder path "box/" (no "*") may be refused, or may
+    cover the files inside, but deleting the folder never removes a file the same user
+    couldn't delete on its own."""
+    user = make_user()
+    folder_id, file_id = tree.folder("box/"), tree.file("box/a.txt")
+    if portal.try_grant(user, portal.resource("box/"), "delete") is None:
+        return
+    file_deletable = user.delete_file(file_id).status_code == 200
+    before = portal.stored("box/")
+    r = user.delete_folder(folder_id)
+    if not file_deletable:
+        assert r.status_code == 403, r.text
+        assert portal.stored("box/") == before
 
 
 @INN_293
