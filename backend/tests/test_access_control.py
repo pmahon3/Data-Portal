@@ -21,7 +21,6 @@ import pytest
 
 from portal_stack import Portal, StackUnavailable, Tree, browsed, key_in_url, listed
 
-INN_294 = pytest.mark.xfail(strict=True, reason="INN-294: folder listings show files the user can't access")
 
 # Every file in the test bucket. Tests that change files work in a folder of their own.
 FILES = [
@@ -274,7 +273,6 @@ def test_a_file_grant_does_not_allow_creating_folders_above_it(make_user, tree, 
 
 # ------------------------------------------------ listings show only the user's path
 
-@INN_294
 def test_a_folder_listing_shows_only_files_the_user_may_read(make_user, tree):
     """AC-1. Listing study/patient-7/ shows summary.csv, not the file beside it."""
     user = make_user(("read", "study/patient-7/summary.csv"))
@@ -283,7 +281,6 @@ def test_a_folder_listing_shows_only_files_the_user_may_read(make_user, tree):
     assert listed(r) == (set(), {"study/patient-7/summary.csv"})
 
 
-@INN_294
 def test_listings_above_a_file_show_only_the_path_to_it(make_user, tree):
     """AC-1. study/ shows only patient-7/, and the bucket root only study/."""
     user = make_user(("read", "study/patient-7/summary.csv"))
