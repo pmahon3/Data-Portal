@@ -69,5 +69,7 @@
     "ETag": "ETag",
     "Last-Modified": "LastModified",
     "Content-Type": "ContentType"
-  }
+  },
+  "subject_claim": "sub",
+  "_subject": "Links issued to a user carry the user's portal ID in the subject claim; the file service records it with the link's temporary ID."
 }

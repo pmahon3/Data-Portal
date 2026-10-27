@@ -28,19 +28,25 @@ class AbstractStorageAgent(ABC):
         """
         self.instance_url = instance_url
 
-    def generate_access_link(self, resource: str, method: str, ttl: int):
+    def generate_access_link(self, resource: str, method: str, ttl: int, subject: str | None = None):
         """
         Generate a presigned access URL for an asset.
 
         :param resource: The key/regex of the asset(s).
         :param method: The method to use for accessing the asset.
         :param ttl: The time-to-live for the URL.
+        :param subject: The portal user the link is for. Agents whose links can carry it (POSIX) do;
+            S3 presigned URLs can't and ignore it.
         :return: The presigned URL.
         """
         raise NotImplementedError
 
-    def delete_object(self, resource: str):
-        """Delete an object identified by its storage resource path."""
+    def delete_object(self, resource: str, subject: str | None = None):
+        """
+        Delete an object identified by its storage resource path.
+
+        :param subject: The portal user asking; recorded where the storage can carry it (POSIX).
+        """
         raise NotImplementedError
 
     def delete_objects(self, resources: list[str]):

@@ -61,7 +61,7 @@ class PosixStorageAgent(AbstractStorageAgent):
         return [self.namespace]
 
     def generate_access_link(
-        self, resource: str, method: str, ttl: int
+        self, resource: str, method: str, ttl: int, subject: str | None = None
     ) -> tuple[list[str], list[str]]:
         """Generate a signed download or upload URL for one file."""
         operation_by_access = {
@@ -73,14 +73,14 @@ class PosixStorageAgent(AbstractStorageAgent):
             raise ValueError(f"Unsupported access method {method!r}")
 
         self._check_resource(resource)
-        token = self._signer.sign(self.namespace, resource, operation, ttl)
+        token = self._signer.sign(self.namespace, resource, operation, ttl, subject=subject)
         url = f"{self._file_url(resource)}?{httpx.QueryParams(token=token)}"
         logger.debug("generate_access_link (%s): URL for %s", method, resource)
         return [url], [resource]
 
-    def delete_object(self, resource: str):
+    def delete_object(self, resource: str, subject: str | None = None):
         """Delete a file identified by ``namespace/key``. Deleting a missing file succeeds."""
-        response = self._service_call("DELETE", resource, "delete")
+        response = self._service_call("DELETE", resource, "delete", subject=subject)
         if response.status_code not in (200, 204, 404):
             self._raise_for_status(response, resource)
 
@@ -123,9 +123,10 @@ class PosixStorageAgent(AbstractStorageAgent):
     def _file_url(self, resource: str) -> str:
         return f"{self.instance_url}/v1/files/{quote(resource, safe='/')}"
 
-    def _service_call(self, http_method: str, resource: str, operation: str) -> httpx.Response:
+    def _service_call(self, http_method: str, resource: str, operation: str,
+                      subject: str | None = None) -> httpx.Response:
         self._check_resource(resource)
-        token = self._signer.sign(self.namespace, resource, operation, SERVICE_CALL_TTL_SECONDS)
+        token = self._signer.sign(self.namespace, resource, operation, SERVICE_CALL_TTL_SECONDS, subject=subject)
         try:
             return self._http().request(
                 http_method,
