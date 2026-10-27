@@ -1,9 +1,11 @@
 from core.storage_agents.abstract_storage_agent import AbstractStorageAgent
 from core.storage_agents.s3_agent import S3StorageAgent
 from core.storage_agents.dummy_agent import DummyStorageAgent
+from core.storage_agents.posix_agent import PosixStorageAgent
 
 AVAILABLE_FLAVOURS = {
     S3StorageAgent.FLAVOUR: S3StorageAgent,
+    PosixStorageAgent.FLAVOUR: PosixStorageAgent,
     DummyStorageAgent.FLAVOUR: DummyStorageAgent  # For testing only
 }
 

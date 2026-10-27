@@ -1025,6 +1025,14 @@ async def create_asset_bundle(
             single_file_url=all_presigned_urls[0]
         )
 
+    # The bundler stores a copy of the archive in object storage, which data held on POSIX
+    # machines must not have. Multi-file POSIX downloads wait for the streaming download path.
+    if agent.FLAVOUR == "posix":
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="Downloading several files at once isn't available for POSIX storage yet. Please download files one at a time.",
+        )
+
     # POST to Bundler service's create archive endpoint
     # Top level archive structure is bucket_{uuid}/{folder_name}/
     # Empty string removes the folder_name level

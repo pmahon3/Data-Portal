@@ -8,6 +8,7 @@ from .object_storage_events import router as object_storage_events_router
 from .policies import policies_router
 from .projects import projects_router
 from .s3_endpoints import router as s3_router
+from .storage_links import router as storage_links_router
 from .users import users_router
 
 application_router = APIRouter(prefix="/api")
@@ -21,3 +22,4 @@ application_router.include_router(health_router)
 application_router.include_router(s3_router)
 application_router.include_router(tree_db_router)
 application_router.include_router(object_storage_events_router)
+application_router.include_router(storage_links_router)
