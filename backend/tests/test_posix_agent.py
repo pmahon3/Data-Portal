@@ -266,3 +266,14 @@ def test_the_agent_recovers_after_being_closed(signer):
     assert agent._client.is_closed
     assert not agent._http().is_closed
     agent.close()
+
+
+def test_delete_records_who_asked(signer):
+    seen = {}
+
+    def handler(request):
+        seen["claims"] = decode(signer, request.headers["Authorization"].removeprefix("Bearer "))
+        return httpx.Response(204)
+
+    make_agent(signer, handler).delete_object(f"{NAMESPACE}/a.txt", subject="user-7")
+    assert seen["claims"]["sub"] == "user-7"

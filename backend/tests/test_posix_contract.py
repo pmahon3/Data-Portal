@@ -74,3 +74,11 @@ def test_service_calls_use_the_agreed_operation_and_header(method):
 def test_refused_resources(resource):
     with pytest.raises(ValueError):
         agent().generate_access_link(resource, "read", 60)
+
+
+@pytest.mark.parametrize("subject", [None, "3f0c1b9e-user"])
+def test_links_carry_the_user_as_subject_when_given(subject):
+    item = CONTRACT["resources"][0]
+    urls, _ = agent().generate_access_link(item["resource"], "read", 60, subject=subject)
+    claims = decode(parse_qs(urlparse(urls[0]).query)["token"][0])
+    assert claims.get(CONTRACT["subject_claim"]) == subject
