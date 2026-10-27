@@ -4,7 +4,7 @@ import axios from 'axios';
 import { getAuthHeaders } from '../../../utils/authUtils';
 import { formatError } from '../../../utils/errorUtils';
 
-const FLAVOURS = ["s3"];
+const FLAVOURS = ["s3", "posix"];
 const http = axios.create({ baseURL: "/api" });
 
 export default function StorageInstanceForm({ onCreate, creating, initialized }) {
@@ -17,6 +17,8 @@ export default function StorageInstanceForm({ onCreate, creating, initialized })
   const [s3Key, setS3Key] = useState("");
   const [s3Secret, setS3Secret] = useState("");
   const [s3Region, setS3Region] = useState("");
+  const [posixUrl, setPosixUrl] = useState("");
+  const [posixNamespace, setPosixNamespace] = useState("");
   const [localErr, setLocalErr] = useState("");
 
   useEffect(() => {
@@ -74,6 +76,19 @@ export default function StorageInstanceForm({ onCreate, creating, initialized })
       if (s3Region.trim()) {
         payload.region_name = s3Region.trim();
       }
+    } else if (flavour === "posix") {
+      if (!posixUrl.trim() || !posixNamespace.trim()) {
+        return setLocalErr("For POSIX, please fill the file service URL and namespace.");
+      }
+      if (posixNamespace.includes("/")) {
+        return setLocalErr("The namespace must be a single name without '/'.");
+      }
+      payload = {
+        flavour: "posix",
+        instance_name: instanceName.trim(),
+        instance_url: posixUrl.trim(),
+        namespace: posixNamespace.trim(),
+      };
     } else {
       return setLocalErr(`Unsupported flavour: ${flavour}`);
     }
@@ -153,6 +168,22 @@ export default function StorageInstanceForm({ onCreate, creating, initialized })
             <label className="im-field">
               <span>Region Name</span>
               <input value={s3Region} onChange={e => setS3Region(e.target.value)} placeholder="us-east-2" />
+            </label>
+          </div>
+        )}
+
+        {/* POSIX Specific Fields: Only visible if "posix" is selected */}
+        {flavour === "posix" && (
+          <div className="im-row">
+            <label className="im-field">
+              <span>File Service URL *</span>
+              <input value={posixUrl} onChange={e => setPosixUrl(e.target.value)} placeholder="https://storage.example.org" />
+              <small className="im-muted">The portal's file service running on the POSIX machine</small>
+            </label>
+            <label className="im-field">
+              <span>Namespace *</span>
+              <input value={posixNamespace} onChange={e => setPosixNamespace(e.target.value)} placeholder="inn-posix" />
+              <small className="im-muted">Used like a bucket name in paths and policies; must not match any bucket</small>
             </label>
           </div>
         )}
