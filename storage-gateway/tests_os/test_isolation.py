@@ -41,10 +41,12 @@ WEB, DATA_OWNER, TRAVERSE, STRANGER = 10001, 10002, 10010, 50000
 SERVICE = str(Path(__file__).resolve().parents[1])
 
 
-def token(path, op, ttl=300):
+def token(path, op, ttl=300, grant=None, sub=None):
     now = int(time.time())
-    return jwt.encode({"iss": "inn-portal", "aud": NS, "jti": uuid.uuid4().hex, "iat": now, "exp": now + ttl,
-                       "op": op, "path": path}, KEY, algorithm="RS256")
+    claims = {"iss": "inn-portal", "aud": NS, "jti": uuid.uuid4().hex, "iat": now, "exp": now + ttl,
+              "op": op, "path": path}
+    claims |= {k: v for k, v in (("grant", grant), ("sub", sub)) if v is not None}
+    return jwt.encode(claims, KEY, algorithm="RS256")
 
 
 def as_user(uid, code, groups=()):
@@ -367,3 +369,71 @@ def test_each_temporary_id_is_recorded_with_its_link_and_user(env, caplog):
     link = env["helper"].ids.state["links"]["link-1"]
     assert link["user"] == "user-42"
     assert f"read link=link-1 id={link['uid']} user=user-42 path={NS}/study/a.nii.gz" in caplog.messages
+
+
+# --- approvals: links of one approved request share one ID ---
+
+def read_with(env, name, **claims):
+    path = f"{NS}/study/{name}"
+    os.close(env["access"].open_read(token(path, "read", **claims), path, None)[0])
+
+
+def test_links_of_one_approval_share_one_id_that_reads_only_their_files(env):
+    (env["data"] / "study" / "c.nii.gz").write_bytes(b"c")
+    os.chown(env["data"] / "study" / "c.nii.gz", DATA_OWNER, DATA_OWNER)
+    os.chmod(env["data"] / "study" / "c.nii.gz", 0o600)
+    for name in ("a.nii.gz", "b.nii.gz", "a.nii.gz"):
+        read_with(env, name, grant="approval-1", sub="user-42")
+    uid = uid_of_only_link(env["helper"])
+    assert can_read(uid, env["data"] / "study" / "a.nii.gz", groups=[TRAVERSE])
+    assert can_read(uid, env["data"] / "study" / "b.nii.gz", groups=[TRAVERSE])
+    assert not can_read(uid, env["data"] / "study" / "c.nii.gz", groups=[TRAVERSE])
+
+
+def test_two_approvals_get_two_ids(env):
+    read_with(env, "a.nii.gz", grant="approval-1", sub="user-42")
+    read_with(env, "a.nii.gz", grant="approval-2", sub="user-42")
+    assert len({link["uid"] for link in env["helper"].ids.state["links"].values()}) == 2
+
+
+def test_an_approval_belongs_to_one_user(env):
+    read_with(env, "a.nii.gz", grant="approval-1", sub="user-42")
+    with pytest.raises(HTTPException) as refused:
+        read_with(env, "b.nii.gz", grant="approval-1", sub="someone-else")
+    assert refused.value.status_code == 403
+    assert len(env["helper"].ids.state["links"]) == 1
+
+
+def test_an_approval_lasts_until_its_latest_link_expires(env):
+    read_with(env, "a.nii.gz", grant="approval-1", sub="user-42", ttl=60)
+    read_with(env, "b.nii.gz", grant="approval-1", sub="user-42", ttl=600)
+    uid = uid_of_only_link(env["helper"])
+    assert env["helper"].sweep(now=time.time() + 120) == 0
+    assert can_read(uid, env["data"] / "study" / "a.nii.gz", groups=[TRAVERSE])
+    assert env["helper"].sweep(now=time.time() + 700) == 1
+    assert not can_read(uid, env["data"] / "study" / "a.nii.gz", groups=[TRAVERSE])
+    assert not can_read(uid, env["data"] / "study" / "b.nii.gz", groups=[TRAVERSE])
+    assert str(uid) in env["helper"].ids.state["quarantine"]
+
+
+def test_a_link_of_an_expired_approval_starts_a_new_id_and_the_old_one_is_still_revoked(env):
+    read_with(env, "a.nii.gz", grant="approval-1", sub="user-42", ttl=1)
+    old = uid_of_only_link(env["helper"])
+    time.sleep(2.1)
+    read_with(env, "b.nii.gz", grant="approval-1", sub="user-42", ttl=600)
+    new = env["helper"].ids.state["links"]["approval-1"]["uid"]
+    assert new != old
+    assert env["helper"].sweep(now=time.time() + 30) == 1
+    assert not can_read(old, env["data"] / "study" / "a.nii.gz", groups=[TRAVERSE])
+    assert can_read(new, env["data"] / "study" / "b.nii.gz", groups=[TRAVERSE])
+    assert {link["uid"] for link in env["helper"].ids.state["links"].values()} == {new}
+
+
+def test_uploads_of_one_approval_share_its_id(env):
+    for name in ("x.csv", "y.csv"):
+        path = f"{NS}/up/{name}"
+        pending = env["access"].begin_write(token(path, "write", grant="approval-1", sub="user-42"), path, None)
+        pending.write(b"1")
+        pending.commit()
+    assert len(env["helper"].ids.state["links"]) == 1
+    assert (env["data"] / "up" / "x.csv").read_bytes() == b"1"

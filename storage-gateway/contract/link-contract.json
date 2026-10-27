@@ -71,5 +71,7 @@
     "Content-Type": "ContentType"
   },
   "subject_claim": "sub",
-  "_subject": "Links issued to a user carry the user's portal ID in the subject claim; the file service records it with the link's temporary ID."
+  "_subject": "Links issued to a user carry the user's portal ID in the subject claim; the file service records it with the link's temporary ID.",
+  "grant_claim": "grant",
+  "_grant": "Optional. Links issued for one approved request share an approval ID in this claim; the file service gives them one temporary ID. Without it, each link gets its own."
 }

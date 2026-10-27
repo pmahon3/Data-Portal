@@ -82,3 +82,11 @@ def test_links_carry_the_user_as_subject_when_given(subject):
     urls, _ = agent().generate_access_link(item["resource"], "read", 60, subject=subject)
     claims = decode(parse_qs(urlparse(urls[0]).query)["token"][0])
     assert claims.get(CONTRACT["subject_claim"]) == subject
+
+
+@pytest.mark.parametrize("grant", [None, "approval-7"])
+def test_links_carry_the_approval_when_given(grant):
+    item = CONTRACT["resources"][0]
+    urls, _ = agent().generate_access_link(item["resource"], "read", 60, subject="u", grant=grant)
+    claims = decode(parse_qs(urlparse(urls[0]).query)["token"][0])
+    assert claims.get(CONTRACT["grant_claim"]) == grant

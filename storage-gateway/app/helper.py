@@ -15,9 +15,11 @@ the web service can't widen a grant), then:
 - delete: carried out by the helper after its own token check (POSIX can't grant "delete only
           this file").
 
-Each link (token ``jti``) gets its own ID from a reserved range on first use. When the link
-expires, a sweeper removes its ACL entries and staging files and quarantines the ID before reuse,
-so audit records never mix two links. Each grant records the file's identity (device, inode): if a
+Each approved request gets its own ID from a reserved range on first use. Its links share an
+approval ID (token ``grant``); a link without one is its own request (keyed by ``jti``). A grant is
+bound to the user of its first link and lasts until its latest link expires; a link of a grant that
+has already expired starts a new ID. When a grant expires, a sweeper removes its ACL entries and
+staging files and quarantines the ID before reuse, so audit records never mix two grants. Each grant records the file's identity (device, inode): if a
 granted file was moved or replaced on the machine and its entry can't be found to remove, the ID is
 retired for good rather than handed to another link, and logged for an administrator. Downloads already running keep their open descriptor and
 finish. See STREAMING-SPEC.md and STATUS.md (decisions of 2026-10-23).
@@ -97,8 +99,17 @@ class Refused(Exception):
         self.status = status
 
 
+def grant_key(claims: dict) -> str:
+    """The approval a link belongs to: its ``grant`` claim, or the link itself when it has none."""
+    return claims.get("grant") or claims["jti"]
+
+
+def _grant_note(claims: dict) -> str:
+    return f" grant={claims['grant']}" if claims.get("grant") else ""
+
+
 class LinkIds:
-    """Temporary IDs per link, persisted so a restart still revokes everything it granted."""
+    """Temporary IDs per grant, persisted so a restart still revokes everything it granted."""
 
     def __init__(self, settings: HelperSettings):
         self.s = settings
@@ -114,12 +125,20 @@ class LinkIds:
         tmp.write_text(json.dumps(self.state))
         os.replace(tmp, self.s.state_file)
 
-    def uid_for(self, jti: str, exp: int, user: str | None = None) -> int:
+    def uid_for(self, key: str, exp: int, user: str | None = None) -> int:
         with self.lock:
-            link = self.state["links"].get(jti)
-            if link:
-                return link["uid"]
             now = time.time()
+            link = self.state["links"].get(key)
+            if link and link["user"] != user:
+                raise Refused(403)  # a grant belongs to one user
+            if link and link["exp"] >= now:
+                if exp > link["exp"]:
+                    link["exp"] = exp
+                    self._save()
+                return link["uid"]
+            if link:
+                # Expired but not yet swept: keep it for the sweeper under its own name, and start a new ID.
+                self.state["links"][f"{key}~{link['uid']}"] = self.state["links"].pop(key)
             in_use = ({link["uid"] for link in self.state["links"].values()}
                       | {int(u) for u, until in self.state["quarantine"].items() if until > now}
                       | {int(u) for u in self.state["retired"]})
@@ -131,14 +150,14 @@ class LinkIds:
                 raise Refused(503)
             self.state["cursor"] = (candidate - self.s.id_start + 1) % self.s.id_count
             self.state["quarantine"].pop(str(candidate), None)
-            self.state["links"][jti] = {"uid": candidate, "exp": exp, "user": user, "files": []}
+            self.state["links"][key] = {"uid": candidate, "exp": exp, "user": user, "files": []}
             self._save()
             return candidate
 
-    def record_file(self, jti: str, parts: list[str], st: os.stat_result) -> None:
+    def record_file(self, key: str, parts: list[str], st: os.stat_result) -> None:
         """Remember a grant with the file's identity, so expiry revokes it on the same file."""
         with self.lock:
-            files = self.state["links"][jti]["files"]
+            files = self.state["links"][key]["files"]
             entry = [parts, st.st_dev, st.st_ino]
             if entry not in files:
                 files.append(entry)
@@ -146,17 +165,19 @@ class LinkIds:
 
     def expired(self, now: float) -> list[tuple[str, dict]]:
         with self.lock:
-            return [(jti, dict(link)) for jti, link in self.state["links"].items() if link["exp"] < now]
+            return [(key, dict(link)) for key, link in self.state["links"].items() if link["exp"] < now]
 
-    def retire(self, jti: str, uid: int, now: float, leftovers: list) -> None:
+    def retire(self, key: str, uid: int, now: float, leftovers: list) -> None:
         """
-        Release a link's ID: into quarantine if every grant was revoked, otherwise retired for good
-        (an ACL entry may remain on a file that was moved), so it never reaches another link.
+        Release a grant's ID: into quarantine if every file grant was revoked, otherwise retired for good
+        (an ACL entry may remain on a file that was moved), so it never reaches another grant.
         """
         with self.lock:
-            self.state["links"].pop(jti, None)
+            # The grant may have been renamed since the sweep began (a new link started a new ID).
+            key = next((k for k, v in self.state["links"].items() if v["uid"] == uid), key)
+            self.state["links"].pop(key, None)
             if leftovers:
-                self.state["retired"][str(uid)] = {"jti": jti, "files": leftovers, "at": now}
+                self.state["retired"][str(uid)] = {"jti": key, "files": leftovers, "at": now}
                 logger.warning("retired id %s: grants on moved or replaced files could not be revoked: %s",
                                uid, leftovers)
             else:
@@ -191,16 +212,18 @@ class Helper:
 
     def open_read(self, token: str, path: str) -> int:
         claims, parts = self._verify(token, path, "GET")
-        uid = self.ids.uid_for(claims["jti"], claims["exp"], claims.get("sub"))
-        self._grant_read(uid, claims["jti"], parts)
-        audit.info("read link=%s id=%s user=%s path=%s", claims["jti"], uid, claims.get("sub", "-"), path)
+        key = grant_key(claims)
+        uid = self.ids.uid_for(key, claims["exp"], claims.get("sub"))
+        self._grant_read(uid, key, parts)
+        audit.info("read link=%s id=%s user=%s path=%s%s", claims["jti"], uid, claims.get("sub", "-"), path,
+                   _grant_note(claims))
         results, fds = self._as_link(uid, {"mode": "read", "root": str(self.s.data_root), "paths": [parts]},
                                      extra_groups=[self.s.traverse_gid])
         if not results[0]["ok"]:
             raise Refused(results[0]["status"])
         return fds[0]
 
-    def _grant_read(self, uid: int, jti: str, parts: list[str]) -> None:
+    def _grant_read(self, uid: int, key: str, parts: list[str]) -> None:
         try:
             fd, st = self.tree.open_file(parts)
         except BadPath as e:
@@ -208,7 +231,7 @@ class Helper:
         except FileNotFoundError as e:
             raise Refused(404) from e
         try:
-            self.ids.record_file(jti, parts, st)  # recorded first, so a crash can't leave an unrecorded grant
+            self.ids.record_file(key, parts, st)  # recorded first, so a crash can't leave an unrecorded grant
             with self.acl_lock:
                 acl.grant_user(fd, uid, acl.READ)
         finally:
@@ -243,8 +266,9 @@ class Helper:
 
     def begin_write(self, token: str, path: str) -> tuple[str, int]:
         claims, _ = self._verify(token, path, "PUT")
-        uid = self.ids.uid_for(claims["jti"], claims["exp"], claims.get("sub"))
-        audit.info("write link=%s id=%s user=%s path=%s", claims["jti"], uid, claims.get("sub", "-"), path)
+        uid = self.ids.uid_for(grant_key(claims), claims["exp"], claims.get("sub"))
+        audit.info("write link=%s id=%s user=%s path=%s%s", claims["jti"], uid, claims.get("sub", "-"), path,
+                   _grant_note(claims))
         name = f".upload-{uuid.uuid4().hex}"
         results, fds = self._as_link(uid, {"mode": "create", "dir": str(self._staging_dir(uid)), "name": name})
         if not results[0]["ok"]:
@@ -275,7 +299,7 @@ class Helper:
 
     def commit(self, token: str, path: str, name: str) -> dict:
         claims, parts = self._verify(token, path, "PUT")
-        uid = self.ids.uid_for(claims["jti"], claims["exp"])
+        uid = self.ids.uid_for(grant_key(claims), claims["exp"], claims.get("sub"))
         staging_dir, fd = self._staged(uid, name)
         try:
             try:
@@ -313,7 +337,7 @@ class Helper:
 
     def abort(self, token: str, path: str, name: str) -> None:
         claims, _ = self._verify(token, path, "PUT")
-        uid = self.ids.uid_for(claims["jti"], claims["exp"])
+        uid = self.ids.uid_for(grant_key(claims), claims["exp"], claims.get("sub"))
         staging_dir, fd = self._staged(uid, name)
         os.close(fd)
         try:
@@ -365,7 +389,7 @@ class Helper:
         """
         now = time.time() if now is None else now
         swept = 0
-        for jti, link in self.ids.expired(now):
+        for key, link in self.ids.expired(now):
             uid = link["uid"]
             try:
                 leftovers = []
@@ -389,11 +413,11 @@ class Helper:
                     for item in os.scandir(staging):
                         os.unlink(item.path)
                     os.rmdir(staging)
-                self.ids.retire(jti, uid, now, leftovers)
-                audit.info("expired link=%s id=%s %s", jti, uid, "retired" if leftovers else "quarantined")
+                self.ids.retire(key, uid, now, leftovers)
+                audit.info("expired grant=%s id=%s %s", key, uid, "retired" if leftovers else "quarantined")
                 swept += 1
             except Exception:
-                logger.exception("could not revoke link %s (id %s); will retry", jti, uid)
+                logger.exception("could not revoke grant %s (id %s); will retry", key, uid)
         return swept
 
     def write_canary(self) -> None:
