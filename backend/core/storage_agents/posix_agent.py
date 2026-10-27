@@ -61,9 +61,14 @@ class PosixStorageAgent(AbstractStorageAgent):
         return [self.namespace]
 
     def generate_access_link(
-        self, resource: str, method: str, ttl: int, subject: str | None = None
+        self, resource: str, method: str, ttl: int, subject: str | None = None, grant: str | None = None
     ) -> tuple[list[str], list[str]]:
-        """Generate a signed download or upload URL for one file."""
+        """
+        Generate a signed download or upload URL for one file.
+
+        :param grant: Optional approval ID shared by every link issued for one approved request, so the
+            file service uses one temporary user ID for all of them.
+        """
         operation_by_access = {
             "read": "read",
             "write": "write",
@@ -73,7 +78,7 @@ class PosixStorageAgent(AbstractStorageAgent):
             raise ValueError(f"Unsupported access method {method!r}")
 
         self._check_resource(resource)
-        token = self._signer.sign(self.namespace, resource, operation, ttl, subject=subject)
+        token = self._signer.sign(self.namespace, resource, operation, ttl, subject=subject, grant=grant)
         url = f"{self._file_url(resource)}?{httpx.QueryParams(token=token)}"
         logger.debug("generate_access_link (%s): URL for %s", method, resource)
         return [url], [resource]

@@ -47,7 +47,8 @@ class LinkSigner:
         with open(path, "rb") as f:
             return cls.from_pem(f.read())
 
-    def sign(self, namespace: str, path: str, operation: str, ttl: int, subject: str | None = None) -> str:
+    def sign(self, namespace: str, path: str, operation: str, ttl: int, subject: str | None = None,
+             grant: str | None = None) -> str:
         """
         Sign a token for one operation on one path.
 
@@ -57,6 +58,8 @@ class LinkSigner:
         :param ttl: Lifetime in seconds.
         :param subject: The portal user the link is issued to (``sub``), so the file service can record
             which person each link, and its temporary user ID, served.
+        :param grant: The approval the link belongs to (``grant``). Links of one approval share it, so
+            the file service gives them one temporary user ID instead of one per link.
         :return: The signed token.
         """
         if operation not in OPERATIONS:
@@ -75,6 +78,8 @@ class LinkSigner:
         }
         if subject is not None:
             claims["sub"] = subject
+        if grant is not None:
+            claims["grant"] = grant
         return jwt.encode(claims, self._private_key, algorithm=ALGORITHM, headers={"kid": self.key_id})
 
     def jwks(self) -> dict[str, Any]:
