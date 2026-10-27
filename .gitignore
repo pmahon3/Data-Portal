@@ -877,3 +877,6 @@ $RECYCLE.BIN/
 
 # Local generated help files.
 HELP.md
+
+# Local POSIX file service test data
+/storage-gateway/data/
