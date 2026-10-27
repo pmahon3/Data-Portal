@@ -4,6 +4,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
+# A file only the data owner can read. The helper writes it; the web service refuses to start if it
+# can read it (that would mean it isn't isolated from the data).
+CANARY = ".gateway-canary"
+
+
 @dataclass(frozen=True)
 class Settings:
     """

@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from app.auth import KeyResolver, check_token, jwks_key_resolver, token_from_request
-from app.config import Settings
+from app.config import CANARY, Settings
 from app.broker import DirectAccess, HelperAccess
 from app.files import BadPath, Root, etag, file_headers, parse_range, read_chunks, split_key
 
@@ -144,8 +144,6 @@ def _file_access(settings: Settings):
     if it can. Without a helper, only local unit tests may run (``require_isolation`` is off).
     """
     if settings.helper_socket:
-        from app.helper import CANARY
-
         try:
             fd = os.open(settings.root / CANARY, os.O_RDONLY)
         except PermissionError:
