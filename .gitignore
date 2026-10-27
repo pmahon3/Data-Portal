@@ -880,3 +880,4 @@ HELP.md
 
 # Local POSIX file service test data
 /storage-gateway/data/
+/storage-gateway/mutants/
