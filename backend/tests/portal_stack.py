@@ -4,7 +4,8 @@ A running portal, driven only through its public interfaces, for black-box tests
 Tests and their setup reach the portal through:
   - the portal API: as the portal admin for setup (instances, sync, policies), and as
     ordinary users for every action under test;
-  - Keycloak's admin API, to create and remove throwaway users;
+  - Keycloak's admin API, as the realm's admin client (the one the backend uses), to create
+    and remove throwaway users;
   - the object store behind the test instance, to create the test files and to see what
     happened to them.
 Nothing here imports backend code or reads the portal's databases, so the same tests run
@@ -16,7 +17,8 @@ sourcing local/.env is enough there:
   KEYCLOAK_DOMAIN                         http://localhost:8080
   KEYCLOAK_REALM                          ams-portal
   KEYCLOAK_UI_CLIENT_ID                   ams-portal-ui
-  KEYCLOAK_ADMIN, KEYCLOAK_ADMIN_PASSWORD Keycloak master-realm admin (creates test users)
+  KEYCLOAK_ADMIN_CLIENT_ID                ams-portal-admin
+  KEYCLOAK_ADMIN_CLIENT_SECRET            the realm admin client's secret (as for the backend)
   PORTAL_ADMIN_USER, PORTAL_ADMIN_PASSWORD portal admin in the realm (admin / admin123)
   TEST_INSTANCE                           storage instance to test on (qa-instance)
   TEST_S3_URL                             object store behind it (http://localhost:9000)
@@ -49,12 +51,15 @@ class Portal:
         self.keycloak = setting("KEYCLOAK_DOMAIN", "http://localhost:8080").rstrip("/")
         self.realm = setting("KEYCLOAK_REALM", "ams-portal")
         self.client_id = setting("KEYCLOAK_UI_CLIENT_ID", "ams-portal-ui")
-        self.kc_admin = (setting("KEYCLOAK_ADMIN", "admin"), setting("KEYCLOAK_ADMIN_PASSWORD", "admin123"))
+        self.kc_client = (setting("KEYCLOAK_ADMIN_CLIENT_ID", "ams-portal-admin"),
+                          setting("KEYCLOAK_ADMIN_CLIENT_SECRET"))
         self.portal_admin = (setting("PORTAL_ADMIN_USER", "admin"), setting("PORTAL_ADMIN_PASSWORD", "admin123"))
         self.instance = setting("TEST_INSTANCE", "qa-instance")
         self.bucket = f"acl-test-{uuid.uuid4().hex[:8]}"
         self._tokens: dict[str, tuple[float, str]] = {}
 
+        if not self.kc_client[1]:
+            raise StackUnavailable("Keycloak admin client secret not set (source local/.env)")
         try:
             requests.get(f"{self.backend}/api/health", timeout=5).raise_for_status()
             self.admin_headers()
@@ -98,7 +103,18 @@ class Portal:
         return {"Authorization": f"Bearer {self._token(self.realm, self.client_id, *self.portal_admin)}"}
 
     def _kc_headers(self) -> dict:
-        return {"Authorization": f"Bearer {self._token('master', 'admin-cli', *self.kc_admin)}"}
+        """The realm admin client's own token (client credentials), for Keycloak's admin API."""
+        client_id, secret = self.kc_client
+        cached = self._tokens.get(f"client/{client_id}")
+        if not cached or time.monotonic() - cached[0] >= 60:
+            r = requests.post(
+                f"{self.keycloak}/realms/{self.realm}/protocol/openid-connect/token",
+                data={"grant_type": "client_credentials", "client_id": client_id, "client_secret": secret},
+                timeout=TIMEOUT,
+            )
+            r.raise_for_status()
+            cached = self._tokens[f"client/{client_id}"] = (time.monotonic(), r.json()["access_token"])
+        return {"Authorization": f"Bearer {cached[1]}"}
 
     def admin(self, method: str, path: str, **kwargs) -> requests.Response:
         """A portal API call as the portal admin. Setup only; it must succeed."""
