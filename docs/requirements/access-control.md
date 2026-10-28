@@ -2,6 +2,7 @@
 
 Testable requirements for who can see and act on data in the portal. Each one serves part of
 the INN Digital Infrastructure Strategy (2026), which sets the outcomes but not these rules.
+They apply wherever the portal manages storage, including connected POSIX machines.
 
 Tests link to entries here with Gherkin tags, e.g. `@AC-4 @UC-5.1`. Ticket tags such as
 `@INN-295` record where a regression was found; they are not the reason a test exists.
@@ -10,7 +11,7 @@ Tests link to entries here with Gherkin tags, e.g. `@AC-4 @UC-5.1`. Ticket tags 
 *open* (needed by the strategy, not yet designed; no tests yet).
 
 | ID | Requirement | Serves (strategy) | Status |
-|----|-------------|-------------------|--------|
+|----|----------------------------------------------|-------------------------|--------|
 | AC-1 | A user sees only the folders on the path to what they hold, and nothing else in those folders. This is decided per action: when browsing to read, write or delete, a folder appears if the user holds that action on it or on something inside it, so write-only and delete-only permissions stay usable. Seeing a folder doesn't allow acting on it. This applies to the screen and to the API. | 5.1 postcondition ("accessible only to authorized users"); value Integrity and Ethics | settled |
 | AC-2 | Access to one item never lets a user delete or overwrite any other item. | 5.1 postcondition | settled |
 | AC-3 | The backend refuses every request the user isn't authorized for, whatever the client sends. | 5.1 postcondition; 4.1 | settled |
