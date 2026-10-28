@@ -3,7 +3,8 @@
 Testable requirements for working with files held on connected POSIX machines through the portal.
 Each one serves part of the INN Digital Infrastructure Strategy (2026). The access rules themselves
 are in [access-control.md](access-control.md) and apply here unchanged; this register holds only
-what is specific to POSIX machines.
+what is specific to POSIX machines. How each one is met, and which ones need administrator access on
+a machine, is in the design ([docs/posix/README.md](../posix/README.md)).
 
 Open items name the question that settles them in *INN use cases: decisions* (27 October 2026):
 A1 to A3 in Part A, D1 to D9 in Part D.
@@ -29,4 +30,4 @@ A1 to A3 in Part A, D1 to D9 in Part D.
 PX-1 and PX-3 come from the decisions document's settled list. PX-4's scope is settled there too,
 but what the portal must do about it waits on D3, so it has no tests yet. PX-8 states the aim of the
 setup balance in Part A and awaits that decision. The answers to A1 to A3 decide which requirements need
-administrator access.
+administrator access; the design lists them.

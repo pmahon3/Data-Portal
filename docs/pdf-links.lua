@@ -3,7 +3,7 @@
 -- (PX-n) become link targets in their register and links everywhere else.
 
 local REGISTER = "posix-storage"
-local has_pdf = { ["access-control"] = true, ["posix-storage"] = true }
+local has_pdf = { ["access-control"] = true, ["posix-storage"] = true, ["README"] = true }
 
 local input = PANDOC_STATE.input_files[1] or ""
 local in_register = input:match("([^/]+)%.md$") == REGISTER
