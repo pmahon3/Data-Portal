@@ -76,3 +76,11 @@ def get_project_instance_association_collection() -> Collection:
     """
     db = get_mongo_database()
     return db[os.getenv("MONGO_PROJECT_INSTANCE_ASSOCIATION_COLLECTION", "project-instance-associations")]
+
+
+def get_bundle_owner_collection() -> Collection:
+    """
+    Return the MongoDB collection that records who asked for each bundle (keyed by bundle id).
+    """
+    db = get_mongo_database()
+    return db[os.getenv("MONGO_BUNDLE_OWNER_COLLECTION", "bundle-owners")]

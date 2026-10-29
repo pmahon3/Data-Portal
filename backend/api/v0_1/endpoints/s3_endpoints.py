@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.v0_1.endpoints.auth import decode_token
 from api.v0_1.common.models import BundleCreateRequest, BundleCreateResponse, BundleDownloadUrlResponse
 # DB models
+from core.db.mongodb.mongo_client import get_bundle_owner_collection
 from core.db.postgres.session import get_session
 from core.services.injectors import get_instance_manager, get_policy_manager, get_user_manager
 from core.services.instances import AbstractInstanceManager
@@ -1029,8 +1030,24 @@ async def create_asset_bundle(
     if not bundle_id:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Something went wrong while preparing your download. Please try again.")
 
+    # Only the user who asked for a bundle may check or fetch it (require_bundle_owner)
+    get_bundle_owner_collection().insert_one({"_id": bundle_id, "owner": str(user_uuid), "created_at": datetime.utcnow()})
+
     # Send bundle id and status back to client
     return BundleCreateResponse(bundle_id=bundle_id, status="processing", folder_name=folder_name)
+
+
+def require_bundle_owner(bundle_id: str, user: dict, user_manager: AbstractUserManager, detail: str) -> None:
+    """
+    Refuse a bundle to anyone but the user who asked for it.
+
+    A bundle id identifies an archive; it doesn't grant access to one. Another user's bundle gets
+    the same 404 as a bundle that doesn't exist, so the answer doesn't confirm which ids exist.
+    """
+    record = get_bundle_owner_collection().find_one({"_id": bundle_id})
+    if record is None or record["owner"] != str(user_manager.get_user_uuid(user["preferred_username"])):
+        logger.warning(f"Bundle {bundle_id} refused to '{user['preferred_username']}': not their bundle")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
 
 
 @router.get(
@@ -1042,7 +1059,8 @@ async def create_asset_bundle(
 )
 async def get_bundle_status(
     bundle_id: str,
-    user: dict = Depends(decode_token)
+    user: dict = Depends(decode_token),
+    user_manager: AbstractUserManager = Depends(get_user_manager),
 ) -> BundleStatusOut:
     """
     Check the processing status of a previously requested bundle.
@@ -1050,10 +1068,12 @@ async def get_bundle_status(
     Args:
         bundle_id: The ID of the bundle to check.
         user: Current authenticated user.
+        user_manager: User manager dependency.
         
     Returns:
         dict: The current status of the bundle.
     """
+    require_bundle_owner(bundle_id, user, user_manager, "This download is no longer available.")
     try:
         bundler_url = get_bundler_url(get_bundler_provider())
         poll_res = await bundler_client.get(f"{bundler_url}/bundles/{bundle_id}", timeout=5.0)
@@ -1083,9 +1103,11 @@ async def get_bundle_status(
 )
 async def get_bundle_download_url(
     bundle_id: str,
-    user: dict = Depends(decode_token)
+    user: dict = Depends(decode_token),
+    user_manager: AbstractUserManager = Depends(get_user_manager),
 ):
     # Bundles are downloaded from object storage; this endpoint returns a presigned URL, not ZIP bytes.
+    require_bundle_owner(bundle_id, user, user_manager, "This ZIP archive is not available.")
     try:
         bundler_url = get_bundler_url(get_bundler_provider())
         url_res = await bundler_client.get(f"{bundler_url}/bundles/{bundle_id}/download", timeout=5.0)
