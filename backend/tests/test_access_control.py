@@ -107,6 +107,7 @@ def make_user(portal):
 # results mean nothing.
 
 def test_a_user_can_read_a_file_they_hold(make_user, tree):
+    """AC-5. Control: a file grant gives read on that file."""
     user = make_user(("read", "study/patient-7/summary.csv"))
     assert user.download_url(tree.file("study/patient-7/summary.csv")).status_code == 200
 
@@ -137,6 +138,7 @@ def test_a_user_cannot_delete_a_file_they_do_not_hold(make_user, tree, portal):
 
 
 def test_a_user_can_delete_a_file_they_hold(make_user, tree, portal):
+    """AC-5. Control: a file grant gives delete on that file."""
     user = make_user(("delete", "own/del-me.txt"))
     assert user.delete_file(tree.file("own/del-me.txt")).status_code == 200
     assert set(portal.stored("own/")) == {"own/keep.txt"}
@@ -152,7 +154,7 @@ def test_uploading_a_file_never_replaces_an_existing_one(make_user, tree, portal
 
 
 def test_a_folder_grant_allows_uploading_into_and_deleting_the_folder(make_user, tree, portal):
-    """Checking each file must not break users whose grant covers the whole folder."""
+    """AC-5. Checking each file must not break users whose grant covers the whole folder."""
     user = make_user(("write", "held/*"), ("delete", "held/*"))
     r = user.folder_upload_init(tree.folder("held/"), ["a.txt", "sub/new.txt"], on_conflict="replace")
     assert r.status_code == 200, r.text
