@@ -50,6 +50,8 @@ KNOWN_BUNDLER_ERROR_STATUSES = {400, 409, 413, 422, 501}
 class TreeRootQuery(BaseModel):
     instance_name: str
     bucket: str
+    # Browse for this action: folders on the way to what the user may act on, and those files (AC-1)
+    access: Literal["read", "write", "delete"] = "read"
 
 
 class CreateFolderIn(BaseModel):
@@ -213,9 +215,9 @@ def allowed_or_403(check: Checker, resource: str, action: str) -> None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied by policy")
 
 
-def folder_shown_or_403(check: Checker, resource: str) -> None:
-    """Raise 403 unless the user can read the folder or something inside it (browsing only)."""
-    if not check.shows_folder(resource, "read"):
+def folder_shown_or_403(check: Checker, resource: str, action: str) -> None:
+    """Raise 403 unless the user holds the action on the folder or something inside it (browsing only)."""
+    if not check.shows_folder(resource, action):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied by policy")
 
 
@@ -312,7 +314,7 @@ async def get_root(
     """Return the root folder for a bucket (creating it if needed)."""
     user_uuid = user_manager.get_user_uuid(user["preferred_username"])
     instance_uuid, _agent = get_instance_agent(instance_manager, q.instance_name)
-    folder_shown_or_403(policy_manager.checker(user_uuid, instance_uuid), resource_for_folder(q.bucket, "/"))
+    folder_shown_or_403(policy_manager.checker(user_uuid, instance_uuid), resource_for_folder(q.bucket, "/"), q.access)
 
     tree_svc = TreeService(session)
     root = await tree_svc.get_root(q.bucket)
@@ -337,13 +339,13 @@ async def list_children(
         select(Folder).where(Folder.id == folder_id, Folder.bucket == q.bucket)
     )).scalar_one()
     check = policy_manager.checker(user_uuid, instance_uuid)
-    folder_shown_or_403(check, resource_for_folder(q.bucket, folder.full_path))
+    folder_shown_or_403(check, resource_for_folder(q.bucket, folder.full_path), q.access)
 
     tree_svc = TreeService(session)
     folders, files = await tree_svc.list_children(q.bucket, folder_id)
-    # Only list what the user can see: folders on the way to their files, and their files
-    folders = [f for f in folders if check.shows_folder(resource_for_folder(q.bucket, f.full_path), "read")]
-    files = [x for x in files if check.allows(resource_for_key(q.bucket, x.key), "read")]
+    # Only list what the user can see for this action: folders on the way to their files, and their files
+    folders = [sub for sub in folders if check.shows_folder(resource_for_folder(q.bucket, sub.full_path), q.access)]
+    files = [file for file in files if check.allows(resource_for_key(q.bucket, file.key), q.access)]
 
     return {
         "folder_id": folder_id,

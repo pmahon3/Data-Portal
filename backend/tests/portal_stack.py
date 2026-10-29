@@ -231,9 +231,8 @@ class User:
     def root(self) -> requests.Response:
         return self._call("GET", "/root", params=self._where)
 
-    def list_folder(self, folder_id: int, access: str | None = None) -> requests.Response:
-        params = {**self._where, **({"access": access} if access else {})}
-        return self._call("GET", f"/{folder_id}", params=params)
+    def list_folder(self, folder_id: int, access: str = "read") -> requests.Response:
+        return self._call("GET", f"/{folder_id}", params={**self._where, "access": access})
 
     def browse(self, access: str, folder_id: int) -> requests.Response:
         """A folder's children in the file tree the web page shows, for one action."""
