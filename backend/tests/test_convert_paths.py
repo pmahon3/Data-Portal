@@ -1,4 +1,7 @@
-"""The one-off conversion of stored policies to literal paths (INN-297)."""
+"""The one-off conversion of stored policies to literal paths (INN-297).
+
+Verifies: AC-5.
+"""
 import pytest
 
 from core.services.policies.convert_paths import (

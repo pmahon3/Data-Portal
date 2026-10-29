@@ -3,6 +3,8 @@ Steps for features/access_rules.feature, plus property tests for the decision la
 
 Every check runs through both the definition (rule_allows, rule_shows_folder) and the indexed
 Checker, so the scenarios also test that the two agree.
+
+Verifies: AC-5.
 """
 import pytest
 from hypothesis import given, settings
