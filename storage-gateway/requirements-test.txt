@@ -3,3 +3,4 @@ pytest>=8
 httpx>=0.27
 hypothesis>=6.100
 schemathesis>=4
+import-linter>=2
