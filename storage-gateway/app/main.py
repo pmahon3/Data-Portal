@@ -2,31 +2,42 @@
 POSIX file service.
 
 Runs on (or next to) the POSIX machine and serves files under one root directory to holders of
-links signed by the portal. Single files only: download with byte ranges (so downloads can
-resume), upload, metadata and delete.
+links signed by the portal: download with byte ranges (so downloads can resume), upload, metadata
+and delete, and several files streamed as one ZIP (built as it's sent, never stored).
 """
+import hashlib
 import logging
 import os
+import re
+import urllib.error
+import urllib.request
+from collections.abc import Callable
 
 from fastapi import FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from app.auth import KeyResolver, check_token, jwks_key_resolver, token_from_request
+from app.auth import KeyResolver, bundle_listing, check_token, jwks_key_resolver, token_from_request
 from app.config import CANARY, Settings
 from app.broker import DirectAccess, HelperAccess
 from app.files import BadPath, Root, etag, file_headers, parse_range, read_chunks, split_key
+from app.zipstream import Entry, ZipStream
 
 logger = logging.getLogger("storage-gateway")
 
 
-def create_app(settings: Settings, resolve_key: KeyResolver | None = None) -> FastAPI:
+def create_app(settings: Settings, resolve_key: KeyResolver | None = None,
+               fetch_list: Callable[[str, str], str] | None = None) -> FastAPI:
     """
     :param settings: Service settings.
     :param resolve_key: Returns the key that verifies a token; defaults to the portal's published keys.
+    :param fetch_list: Returns a bundle's file list, given its approval ID and link token; defaults to
+        asking the portal.
     """
     resolve_key = resolve_key or jwks_key_resolver(settings.jwks_url)
+    fetch_list = fetch_list or (lambda grant, token: _fetch_list(settings.bundle_list_url, grant, token))
     access = _file_access(settings)
+    checksums: dict[tuple[str, str], int] = {}  # (path, ETag) -> CRC-32, so a resume needn't re-read earlier files
     app = FastAPI(title="POSIX file service", docs_url=None, redoc_url=None)
 
     if settings.cors_origins:
@@ -86,28 +97,58 @@ def create_app(settings: Settings, resolve_key: KeyResolver | None = None) -> Fa
         parts = authorize(request, resource)
         fd, st = access.open_read(token_from_request(request), resource, parts)
         headers = file_headers(parts[-1], st)
-
-        range_header = request.headers.get("range")
-        # If-Range: only send part of the file if it hasn't changed since the client started.
-        if_range = request.headers.get("if-range")
-        if range_header and if_range and if_range not in (headers["ETag"], headers["Last-Modified"]):
-            range_header = None
-        try:
-            byte_range = parse_range(range_header, st.st_size)
-        except ValueError:
+        part = _part_to_send(request, st.st_size, (headers["ETag"], headers["Last-Modified"]), headers)
+        if part is None:
             os.close(fd)
-            return Response(
-                status_code=416,  # Range Not Satisfiable
-                headers={"Content-Range": f"bytes */{st.st_size}"},
-            )
-
-        if byte_range is None:
-            start, end, code = 0, st.st_size - 1, status.HTTP_200_OK
-        else:
-            (start, end), code = byte_range, status.HTTP_206_PARTIAL_CONTENT
-            headers["Content-Range"] = f"bytes {start}-{end}/{st.st_size}"
-            headers["Content-Length"] = str(end - start + 1)
+            return _unsatisfiable(st.st_size)
+        start, end, code = part
         return StreamingResponse(read_chunks(fd, start, end, settings.chunk_size), status_code=code, headers=headers)
+
+    @app.get("/v1/bundles/{resource:path}")
+    def download_bundle(resource: str, request: Request):
+        """Several files as one ZIP (stored, ZIP64), in the portal's order and folder layout."""
+        token = token_from_request(request)
+        claims = check_token(token, resolve_key, namespace=settings.namespace, issuer=settings.issuer,
+                             path=resource, method="GET", operation="bundle")
+        request.state.link_id = claims["jti"]
+        body = fetch_list(claims["grant"], token)
+        listing = bundle_listing(claims, body)
+        access.register_bundle(token, resource, body)
+
+        entries, tags = [], []
+        for path in listing["paths"]:
+            try:
+                parts = split_key(settings.namespace, path)
+            except BadPath:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Bad path")
+            st = access.stat(token, path, parts, bundle=resource)
+            tags.append(etag(st))
+
+            def open_entry(path=path, parts=parts):
+                fd, _ = access.open_read(token, path, parts, bundle=resource)
+                return os.fdopen(fd, "rb")
+
+            name = f"{listing['folder_name']}/{path}" if listing["folder_name"] else path
+            entries.append(Entry(name, st.st_size, st.st_mtime, open_entry, checksums.get((path, tags[-1]))))
+        archive = ZipStream(entries, settings.chunk_size)
+        tag = f'"{hashlib.sha256(" ".join(tags).encode()).hexdigest()}"'
+        filename = re.sub(r"[^\w.-]+", "_", listing["folder_name"] or "download")
+        headers = {"ETag": tag, "Accept-Ranges": "bytes", "Content-Type": "application/zip",
+                   "Content-Disposition": f'attachment; filename="{filename}.zip"'}
+
+        part = _part_to_send(request, archive.size, (tag,), headers)
+        if part is None:
+            return _unsatisfiable(archive.size)
+        start, end, code = part
+
+        def stream():
+            yield from archive.iter_bytes(start, end)
+            if len(checksums) > 1_000_000:
+                checksums.clear()
+            checksums.update({(p, t): crc for p, t, crc in zip(listing["paths"], tags, archive.checksums())
+                              if crc is not None})
+
+        return StreamingResponse(stream(), status_code=code, headers=headers)
 
     @app.put("/v1/files/{resource:path}")
     async def upload(resource: str, request: Request):
@@ -135,6 +176,45 @@ def create_app(settings: Settings, resolve_key: KeyResolver | None = None) -> Fa
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     return app
+
+
+def _part_to_send(request: Request, size: int, validators: tuple[str, ...],
+                  headers: dict) -> tuple[int, int, int] | None:
+    """
+    The bytes to send, (start, end, status), with the headers that describe them; None if the range
+    can't be met. If-Range: send only part if nothing changed since the client started (it names one
+    of ``validators``), otherwise all of it again.
+    """
+    range_header = request.headers.get("range")
+    if range_header and request.headers.get("if-range") not in (None, *validators):
+        range_header = None
+    try:
+        byte_range = parse_range(range_header, size)
+    except ValueError:
+        return None
+    if byte_range is None:
+        start, end, code = 0, size - 1, status.HTTP_200_OK
+    else:
+        (start, end), code = byte_range, status.HTTP_206_PARTIAL_CONTENT
+        headers["Content-Range"] = f"bytes {start}-{end}/{size}"
+    headers["Content-Length"] = str(end - start + 1)
+    return start, end, code
+
+
+def _unsatisfiable(size: int) -> Response:
+    return Response(status_code=416, headers={"Content-Range": f"bytes */{size}"})  # Range Not Satisfiable
+
+
+def _fetch_list(url: str, grant: str, token: str) -> str:
+    """Ask the portal for a bundle's file list, presenting the bundle's own link."""
+    request = urllib.request.Request(f"{url}/{grant}", headers={"Authorization": f"Bearer {token}"})
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return response.read().decode()
+    except urllib.error.HTTPError as e:
+        raise HTTPException(status_code=e.code if e.code in (401, 403, 404) else 502, detail="File list unavailable")
+    except OSError:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="File list unavailable")
 
 
 def _file_access(settings: Settings):

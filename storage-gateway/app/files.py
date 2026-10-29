@@ -80,7 +80,7 @@ class Root:
     def _open_root(self) -> int:
         return os.open(self.path, self._base | os.O_DIRECTORY)
 
-    def _open_dir(self, parts: list[str], create: bool = False) -> int:
+    def open_dir(self, parts: list[str], create: bool = False) -> int:
         """Open the directory ``parts`` under the root, component by component, never following symlinks."""
         fd = self._open_root()
         try:
@@ -115,7 +115,7 @@ class Root:
         :raises BadPath: If any component is a symlink.
         :raises FileNotFoundError: If it doesn't exist or isn't a regular file.
         """
-        dir_fd = self._open_dir(parts[:-1])
+        dir_fd = self.open_dir(parts[:-1])
         try:
             try:
                 fd = os.open(parts[-1], _FILE_FLAGS, dir_fd=dir_fd)
@@ -141,7 +141,7 @@ class Root:
         :raises BadPath: If any component is a symlink.
         :raises IsADirectoryError: If a folder exists at the target path.
         """
-        dir_fd = self._open_dir(parts[:-1], create=True)
+        dir_fd = self.open_dir(parts[:-1], create=True)
         try:
             name = parts[-1]
             try:
@@ -164,7 +164,7 @@ class Root:
         :raises BadPath: If any component is a symlink.
         :raises FileNotFoundError: If it doesn't exist or isn't a regular file.
         """
-        dir_fd = self._open_dir(parts[:-1])
+        dir_fd = self.open_dir(parts[:-1])
         try:
             try:
                 st = os.stat(parts[-1], dir_fd=dir_fd, follow_symlinks=False)

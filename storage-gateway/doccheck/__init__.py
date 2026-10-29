@@ -1,15 +1,6 @@
 """
 Reading the Mermaid diagrams in docs/, so tests can check them against the code and the running system.
-
-Conventions the diagrams follow (docs/posix/README.md, "How the diagrams are checked"):
-- Flowcharts: a plain solid arrow ``A --> B`` means "module A imports module B" in a module diagram.
-  Other relationships use a labelled or dotted arrow and are not import claims.
-- Sequence diagrams: a solid arrow ``A->>B: METHOD /path`` or ``A->>Helper: op`` is a claim the
-  tests check against what the components log, in order. Dashed replies (``-->>``) and notes are
-  explanation only.
-- State diagrams: ``S1 --> S2`` is a transition the tests must observe, and no others may occur.
-Only the diagram block with a ``%% check: <name>`` comment as its first line is checked, so a page
-can hold explanatory diagrams too.
+What each kind of arrow claims: docs/posix/README.md, "How the diagrams are checked".
 """
 import re
 from dataclasses import dataclass

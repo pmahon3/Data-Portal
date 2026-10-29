@@ -2,9 +2,8 @@
 
 Each approved request (its links share an approval ID, `grant`; a link without one is its own request)
 gets its own temporary user ID from a reserved range, the first time one of its links is used to read
-or upload. This diagram is **checked**: a test drives the helper through every situation
-and records the states each ID actually passes through. The transitions it observes must be exactly
-these, no more and no fewer.
+or upload. This diagram is **checked**: a test drives the helper through every situation, and the
+transitions it observes must be exactly these.
 
 ```mermaid
 %% check: link-lifecycle
@@ -27,4 +26,3 @@ stateDiagram-v2
 ---
 
 **Last Updated:** 2026-10-27
-**Branch:** posix/stack

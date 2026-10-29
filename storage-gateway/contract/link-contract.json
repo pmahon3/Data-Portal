@@ -34,7 +34,7 @@
       "url_path": "/v1/files/inn-posix/a%23b%3Fc.txt"
     },
     {
-      "resource": "inn-posix/über/ñ.csv",
+      "resource": "inn-posix/\u00fcber/\u00f1.csv",
       "url_path": "/v1/files/inn-posix/%C3%BCber/%C3%B1.csv"
     },
     {
@@ -73,5 +73,13 @@
   "subject_claim": "sub",
   "_subject": "Links issued to a user carry the user's portal ID in the subject claim; the file service records it with the link's temporary ID.",
   "grant_claim": "grant",
-  "_grant": "Optional. Links issued for one approved request share an approval ID in this claim; the file service gives them one temporary ID. Without it, each link gets its own."
+  "_grant": "Optional. Links issued for one approved request share an approval ID in this claim; the file service gives them one temporary ID. Without it, each link gets its own.",
+  "bundle": {
+    "url": "/v1/bundles/{namespace}/{grant}",
+    "path": "{namespace}/{grant}",
+    "operation": "bundle",
+    "list_claim": "list",
+    "list_url": "/api/storage-links/bundles/{grant}"
+  },
+  "_bundle": "Several files as one streamed ZIP. The link's path names the approval; its list claim is the SHA-256 (hex) of the file list exactly as the portal serves it at list_url (JSON: folder_name, paths). The file service fetches it presenting the same link as a Bearer token."
 }

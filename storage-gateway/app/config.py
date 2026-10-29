@@ -15,6 +15,8 @@ class Settings:
     :param root: Directory holding the governed files. Resource ``namespace/key`` maps to ``root/key``.
     :param namespace: The namespace this service serves; tokens must name it as their audience.
     :param jwks_url: Where the portal publishes the public key for its signed links.
+    :param bundle_list_url: Where the portal serves approved file lists (``/{grant}`` is appended);
+        by default beside ``jwks_url``.
     :param issuer: The ``iss`` claim the portal puts in its tokens.
     :param cors_origins: Browser origins allowed to call the service directly (uploads and downloads).
     :param chunk_size: Bytes read per chunk when streaming.
@@ -31,6 +33,7 @@ class Settings:
     chunk_size: int = 1024 * 1024
     helper_socket: str | None = None
     require_isolation: bool = False
+    bundle_list_url: str = ""
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -43,4 +46,6 @@ class Settings:
             cors_origins=[o.strip() for o in origins.split(",") if o.strip()],
             helper_socket=os.getenv("GATEWAY_HELPER_SOCKET") or None,
             require_isolation=os.getenv("GATEWAY_REQUIRE_ISOLATION", "").lower() in {"1", "true", "yes"},
+            bundle_list_url=os.getenv("GATEWAY_BUNDLE_LIST_URL")
+            or os.environ["GATEWAY_JWKS_URL"].rsplit("/", 1)[0] + "/bundles",
         )

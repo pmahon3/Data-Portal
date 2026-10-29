@@ -33,8 +33,11 @@ PATHS = st.sampled_from([
     f"{NS}/new/up.csv", f"{NS}/study", f"{NS}/../outside/secret.txt", f"{NS}/study/../../outside/secret.txt",
     "other/x", f"{NS}/", f"{NS}/study/a.nii.gz/inner", f"{NS}/\x00", "",
 ])
-OPS = st.sampled_from(["open", "stat", "begin_write", "commit", "abort", "delete", "bogus"])
-OP_FOR = {"open": "read", "stat": "stat", "begin_write": "write", "commit": "write", "abort": "write", "delete": "delete"}
+OPS = st.sampled_from(["open", "stat", "begin_write", "commit", "abort", "delete", "bundle", "bogus"])
+OP_FOR = {"open": "read", "stat": "stat", "begin_write": "write", "commit": "write", "abort": "write", "delete": "delete",
+          "bundle": "bundle"}
+LISTS = st.one_of(st.text(max_size=40),
+                  st.builds(lambda p: json.dumps({"folder_name": "", "paths": p}), st.lists(PATHS, max_size=3)))
 STAGING = st.sampled_from([".upload-x", "../../outside/secret.txt", ".upload-../../x", "plain", "", ".upload-"])
 
 
@@ -55,6 +58,10 @@ def requests(draw):
     request = {"op": op, "token": tok, "path": path}
     if op in ("commit", "abort"):
         request["staging"] = draw(STAGING)
+    if op == "bundle":
+        request["list"] = draw(LISTS)
+    if op in ("open", "stat") and draw(st.booleans()):
+        request["bundle"] = draw(st.one_of(PATHS, st.integers()))
     if draw(st.booleans()) and draw(st.booleans()):
         request.pop(draw(st.sampled_from(sorted(request))))  # malformed: a field missing
     return request

@@ -32,13 +32,16 @@ class DirectAccess:
     def __init__(self, root: Root):
         self.root = root
 
-    def open_read(self, token, resource, parts):
+    def register_bundle(self, token, resource, listing):
+        pass  # the web service has already checked the list against the link
+
+    def open_read(self, token, resource, parts, bundle=None):
         try:
             return self.root.open_file(parts)
         except (BadPath, FileNotFoundError) as e:
             raise _refused(e)
 
-    def stat(self, token, resource, parts):
+    def stat(self, token, resource, parts, bundle=None):
         try:
             return self.root.stat_file(parts)
         except (BadPath, FileNotFoundError) as e:
@@ -80,12 +83,22 @@ class HelperAccess:
             raise HTTPException(status_code=code, detail=detail)
         return reply, fds
 
-    def open_read(self, token, resource, parts):
-        _, fds = self.call({"op": "open", "token": token, "path": resource})
+    def register_bundle(self, token, resource, listing):
+        """Give the helper a bundle link's file list once; later opens name the bundle only."""
+        self.call({"op": "bundle", "token": token, "path": resource, "list": listing})
+
+    def _read_request(self, op, token, resource, bundle):
+        request = {"op": op, "token": token, "path": resource}
+        if bundle:
+            request["bundle"] = bundle
+        return request
+
+    def open_read(self, token, resource, parts, bundle=None):
+        _, fds = self.call(self._read_request("open", token, resource, bundle))
         return fds[0], os.fstat(fds[0])
 
-    def stat(self, token, resource, parts):
-        reply, _ = self.call({"op": "stat", "token": token, "path": resource})
+    def stat(self, token, resource, parts, bundle=None):
+        reply, _ = self.call(self._read_request("stat", token, resource, bundle))
         return SimpleNamespace(**reply["stat"])
 
     def begin_write(self, token, resource, parts):

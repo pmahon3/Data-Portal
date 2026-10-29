@@ -6,7 +6,7 @@ portal is the interface: it decides who may do what and signs links. A small fil
 machine serves files to holders of those links. Where INN has administrator access, the operating
 system also enforces each link's grant; see [Administrator access](#administrator-access).
 
-Requirements: [POSIX storage](../requirements/posix-storage.md) (PX-1 to PX-12) and
+Requirements: [POSIX storage](../requirements/posix-storage.md) (PX-1 to PX-15) and
 [access control](../requirements/access-control.md).
 
 Status: built and tested locally on branch `posix/stack`; not deployed. See
@@ -52,8 +52,7 @@ that would need it.
 
 **What the branch builds today.** The tip builds the second column only: the web service refuses to
 start if it can read the data, and never falls back. The first column is the branch as of the S3/POSIX
-parity commit ("S3 and POSIX give identical answers"), before temporary IDs. A setting that picks the mode per machine, so one build
-serves both, isn't built yet.
+parity commit ("S3 and POSIX give identical answers"), before temporary IDs.
 
 ## What enforces what
 
@@ -72,6 +71,8 @@ With administrator access (the tip of the branch).
 - Final placement of uploads (moved into place through no-follow handles, given to the data owner,
   mode 0600).
 - Deletes. POSIX can't grant "delete only this one file", so this can't be pushed down to the OS.
+- Multi-file downloads: a file is opened for a bundle link only if it's on the list the link was
+  signed for (the helper checks the list's SHA-256 against the link itself).
 
 **What that guarantees.** The web service only ever receives descriptors for files a valid link names,
 opened by the helper as that link's ID. A compromised web service would still see the tokens and the
@@ -90,18 +91,32 @@ bytes of files people actually request, but it couldn't reach anything nobody re
 
 ## Links and tokens
 
-The portal backend signs every link (RS256; the key's PEM in `STORAGE_LINK_SIGNING_KEY`, or a file named by
-`STORAGE_LINK_SIGNING_KEY_FILE` for local stacks) and
-publishes the public key at `GET /api/storage-links/jwks.json`. A link is
-`{instance_url}/v1/files/{namespace}/{key}?token=…`. Claims: `iss` (`inn-portal`), `aud` (the
-namespace), `jti` (link ID), `iat`, `exp`, `op` (`read`, `write`, `stat`, `delete`), `path`, `sub`
-(the portal user the link was issued to), and optionally `grant` (the approval the link belongs to). The agreed contract, including URL encodings of awkward
-names, is `storage-gateway/contract/link-contract.json`; both the backend and the file service test
-against it.
+The portal backend signs every link (RS256; the key's PEM in `STORAGE_LINK_SIGNING_KEY`, or a file
+named by `STORAGE_LINK_SIGNING_KEY_FILE` for local stacks) and publishes the public key at `GET
+/api/storage-links/jwks.json`. A link is `{instance_url}/v1/files/{namespace}/{key}?token=…`. Claims:
+`iss` (`inn-portal`), `aud` (the namespace), `jti` (link ID), `iat`, `exp`, `op` (`read`, `write`,
+`stat`, `delete`), `path`, `sub` (the portal user the link was issued to), and optionally `grant` (the
+approval the link belongs to). The agreed contract, including URL encodings of awkward names, is
+`storage-gateway/contract/link-contract.json`; both the backend and the file service test against it.
 
 Browser links use the query string; the backend's own calls (metadata, delete) send a short-lived
 token as `Authorization: Bearer`. Downloads support `Range` and `If-Range`; the validator changes when
 a file is replaced, rewritten or re-stamped (inode, change time, size, modification time).
+
+## Multi-file downloads
+
+Several files download as one ZIP streamed by the file service, so nothing is built ahead or stored
+(PX-13, PX-14); object storage keeps the bundler. The portal checks access to every file, records the
+approved list (MongoDB `posix-bundles`) and returns one link,
+`{instance_url}/v1/bundles/{namespace}/{grant}`, whose token has `op: bundle`, the approval ID and
+`list`, the SHA-256 of the list as served. The file service fetches the list from `GET
+/api/storage-links/bundles/{grant}`, presenting that same link, and refuses a list whose digest
+doesn't match; with a helper, the helper checks it too. Entries are named `folder_name/namespace/key`,
+as the bundler names them. Entries are stored (not compressed) and ZIP64, so the length is exact and
+any byte range can be rebuilt: a broken download resumes with `Range` and `If-Range`, and the ETag
+changes if any file changes, so the download starts again. Checksums are kept in memory; after a
+restart, a resume re-reads the files before it. The link lasts `BUNDLE_SOURCE_URL_EXPIRATION_SECONDS`
+(2 hours by default).
 
 ## Temporary IDs
 
@@ -124,8 +139,9 @@ placed link=15c019e7… id=2000029 user=d30f195b-… path=inn-posix/e2e-2c702db6
 expired grant=7c1e… id=2000001 quarantined
 ```
 
-So an operating-system audit record for a temporary ID traces to an approval, its links and a person. The path in
-these lines may itself be sensitive if file names identify participants (decisions document, Part D question 7).
+So an operating-system audit record for a temporary ID traces to an approval, its links and a person.
+The path in these lines may itself be sensitive if file names identify participants (decisions
+document, Part D question 7).
 
 ## Data layout
 
@@ -191,14 +207,11 @@ When the code changes, a test fails until the diagram is updated, and the other 
 - Running without administrator access in the same build: a per-machine setting for the first
   column of [Administrator access](#administrator-access), and packaging that doesn't need root.
 
-- Multi-file downloads. The file service will stream the selected files as one ZIP, built as it's
-  sent and never stored, so a broken download can resume. The portal records the request (its file
-  list) as one approval and returns one link carrying its ID; the file service fetches the list
-  from the portal. Until then, multi-file requests for POSIX instances are refused rather than sent
-  to the bundler, which would store a copy.
-- Issuing approvals. The signer and the POSIX connector accept an approval ID, but nothing in the
-  portal passes one yet; the multi-file download request above will. Until then every link is its
-  own approval.
+- For multi-file downloads: a link that outlives a long download (with a helper, each file is
+  opened as the stream reaches it, so the link must still be valid then; how long links should last
+  is undecided), read-ahead for many small files, a cap on downloads at once, checksums that survive
+  a restart, and measurement (10,000 small files).
+- Single-file downloads still get one approval per link; only multi-file downloads share one.
 - Getting files already on the machine into the portal's file tree (file tracking, RDT's decision).
 - Deployment to a real machine: hosting is RDT's decision, and it depends on the system
   administrators' answers (ID range, the helper's privileges, ACL support and limits, NFS settings,

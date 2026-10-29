@@ -59,3 +59,22 @@ def test_each_encoded_url_reaches_its_resource(client, item):
 def test_refused_resources(resource):
     with pytest.raises(BadPath):
         split_key(NS, resource)
+
+
+def test_bundle_links_follow_the_contract(tmp_path):
+    """PX-13."""
+    import hashlib
+
+    bundle = CONTRACT["bundle"]
+    listing = json.dumps({"folder_name": "", "paths": []})
+    path = bundle["path"].format(namespace=NS, grant="g7")
+    now = int(time.time())
+    token = jwt.encode({"iss": CONTRACT["issuer"], "aud": NS, "jti": "j", "iat": now, "exp": now + 60,
+                        "op": bundle["operation"], "path": path, CONTRACT["grant_claim"]: "g7",
+                        bundle["list_claim"]: hashlib.sha256(listing.encode()).hexdigest()},
+                       KEY, algorithm=CONTRACT["algorithm"])
+    asked = []
+    app = create_app(Settings(root=tmp_path, namespace=NS, jwks_url="unused"), resolve_key=lambda t: KEY.public_key(),
+                     fetch_list=lambda grant, tok: asked.append((grant, tok)) or listing)
+    r = TestClient(app).get(bundle["url"].format(namespace=NS, grant="g7"), params={"token": token})
+    assert r.status_code == 200 and asked == [("g7", token)]

@@ -92,3 +92,13 @@ def test_links_carry_the_approval_when_given(grant):
     urls, _ = agent().generate_access_link(item["resource"], "read", 60, subject="u", grant=grant)
     claims = decode(parse_qs(urlparse(urls[0]).query)["token"][0])
     assert claims.get(CONTRACT["grant_claim"]) == grant
+
+
+def test_bundle_links_follow_the_contract():
+    bundle = CONTRACT["bundle"]
+    url = urlparse(agent().generate_bundle_link("approval-7", "abc123", 60, subject="u"))
+    path = bundle["path"].format(namespace=CONTRACT["namespace"], grant="approval-7")
+    assert url.path == bundle["url"].format(namespace=CONTRACT["namespace"], grant="approval-7")
+    claims = decode(parse_qs(url.query)["token"][0])
+    assert (claims["path"], claims["op"], claims[bundle["list_claim"]], claims[CONTRACT["grant_claim"]]) == (
+        path, bundle["operation"], "abc123", "approval-7")

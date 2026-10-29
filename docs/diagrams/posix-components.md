@@ -69,6 +69,7 @@ flowchart TB
     subgraph webside["Web service (uid 10001, can't read the data)"]
         main["app/main<br/>HTTP endpoints, access log, startup check"]
         broker["app/broker<br/>HelperAccess (deployed), DirectAccess (tests)"]
+        zipstream["app/zipstream<br/>ZIP built as it's sent: exact size, any byte range"]
     end
     subgraph shared["Shared"]
         auth["app/auth<br/>token checks"]
@@ -76,7 +77,7 @@ flowchart TB
         files["app/files<br/>no-follow walk, byte ranges, validators"]
     end
     subgraph privileged["Privileged helper (root)"]
-        helper["app/helper<br/>tokens, temporary IDs, grants, staging, sweeper, audit"]
+        helper["app/helper<br/>tokens, bundle lists, temporary IDs, grants, staging, sweeper, audit"]
         acl["app/acl<br/>POSIX ACLs through descriptors"]
         layout["app/layout<br/>data-layout check and conversion"]
     end
@@ -86,6 +87,7 @@ flowchart TB
     main --> broker
     main --> config
     main --> files
+    main --> zipstream
     broker --> files
     helper --> acl
     helper --> auth
@@ -115,14 +117,15 @@ all of them; the dotted arrow is a runtime call.
 ```mermaid
 %% check: backend-posix-modules
 flowchart LR
-    s3_endpoints["api/v0_1/endpoints/s3_endpoints<br/>download-url, upload, delete, bundle (multi-file refused for POSIX)"]
-    storage_links_endpoint["api/v0_1/endpoints/storage_links<br/>GET /api/storage-links/jwks.json"]
+    s3_endpoints["api/v0_1/endpoints/s3_endpoints<br/>download-url, upload, delete, bundle (POSIX: one streamed-ZIP link)"]
+    storage_links_endpoint["api/v0_1/endpoints/storage_links<br/>GET /api/storage-links/jwks.json, /bundles/{grant}"]
     agent_factory["core/storage_agents/agent_factory"]
     abstract_storage_agent["core/storage_agents/abstract_storage_agent"]
     posix_agent["core/storage_agents/posix_agent<br/>PosixStorageAgent: namespace, links, service calls"]
     s3_agent["core/storage_agents/s3_agent"]
     storage_links["core/services/storage_links"]
     signer["core/services/storage_links/signer<br/>LinkSigner: RS256, sub = portal user"]
+    bundles["core/services/storage_links/bundles<br/>approved file lists"]
 
     agent_factory --> abstract_storage_agent
     agent_factory --> posix_agent
@@ -131,6 +134,8 @@ flowchart LR
     posix_agent --> storage_links
     s3_agent --> abstract_storage_agent
     storage_links --> signer
+    storage_links --> bundles
+    s3_endpoints --> storage_links
     storage_links_endpoint --> storage_links
 
     s3_endpoints -. "instance agent, via InstanceManager" .-> posix_agent
@@ -141,5 +146,4 @@ flowchart LR
 
 ---
 
-**Last Updated:** 2026-10-23
-**Branch:** posix/stack
+**Last Updated:** 2026-10-29

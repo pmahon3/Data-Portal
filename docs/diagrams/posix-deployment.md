@@ -43,7 +43,7 @@ flowchart TB
 | `gateway` | 10001 (group 10001) | The web service. No supplementary groups, so it can't pass through data folders. |
 | `inndata` | 10002 (group 10002) | Owns the governed files. Nothing runs as it. |
 | `posix-traverse` (group) | 10010 | Pass-through permission on data folders. Only openers get it. |
-| temporary IDs | 2000000 + | One per approved link; no account entry. Read access through one ACL entry per granted file. |
+| temporary IDs | 2000000 + | One per approval (its links share it); no account entry. Read access through one ACL entry per granted file. |
 | root | 0 | The helper. |
 
 ## Startup and failure
@@ -57,5 +57,4 @@ flowchart TB
 
 ---
 
-**Last Updated:** 2026-10-23
-**Branch:** posix/stack
+**Last Updated:** 2026-10-29

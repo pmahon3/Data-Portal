@@ -12,6 +12,7 @@ loudly instead of letting every other test pass for the wrong reason.
 
 Verifies: AC-3.
 """
+import hashlib
 import json
 import os
 import shutil
@@ -43,11 +44,11 @@ WEB, DATA_OWNER, TRAVERSE, STRANGER = 10001, 10002, 10010, 50000
 SERVICE = str(Path(__file__).resolve().parents[1])
 
 
-def token(path, op, ttl=300, grant=None, sub=None):
+def token(path, op, ttl=300, grant=None, sub=None, listing=None):
     now = int(time.time())
     claims = {"iss": "inn-portal", "aud": NS, "jti": uuid.uuid4().hex, "iat": now, "exp": now + ttl,
               "op": op, "path": path}
-    claims |= {k: v for k, v in (("grant", grant), ("sub", sub)) if v is not None}
+    claims |= {k: v for k, v in (("grant", grant), ("sub", sub), ("list", listing)) if v is not None}
     return jwt.encode(claims, KEY, algorithm="RS256")
 
 
@@ -442,3 +443,34 @@ def test_uploads_of_one_approval_share_its_id(env):
         pending.commit()
     assert len(env["helper"].ids.state["links"]) == 1
     assert (env["data"] / "up" / "x.csv").read_bytes() == b"1"
+
+
+# --- bundles: several files streamed as one ZIP ---
+
+def bundle(env, paths, signed_paths=None):
+    """Register a bundle link for ``paths``; its link is signed for ``signed_paths`` (default: the same)."""
+    listing = json.dumps({"folder_name": "", "paths": paths})
+    signed = json.dumps({"folder_name": "", "paths": signed_paths}) if signed_paths else listing
+    tok = token(f"{NS}/g1", "bundle", grant="g1", listing=hashlib.sha256(signed.encode()).hexdigest())
+    env["access"].register_bundle(tok, f"{NS}/g1", listing)
+    return tok
+
+
+def test_a_bundle_reads_only_the_files_on_its_list(env):
+    """AC-3. One temporary ID reads the listed file; a file not on the list is refused."""
+    tok = bundle(env, [f"{NS}/study/a.nii.gz"])
+    fd, _ = env["access"].open_read(tok, f"{NS}/study/a.nii.gz", None, bundle=f"{NS}/g1")
+    assert read_fd(fd) == b"a.nii.gz" * 100
+    with pytest.raises(HTTPException) as refused:
+        env["access"].open_read(tok, f"{NS}/study/b.nii.gz", None, bundle=f"{NS}/g1")
+    assert refused.value.status_code == 403
+
+
+def test_a_bundle_list_other_than_the_signed_one_is_refused(env):
+    """AC-3. The web service can't hand the helper a longer list than the portal approved."""
+    with pytest.raises(HTTPException) as refused:
+        bundle(env, [f"{NS}/study/a.nii.gz", f"{NS}/study/b.nii.gz"], signed_paths=[f"{NS}/study/a.nii.gz"])
+    assert refused.value.status_code == 403
+    tok = token(f"{NS}/g1", "bundle", grant="g1", listing="unregistered")
+    with pytest.raises(HTTPException):
+        env["access"].open_read(tok, f"{NS}/study/a.nii.gz", None, bundle=f"{NS}/g1")

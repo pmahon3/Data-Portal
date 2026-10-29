@@ -1,11 +1,13 @@
 """End to end through the portal API and the POSIX file service. Setup: see conftest.py."""
+import io
 import os
+import zipfile
 from urllib.parse import urlparse
 
 import pytest
 import requests
 
-from portal import BACKEND, NAMESPACE, TIMEOUT, data_exists, data_read, delete_file, download_url, root_id, unique_name, upload
+from portal import BACKEND, GATEWAY, NAMESPACE, TIMEOUT, data_exists, data_read, delete_file, download_url, root_id, unique_name, upload
 
 
 @pytest.fixture(scope="module")
@@ -50,13 +52,24 @@ def test_a_link_for_one_file_doesnt_open_another(admin, instance, uploaded):
     assert requests.get(other, timeout=TIMEOUT).status_code == 403
 
 
-def test_multi_file_downloads_are_refused(admin, instance, uploaded):
-    """PX-14."""
-    second_id, _ = upload(admin, instance, unique_name(), b"second")
-    r = requests.post(f"{BACKEND}/api/tree/bundle/zip", headers=admin, timeout=TIMEOUT,
-                      json={"instance_name": instance, "file_ids": [uploaded["id"], second_id]})
-    delete_file(admin, instance, second_id)
-    assert r.status_code == 501, r.text
+def test_several_files_download_as_one_zip_from_the_machine(admin, instance, uploaded):
+    """PX-13, PX-7, PX-14. One link, straight to the file service, with nothing to wait for or keep;
+    the archive holds both files and resumes by byte range."""
+    second_id, second_key = upload(admin, instance, unique_name(), b"second")
+    try:
+        r = requests.post(f"{BACKEND}/api/tree/bundle/zip", headers=admin, timeout=TIMEOUT,
+                          json={"instance_name": instance, "file_ids": [uploaded["id"], second_id]})
+        assert r.status_code == 200 and r.json()["status"] == "completed", r.text
+        url = r.json()["single_file_url"]
+        assert urlparse(url).netloc == urlparse(GATEWAY).netloc
+        whole = requests.get(url, timeout=TIMEOUT)
+        with zipfile.ZipFile(io.BytesIO(whole.content)) as z:
+            assert {n: z.read(n) for n in z.namelist()} == {
+                f"{NAMESPACE}/{uploaded['key']}": uploaded["content"], f"{NAMESPACE}/{second_key}": b"second"}
+        tail = requests.get(url, headers={"Range": "bytes=200000-", "If-Range": whole.headers["etag"]}, timeout=TIMEOUT)
+        assert tail.status_code == 206 and tail.content == whole.content[200000:]
+    finally:
+        delete_file(admin, instance, second_id)
 
 
 def test_delete_through_the_portal(admin, instance, uploaded):

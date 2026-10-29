@@ -61,8 +61,12 @@ def write(fd: int, entries: list[Entry]) -> None:
 
 
 def grant_user(fd: int, uid: int, perm: int) -> None:
-    """Give ``uid`` exactly ``perm`` on the file (replacing any entry it had)."""
-    entries = [e for e in read(fd) if not (e[0] == USER and e[2] == uid) and e[0] != MASK]
+    """Give ``uid`` exactly ``perm`` on the file (replacing any entry it had). Granting what's already
+    there changes nothing, not even the file's change time, which download validators include."""
+    entries = read(fd)
+    if (USER, perm, uid) in entries:
+        return
+    entries = [e for e in entries if not (e[0] == USER and e[2] == uid) and e[0] != MASK]
     write(fd, [*entries, (USER, perm, uid)])
 
 

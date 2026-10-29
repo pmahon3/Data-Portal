@@ -14,6 +14,9 @@ the web service can't widen a grant), then:
           to data folders, where they could delete or replace other files.
 - delete: carried out by the helper after its own token check (POSIX can't grant "delete only
           this file").
+- bundle: a multi-file download's link and file list. The helper checks the list against the
+          SHA-256 the link carries and keeps it; reads and stats that name the bundle are allowed
+          only for files on it.
 
 Each approved request gets its own ID from a reserved range on first use. Its links share an
 approval ID (token ``grant``); a link without one is its own request (keyed by ``jti``). A grant is
@@ -36,13 +39,14 @@ import sys
 import threading
 import time
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from fastapi import HTTPException
 
 from app import acl
-from app.auth import check_token, jwks_key_resolver
+from app.auth import bundle_listing, check_token, jwks_key_resolver
 from app.config import CANARY
 from app.files import BadPath, Root, split_key
 
@@ -97,6 +101,17 @@ class HelperSettings:
 class Refused(Exception):
     def __init__(self, status: int):
         self.status = status
+
+
+@contextmanager
+def _refusing():
+    """A bad path is refused with 400, a missing file or folder with 404."""
+    try:
+        yield
+    except BadPath as e:
+        raise Refused(400) from e
+    except FileNotFoundError as e:
+        raise Refused(404) from e
 
 
 def grant_key(claims: dict) -> str:
@@ -192,17 +207,25 @@ class Helper:
         self.resolve_key = resolve_key or jwks_key_resolver(settings.jwks_url)
         self.ids = LinkIds(settings)
         self.acl_lock = threading.Lock()
+        self.bundles: dict[str, tuple[frozenset[str], int]] = {}  # list digest -> (paths, expiry)
         # Folders created by uploads: owned by the data owner; the traverse group may pass through, not list.
         self.tree = Root(settings.data_root, dir_owner=(settings.data_uid, settings.traverse_gid), dir_mode=0o710)
 
     # --- checks ---
 
-    def _verify(self, token: str, path: str, method: str) -> tuple[dict, list[str]]:
+    def _uid(self, claims: dict) -> int:
+        """The temporary ID of the link's approval (or of the link, if it has none)."""
+        return self.ids.uid_for(grant_key(claims), claims["exp"], claims.get("sub"))
+
+    def _verify(self, token: str, path: str, method: str, bundle: str | None = None) -> tuple[dict, list[str]]:
+        """Check a link for ``path``; with ``bundle``, a bundle link whose registered list holds ``path``."""
         try:
             claims = check_token(token, self.resolve_key, namespace=self.s.namespace, issuer=self.s.issuer,
-                                 path=path, method=method)
+                                 path=bundle or path, method=method, operation="bundle" if bundle else None)
         except HTTPException as e:
             raise Refused(e.status_code) from e
+        if bundle and path not in self.bundles.get(claims.get("list"), ((), 0))[0]:
+            raise Refused(403)
         try:
             return claims, split_key(self.s.namespace, path)
         except BadPath as e:
@@ -210,10 +233,23 @@ class Helper:
 
     # --- reads ---
 
-    def open_read(self, token: str, path: str) -> int:
-        claims, parts = self._verify(token, path, "GET")
+    def register_bundle(self, token: str, path: str, listing: str) -> None:
+        try:
+            claims = check_token(token, self.resolve_key, namespace=self.s.namespace, issuer=self.s.issuer,
+                                 path=path, method="GET", operation="bundle")
+            paths = frozenset(bundle_listing(claims, listing)["paths"])
+        except HTTPException as e:
+            raise Refused(e.status_code) from e
+        except (ValueError, KeyError, TypeError) as e:
+            raise Refused(400) from e
+        now = time.time()
+        self.bundles = {d: v for d, v in self.bundles.items() if v[1] > now}
+        self.bundles[claims["list"]] = (paths, claims["exp"])
+
+    def open_read(self, token: str, path: str, bundle: str | None = None) -> int:
+        claims, parts = self._verify(token, path, "GET", bundle)
         key = grant_key(claims)
-        uid = self.ids.uid_for(key, claims["exp"], claims.get("sub"))
+        uid = self._uid(claims)
         self._grant_read(uid, key, parts)
         audit.info("read link=%s id=%s user=%s path=%s%s", claims["jti"], uid, claims.get("sub", "-"), path,
                    _grant_note(claims))
@@ -224,12 +260,8 @@ class Helper:
         return fds[0]
 
     def _grant_read(self, uid: int, key: str, parts: list[str]) -> None:
-        try:
+        with _refusing():
             fd, st = self.tree.open_file(parts)
-        except BadPath as e:
-            raise Refused(400) from e
-        except FileNotFoundError as e:
-            raise Refused(404) from e
         try:
             self.ids.record_file(key, parts, st)  # recorded first, so a crash can't leave an unrecorded grant
             with self.acl_lock:
@@ -237,15 +269,16 @@ class Helper:
         finally:
             os.close(fd)
 
-    def stat(self, token: str, path: str) -> dict:
-        claims, parts = self._verify(token, path, "HEAD")
+    def stat(self, token: str, path: str, bundle: str | None = None) -> dict:
+        claims, parts = self._verify(token, path, "HEAD", bundle)
+        if bundle:
+            # Grant now, as opening will: the grant changes the file's ctime, which is part of the
+            # validator the download's ETag is built from, so it must already be in place.
+            key = grant_key(claims)
+            self._grant_read(self._uid(claims), key, parts)
         audit.info("stat link=%s user=%s path=%s", claims["jti"], claims.get("sub", "-"), path)
-        try:
+        with _refusing():
             fd, st = self.tree.open_file(parts)
-        except BadPath as e:
-            raise Refused(400) from e
-        except FileNotFoundError as e:
-            raise Refused(404) from e
         os.close(fd)
         return _stat_fields(st)
 
@@ -266,7 +299,7 @@ class Helper:
 
     def begin_write(self, token: str, path: str) -> tuple[str, int]:
         claims, _ = self._verify(token, path, "PUT")
-        uid = self.ids.uid_for(grant_key(claims), claims["exp"], claims.get("sub"))
+        uid = self._uid(claims)
         audit.info("write link=%s id=%s user=%s path=%s%s", claims["jti"], uid, claims.get("sub", "-"), path,
                    _grant_note(claims))
         name = f".upload-{uuid.uuid4().hex}"
@@ -299,15 +332,11 @@ class Helper:
 
     def commit(self, token: str, path: str, name: str) -> dict:
         claims, parts = self._verify(token, path, "PUT")
-        uid = self.ids.uid_for(grant_key(claims), claims["exp"], claims.get("sub"))
+        uid = self._uid(claims)
         staging_dir, fd = self._staged(uid, name)
         try:
-            try:
-                target_dir = self.tree._open_dir(parts[:-1], create=True)
-            except BadPath as e:
-                raise Refused(400) from e
-            except FileNotFoundError as e:
-                raise Refused(404) from e
+            with _refusing():
+                target_dir = self.tree.open_dir(parts[:-1], create=True)
             try:
                 try:
                     existing = os.stat(parts[-1], dir_fd=target_dir, follow_symlinks=False)
@@ -337,7 +366,7 @@ class Helper:
 
     def abort(self, token: str, path: str, name: str) -> None:
         claims, _ = self._verify(token, path, "PUT")
-        uid = self.ids.uid_for(grant_key(claims), claims["exp"], claims.get("sub"))
+        uid = self._uid(claims)
         staging_dir, fd = self._staged(uid, name)
         os.close(fd)
         try:
@@ -350,12 +379,8 @@ class Helper:
     def delete(self, token: str, path: str) -> None:
         claims, parts = self._verify(token, path, "DELETE")
         audit.info("delete link=%s user=%s path=%s", claims["jti"], claims.get("sub", "-"), path)
-        try:
+        with _refusing():
             self.tree.delete_file(parts)
-        except BadPath as e:
-            raise Refused(400) from e
-        except FileNotFoundError as e:
-            raise Refused(404) from e
 
     # --- running as the link's ID ---
 
@@ -435,15 +460,16 @@ def _stat_fields(st: os.stat_result) -> dict:
 
 # --- socket server ---
 
-_OPS = {"open", "stat", "begin_write", "commit", "abort", "delete"}
+_OPS = {"open", "stat", "begin_write", "commit", "abort", "delete", "bundle"}
 
 
 def _validated(req) -> dict:
-    """A request has a known op and string token and path (and staging name for commit/abort)."""
+    """A request has a known op and string token and path (and staging name for commit/abort, the
+    list for bundle); ``bundle``, if present, is a string."""
     if not isinstance(req, dict) or req.get("op") not in _OPS:
         raise Refused(400)
-    needed = ["token", "path"] + (["staging"] if req["op"] in ("commit", "abort") else [])
-    if not all(isinstance(req.get(name), str) for name in needed):
+    needed = ["token", "path"] + {"commit": ["staging"], "abort": ["staging"], "bundle": ["list"]}.get(req["op"], [])
+    if not all(isinstance(req.get(name), str) for name in needed) or not isinstance(req.get("bundle", ""), str):
         raise Refused(400)
     return req
 
@@ -452,7 +478,7 @@ def make_server(helper: Helper) -> socketserver.ThreadingUnixStreamServer:
     class Handler(socketserver.BaseRequestHandler):
         def handle(self):
             sock = self.request
-            uid = struct.unpack("3i", sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i")))[1]
+            _, uid, _ = struct.unpack("3i", sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i")))
             if uid not in helper.s.client_uids:
                 logger.warning("refused helper connection from uid %s", uid)
                 sock.sendall(json.dumps({"ok": False, "status": 403}).encode())
@@ -471,10 +497,13 @@ def make_server(helper: Helper) -> socketserver.ThreadingUnixStreamServer:
                     raise Refused(400) from e
                 op, token, path = req["op"], req["token"], req["path"]
                 if op == "open":
-                    fds = [helper.open_read(token, path)]
+                    fds = [helper.open_read(token, path, req.get("bundle"))]
                     reply = {"ok": True}
                 elif op == "stat":
-                    reply = {"ok": True, "stat": helper.stat(token, path)}
+                    reply = {"ok": True, "stat": helper.stat(token, path, req.get("bundle"))}
+                elif op == "bundle":
+                    helper.register_bundle(token, path, req["list"])
+                    reply = {"ok": True}
                 elif op == "begin_write":
                     name, fd = helper.begin_write(token, path)
                     fds, reply = [fd], {"ok": True, "staging": name}
@@ -492,7 +521,10 @@ def make_server(helper: Helper) -> socketserver.ThreadingUnixStreamServer:
                 logger.exception("helper request failed")
                 reply = {"ok": False, "status": 500}
             try:
-                socket.send_fds(sock, [json.dumps(reply).encode()], fds) if fds else sock.sendall(json.dumps(reply).encode())
+                if fds:
+                    socket.send_fds(sock, [json.dumps(reply).encode()], fds)
+                else:
+                    sock.sendall(json.dumps(reply).encode())
             finally:
                 for fd in fds:
                     os.close(fd)

@@ -1,10 +1,8 @@
 # POSIX Storage: Sequences
 
 What happens, in order, for each operation on a POSIX instance. Each **checked** diagram is replayed
-by an end-to-end test against the local stack: the test performs the operation through the portal,
-collects what the backend, the file service and the helper logged, and compares it with the solid
-arrows below, in order. Dashed replies, async arrows (to the opener) and notes are explanation only.
-See [How the diagrams are checked](../posix/README.md#how-the-diagrams-are-checked).
+by an end-to-end test against the local stack; see
+[How the diagrams are checked](../posix/README.md#how-the-diagrams-are-checked).
 
 Participants: **Backend** is the portal backend; **FileService** is the file service's web process
 (uid 10001, can't read data); **Helper** is its privileged helper (root); **Opener** is a short-lived
@@ -141,4 +139,3 @@ sequenceDiagram
 ---
 
 **Last Updated:** 2026-10-23
-**Branch:** posix/stack
