@@ -79,7 +79,7 @@ def create_test_user(auth_headers, username):
     url = f"{backend_base()}/api/users/"
     payload = {
         "username": username,
-        "email": f"{username}@test.local",
+        "email": f"{username}@example.com",
         "password": "default_password",
         "roles": ["user"],
     }
