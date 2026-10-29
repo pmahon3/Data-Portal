@@ -154,7 +154,7 @@ def test_policy_create_read_delete(auth_headers):
         create_payload = {
             "username": username,
             "instance_name": instance_name,
-            "resource": "/data/.*",
+            "resource": "data/*",
             "action": "read"
         }
         r = requests.post(policy_url, json=create_payload, headers=auth_headers, timeout=10)
@@ -172,7 +172,7 @@ def test_policy_create_read_delete(auth_headers):
         found = any(
             p.get("user_uuid") == user_uuid and
             p.get("instance_uuid") == instance_uuid and
-            p.get("resource") == "/data/.*"
+            p.get("resource") == "data/*"
             for p in policies
         )
         assert found, f"Created policy not found. User: {user_uuid}, Instance: {instance_uuid}"
@@ -181,7 +181,7 @@ def test_policy_create_read_delete(auth_headers):
         delete_payload = {
             "user_uuid": user_uuid,
             "instance_uuid": instance_uuid,
-            "resource": "/data/.*",
+            "resource": "data/*",
             "action": "read"
         }
         r = requests.delete(policy_url, json=delete_payload, headers=auth_headers, timeout=10)
@@ -217,9 +217,9 @@ def test_create_multiple_policies_same_user(auth_headers):
         # Create multiple policies
         policy_url = f"{backend_base()}/api/policies/"
         policies_to_create = [
-            {"resource": "/data/.*", "action": "read"},
-            {"resource": "/data/.*", "action": "write"},
-            {"resource": "/config/.*", "action": "read"},
+            {"resource": "data/*", "action": "read"},
+            {"resource": "data/*", "action": "write"},
+            {"resource": "config/*", "action": "read"},
         ]
 
         for policy_spec in policies_to_create:
@@ -259,7 +259,7 @@ def test_create_policy_nonexistent_user(auth_headers):
     payload = {
         "username": "nonexistent_user_12345",
         "instance_name": "some_instance",
-        "resource": "/test/.*",
+        "resource": "test/*",
         "action": "read"
     }
     r = requests.post(policy_url, json=payload, headers=auth_headers, timeout=10)
@@ -278,7 +278,7 @@ def test_create_policy_nonexistent_instance(auth_headers):
         payload = {
             "username": username,
             "instance_name": "nonexistent_instance_12345",
-            "resource": "/test/.*",
+            "resource": "test/*",
             "action": "read"
         }
         r = requests.post(policy_url, json=payload, headers=auth_headers, timeout=10)
@@ -294,7 +294,7 @@ def test_delete_nonexistent_policy(auth_headers):
     delete_payload = {
         "user_uuid": "00000000-0000-0000-0000-000000000000",
         "instance_uuid": "00000000-0000-0000-0000-000000000000",
-        "resource": "/fake/.*",
+        "resource": "fake/*",
         "action": "read"
     }
     r = requests.delete(policy_url, json=delete_payload, headers=auth_headers, timeout=10)
@@ -323,7 +323,7 @@ def test_read_policies_filtered_by_user(auth_headers):
         r = requests.post(policy_url, json={
             "username": username,
             "instance_name": instance_name,
-            "resource": "/filtered/.*",
+            "resource": "filtered/*",
             "action": "read"
         }, headers=auth_headers, timeout=10)
         assert r.status_code == 201, f"Policy creation failed: {r.text[:500]}"
@@ -341,7 +341,7 @@ def test_read_policies_filtered_by_user(auth_headers):
         requests.delete(policy_url, json={
             "user_uuid": user_uuid,
             "instance_uuid": instance_uuid,
-            "resource": "/filtered/.*",
+            "resource": "filtered/*",
             "action": "read"
         }, headers=auth_headers, timeout=10)
 
@@ -369,7 +369,7 @@ def test_duplicate_policy_creation(auth_headers):
         payload = {
             "username": username,
             "instance_name": instance_name,
-            "resource": "/dup/.*",
+            "resource": "dup/*",
             "action": "read"
         }
 
@@ -386,7 +386,7 @@ def test_duplicate_policy_creation(auth_headers):
         requests.delete(policy_url, json={
             "user_uuid": user_uuid,
             "instance_uuid": instance_uuid,
-            "resource": "/dup/.*",
+            "resource": "dup/*",
             "action": "read"
         }, headers=auth_headers, timeout=10)
 
@@ -421,7 +421,7 @@ def test_create_and_read_policy_for_multiple_instances(auth_headers):
             r = requests.post(policy_url, json={
                 "username": username,
                 "instance_name": inst_name,
-                "resource": "/shared/.*",
+                "resource": "shared/*",
                 "action": "read"
             }, headers=auth_headers, timeout=10)
             assert r.status_code == 201, \
@@ -441,7 +441,7 @@ def test_create_and_read_policy_for_multiple_instances(auth_headers):
             requests.delete(policy_url, json={
                 "user_uuid": user_uuid,
                 "instance_uuid": inst_uuid,
-                "resource": "/shared/.*",
+                "resource": "shared/*",
                 "action": "read"
             }, headers=auth_headers, timeout=10)
 
