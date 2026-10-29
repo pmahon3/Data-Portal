@@ -19,7 +19,7 @@ ALGORITHM = "RS256"
 ISSUER = "inn-portal"
 KEY_ENV = "STORAGE_LINK_SIGNING_KEY"            # the PEM itself, as deployments pass secrets
 KEY_FILE_ENV = "STORAGE_LINK_SIGNING_KEY_FILE"  # or a path to it (local stacks)
-OPERATIONS = {"read", "write", "stat", "delete"}
+OPERATIONS = {"read", "write", "stat", "delete", "bundle"}
 
 
 class LinkSigner:
@@ -48,7 +48,7 @@ class LinkSigner:
             return cls.from_pem(f.read())
 
     def sign(self, namespace: str, path: str, operation: str, ttl: int, subject: str | None = None,
-             grant: str | None = None) -> str:
+             grant: str | None = None, listing: str | None = None) -> str:
         """
         Sign a token for one operation on one path.
 
@@ -60,6 +60,8 @@ class LinkSigner:
             which person each link, and its temporary user ID, served.
         :param grant: The approval the link belongs to (``grant``). Links of one approval share it, so
             the file service gives them one temporary user ID instead of one per link.
+        :param listing: For a ``bundle`` link, the SHA-256 of the file list the portal serves for it
+            (``list``), so the file service can't be given a different list.
         :return: The signed token.
         """
         if operation not in OPERATIONS:
@@ -80,7 +82,14 @@ class LinkSigner:
             claims["sub"] = subject
         if grant is not None:
             claims["grant"] = grant
+        if listing is not None:
+            claims["list"] = listing
         return jwt.encode(claims, self._private_key, algorithm=ALGORITHM, headers={"kid": self.key_id})
+
+    def verify(self, token: str) -> dict[str, Any]:
+        """Check a token this signer issued, whatever its namespace; return its claims."""
+        return jwt.decode(token, self._private_key.public_key(), algorithms=[ALGORITHM], issuer=ISSUER,
+                          options={"verify_aud": False, "require": ["exp", "jti", "op"]})
 
     def jwks(self) -> dict[str, Any]:
         """Return the public key as a JSON Web Key Set."""

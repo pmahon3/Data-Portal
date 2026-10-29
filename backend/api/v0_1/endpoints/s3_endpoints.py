@@ -27,6 +27,7 @@ from core.services.instances import AbstractInstanceManager
 from core.services.policies import CasbinPolicyManager
 from core.services.policies import Policy
 from core.services.policies.rules import Checker
+from core.services.storage_links import record_bundle
 from core.services.users import AbstractUserManager
 from core.services.filetree.models.file import File
 from core.services.filetree.models.folder import Folder
@@ -1000,15 +1001,26 @@ async def create_asset_bundle(
             for file in folder_files:
                 files_to_bundle.setdefault(file.id, file)
 
-    # Get presigned urls for each file the user may read. Files from a selected folder that
-    # the user can't read are skipped; an explicitly selected one refuses the request.
+    # Only files the user may read. Files from a selected folder that the user can't read are
+    # skipped; an explicitly selected one refuses the request.
     check = policy_manager.checker(user_uuid, instance_uuid)
+    readable = []
     for file in files_to_bundle.values():
-        if not check.allows(resource_for_key(file.bucket, file.key), "read"):
-            if file.id in explicit_file_ids:
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied by policy")
-            continue
+        if check.allows(resource_for_key(file.bucket, file.key), "read"):
+            readable.append(file)
+        elif file.id in explicit_file_ids:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied by policy")
 
+    # POSIX: the file service on the machine streams several files as one ZIP, so they are never
+    # copied into object storage as the bundler would (PX-14). One approval covers them all.
+    if agent.FLAVOUR == "posix" and len(readable) > 1:
+        grant, listing = record_bundle([resource_for_key(f.bucket, f.key) for f in readable],
+                                       request.folder_name or "", str(user_uuid))
+        url = agent.generate_bundle_link(grant, listing, BUNDLE_SOURCE_URL_EXPIRATION_SECONDS, subject=str(user_uuid))
+        return BundleCreateResponse(bundle_id=grant, status="completed", folder_name=request.folder_name or "",
+                                    single_file_url=url)
+
+    for file in readable:
         try:
             urls, _paths = agent.generate_access_link(
                 resource_for_key(file.bucket, file.key),
@@ -1038,14 +1050,6 @@ async def create_asset_bundle(
             status="completed",
             folder_name=request.folder_name or "",
             single_file_url=all_presigned_urls[0]
-        )
-
-    # The bundler stores a copy of the archive in object storage, which data held on POSIX
-    # machines must not have. Multi-file POSIX downloads wait for the streaming download path.
-    if agent.FLAVOUR == "posix":
-        raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail="Downloading several files at once isn't available for POSIX storage yet. Please download files one at a time.",
         )
 
     # POST to Bundler service's create archive endpoint

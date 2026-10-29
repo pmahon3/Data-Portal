@@ -214,8 +214,9 @@ def test_public_key_endpoint(signer, monkeypatch):
     assert client.get("/storage-links/jwks.json").status_code == 503
 
 
-def bundle_request(monkeypatch, signer, file_ids):
-    """Call the bundle endpoint for a POSIX instance with its database and services faked out."""
+def bundle_request(monkeypatch, signer, file_ids, recorded=None):
+    """Call the bundle endpoint for a POSIX instance with its database and services faked out.
+    Approved lists go into ``recorded`` (approval ID -> (paths, folder name))."""
     import asyncio
     from types import SimpleNamespace
 
@@ -238,6 +239,13 @@ def bundle_request(monkeypatch, signer, file_ids):
     monkeypatch.setattr(s3_endpoints, "FileService", FakeFileService)
     monkeypatch.setattr(s3_endpoints, "get_instance_agent", lambda manager, name: ("instance-uuid", agent))
     monkeypatch.setattr(s3_endpoints.bundler_client, "post", bundler_must_not_be_called)
+    recorded = {} if recorded is None else recorded
+
+    def record_bundle(paths, folder_name, owner):
+        recorded["g1"] = (paths, folder_name)
+        return "g1", "digest-of-the-list"
+
+    monkeypatch.setattr(s3_endpoints, "record_bundle", record_bundle)
     policy_manager = SimpleNamespace(checker=lambda user, instance: SimpleNamespace(allows=lambda resource, action: True))
     user_manager = SimpleNamespace(get_user_uuid=lambda name: "user-uuid")
 
@@ -252,12 +260,32 @@ def bundle_request(monkeypatch, signer, file_ids):
 
 
 def test_posix_files_are_never_sent_to_the_bundler(signer, monkeypatch):
-    """PX-14."""
+    """PX-14. Several files get one link that streams them from the file service; nothing is bundled."""
+    recorded = {}
+    response = bundle_request(monkeypatch, signer, [1, 2], recorded)
+    url = urlparse(response.single_file_url)
+    assert (response.status, url.netloc, url.path) == ("completed", urlparse(URL).netloc, f"/v1/bundles/{NAMESPACE}/g1")
+    claims = decode(signer, parse_qs(url.query)["token"][0])
+    assert (claims["op"], claims["grant"], claims["list"]) == ("bundle", "g1", "digest-of-the-list")
+    assert recorded["g1"] == ([f"{NAMESPACE}/f1.nii.gz", f"{NAMESPACE}/f2.nii.gz"], "")
+
+
+def test_a_bundles_list_is_served_only_for_its_own_link(signer, monkeypatch):
+    """PX-14. The file service fetches the approved list with the download's link, and nothing else."""
     from fastapi import HTTPException
 
-    with pytest.raises(HTTPException) as refused:
-        bundle_request(monkeypatch, signer, [1, 2])
-    assert refused.value.status_code == 501
+    from api.v0_1.endpoints import storage_links
+
+    monkeypatch.setattr(storage_links, "get_link_signer", lambda: signer)
+    monkeypatch.setattr(storage_links, "bundle_list", lambda grant: '{"paths":[]}' if grant == "g1" else None)
+    bundle = signer.sign(NAMESPACE, f"{NAMESPACE}/g1", "bundle", 60, grant="g1", listing="d")
+    assert storage_links.storage_link_bundle("g1", f"Bearer {bundle}").body == b'{"paths":[]}'
+    for grant, token, code in [("g2", bundle, 403),
+                               ("g1", signer.sign(NAMESPACE, f"{NAMESPACE}/a.txt", "read", 60, grant="g1"), 403),
+                               ("g1", "not-a-token", 401)]:
+        with pytest.raises(HTTPException) as refused:
+            storage_links.storage_link_bundle(grant, f"Bearer {token}")
+        assert refused.value.status_code == code
 
 
 def test_a_single_posix_file_still_downloads_directly(signer, monkeypatch):

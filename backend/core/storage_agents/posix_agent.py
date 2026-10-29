@@ -83,6 +83,18 @@ class PosixStorageAgent(AbstractStorageAgent):
         logger.debug("generate_access_link (%s): URL for %s", method, resource)
         return [url], [resource]
 
+    def generate_bundle_link(self, grant: str, listing: str, ttl: int, subject: str | None = None) -> str:
+        """
+        Sign the link that streams an approved set of files as one ZIP from the file service.
+
+        :param grant: The approval ID; the file service fetches the approved file list by it.
+        :param listing: The SHA-256 of that list (``record_bundle``).
+        """
+        resource = f"{self.namespace}/{grant}"
+        token = self._signer.sign(self.namespace, resource, "bundle", ttl, subject=subject, grant=grant,
+                                  listing=listing)
+        return f"{self.instance_url}/v1/bundles/{quote(resource, safe='/')}?{httpx.QueryParams(token=token)}"
+
     def delete_object(self, resource: str, subject: str | None = None):
         """Delete a file identified by ``namespace/key``. Deleting a missing file succeeds."""
         response = self._service_call("DELETE", resource, "delete", subject=subject)
