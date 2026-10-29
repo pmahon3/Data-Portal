@@ -26,6 +26,7 @@ INN_291 = pytest.mark.xfail(strict=True, reason="INN-291: a grant written with a
 INN_292 = pytest.mark.xfail(strict=True, reason="INN-292: a grant covers paths that only start with the same text")
 INN_293 = pytest.mark.xfail(strict=True, reason="INN-293: access to one file allows acting on the folders above it")
 INN_294 = pytest.mark.xfail(strict=True, reason="INN-294: folder listings show files the user can't access")
+INN_272 = pytest.mark.xfail(strict=True, reason="INN-272: any signed-in user can fetch another user's bundle")
 
 # Every file in the test bucket. Tests that change files work in a folder of their own.
 FILES = [
@@ -178,6 +179,21 @@ def test_a_download_refuses_a_selected_file_the_user_may_not_read(make_user, tre
     r = user.download_bundle(file_ids=[tree.file("study/patient-7/summary.csv"),
                                        tree.file("study/patient-7/identifiers-MRN-0047731.csv")])
     assert r.status_code == 403
+
+
+@INN_272
+def test_another_users_bundle_cant_be_checked_or_fetched(make_user, tree):
+    """AC-3. A bundle ID isn't a permission: someone who holds none of the bundle's files gets
+    the same answer as for a bundle that doesn't exist."""
+    owner = make_user(("read", "study/scan-042.nii"), ("read", "study/scan-043.nii"))
+    r = owner.download_bundle(file_ids=[tree.file("study/scan-042.nii"), tree.file("study/scan-043.nii")])
+    assert r.status_code == 200, r.text
+    bundle_id = r.json()["bundle_id"]
+    assert owner.bundle_status(bundle_id).status_code != 404
+
+    other = make_user()
+    assert other.bundle_status(bundle_id).status_code == 404
+    assert other.bundle_download(bundle_id).status_code == 404
 
 
 # ------------------------------------------------- a grant covers exactly what it names
