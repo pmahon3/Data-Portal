@@ -337,6 +337,12 @@ def test_read_policies_filtered_by_user(auth_headers):
             f"Filter returned policies belonging to other users: {policies}"
         assert len(policies) == 1
 
+        # Filter by username and instance name: the same one policy
+        r = requests.get(policy_url, params={"username": username, "instance_name": instance_name},
+                         headers=auth_headers, timeout=10)
+        assert r.status_code == 200, f"GET filtered by name failed: {r.status_code} {r.text[:200]}"
+        assert [p.get("user_uuid") for p in r.json().get("details", [])] == [user_uuid]
+
         # Cleanup policy
         requests.delete(policy_url, json={
             "user_uuid": user_uuid,
