@@ -4,8 +4,6 @@ POSIX file service against the link contract (STREAMING-SPEC.md, "File service c
 Tokens are signed here the way the portal signs them, so these tests pin the contract from the
 file service's side without importing backend code.
 """
-import time
-import uuid
 
 import jwt
 import pytest
@@ -14,18 +12,10 @@ from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.main import create_app
+from tests.tokens import KEY, NS
+from tests.tokens import sign as token
 
-NS = "inn-posix"
-KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 OTHER_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-
-
-def token(path, op, *, ttl=60, aud=NS, iss="inn-portal", key=KEY, drop=()):
-    now = int(time.time())
-    claims = {"iss": iss, "aud": aud, "jti": uuid.uuid4().hex, "iat": now, "exp": now + ttl, "op": op, "path": path}
-    for name in drop:
-        claims.pop(name)
-    return jwt.encode(claims, key, algorithm="RS256")
 
 
 @pytest.fixture
@@ -296,7 +286,7 @@ def test_deleting_a_symlink_never_deletes_its_target(client, root, outside):
 
 
 def test_a_folder_swapped_for_a_symlink_mid_request_doesnt_redirect_the_read(client, root, outside, monkeypatch):
-    """AC-3.     The race: the path is checked, then someone on the machine replaces a folder with a symlink
+    """AC-3. The race: the path is checked, then someone on the machine replaces a folder with a symlink
     to elsewhere before the file is opened. Reading through the already-open folder handle means
     the swap can't redirect the read.
     """

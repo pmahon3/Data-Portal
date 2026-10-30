@@ -164,6 +164,7 @@ def test_posix_follows_the_same_rules_as_object_storage(admin, instance, s3_inst
     u1 = login("qa-authz-u1")
     on_s3 = outcomes(admin, u1, s3_instance, BUCKET)
     on_posix = outcomes(admin, u1, instance, NAMESPACE)
-    differences = {k: (on_s3.get(k), on_posix.get(k)) for k in set(on_s3) | set(on_posix) if on_s3.get(k) != on_posix.get(k)}
+    differences = {k: (on_s3.get(k), on_posix.get(k)) for k in set(on_s3) | set(on_posix)
+                   if on_s3.get(k) != on_posix.get(k)}
     assert differences == {}, f"S3 vs POSIX differ: {differences}"
     assert on_posix == EXPECTED

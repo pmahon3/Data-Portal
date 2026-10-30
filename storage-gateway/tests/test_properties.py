@@ -11,12 +11,8 @@ Properties hold for generated inputs, not chosen examples:
 import base64
 import json
 import os
-import time
-import uuid
 
-import jwt
 import pytest
-from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from hypothesis import HealthCheck, assume, given, settings
@@ -27,16 +23,11 @@ from app.auth import check_token
 from app.config import Settings
 from app.files import BadPath, Root, parse_range, split_key
 from app.main import create_app
-
-NS = "inn-posix"
-KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-
+from tests import tokens
+from tests.tokens import KEY, NS
 
 def sign(path, op, **overrides):
-    now = int(time.time())
-    claims = {"iss": "inn-portal", "aud": NS, "jti": uuid.uuid4().hex, "iat": now, "exp": now + 300,
-              "op": op, "path": path} | overrides
-    return jwt.encode(claims, KEY, algorithm="RS256")
+    return tokens.sign(path, op, ttl=300, **overrides)
 
 
 # --- Paths never leave the root ---

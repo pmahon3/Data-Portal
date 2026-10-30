@@ -11,13 +11,9 @@ Verifies: AC-3.
 import atexit
 import shutil
 import tempfile
-import time
-import uuid
 from pathlib import Path
 
-import jwt
 import pytest
-from cryptography.hazmat.primitives.asymmetric import rsa
 
 schemathesis = pytest.importorskip("schemathesis")
 from hypothesis import HealthCheck, settings  # noqa: E402
@@ -25,9 +21,8 @@ from hypothesis import HealthCheck, settings  # noqa: E402
 from app.auth import OPERATION_BY_METHOD  # noqa: E402
 from app.config import Settings  # noqa: E402
 from app.main import create_app  # noqa: E402
+from tests.tokens import KEY, NS, sign  # noqa: E402
 
-NS = "inn-posix"
-KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 BASE = Path(tempfile.mkdtemp(prefix="fuzz-"))
 atexit.register(shutil.rmtree, BASE, True)
 ROOT = BASE / "root"
@@ -47,10 +42,7 @@ def test_no_server_errors_and_nothing_from_outside_the_root(case):
     if resource is not None:
         op = OPERATION_BY_METHOD.get(case.method.upper())
         if op:
-            now = int(time.time())
-            token = jwt.encode({"iss": "inn-portal", "aud": NS, "jti": uuid.uuid4().hex, "iat": now,
-                                "exp": now + 60, "op": op, "path": resource}, KEY, algorithm="RS256")
-            case.query = (case.query or {}) | {"token": token}
+            case.query = (case.query or {}) | {"token": sign(resource, op)}
     response = case.call()
     assert response.status_code < 500, (case.method, case.path_parameters, response.status_code)
     assert b"SECRET OUTSIDE" not in response.content
