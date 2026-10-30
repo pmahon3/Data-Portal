@@ -44,6 +44,7 @@ def test_deployment_accounts_match_the_dockerfile():
     labels = " ".join(deployment_facts().values())
     dockerfile = (GATEWAY / "Dockerfile").read_text()
     created = {int(u) for u in re.findall(r"--uid (\d+)", dockerfile)} | {int(g) for g in re.findall(r"--gid (\d+)", dockerfile)}
+    # Every account the labels name is created in the image, except root and the first temporary ID
     for uid in {int(u) for u in re.findall(r"uid (\d+)", labels)} - {0, 2000000}:
         assert uid in created, f"diagram names uid {uid}, which the Dockerfile doesn't create"
     for _, gid in re.findall(r"owner (\d+):(\d+)", labels):

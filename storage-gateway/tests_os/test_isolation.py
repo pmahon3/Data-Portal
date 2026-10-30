@@ -23,9 +23,7 @@ import time
 import uuid
 from pathlib import Path
 
-import jwt
 import pytest
-from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import HTTPException
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -37,19 +35,14 @@ from app import acl  # noqa: E402
 from app.broker import HelperAccess  # noqa: E402
 from app.config import CANARY  # noqa: E402
 from app.helper import HelperSettings, serve  # noqa: E402
+from tests.tokens import KEY, NS, sign  # noqa: E402
 
-NS = "inn-posix"
-KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 WEB, DATA_OWNER, TRAVERSE, STRANGER = 10001, 10002, 10010, 50000
 SERVICE = str(Path(__file__).resolve().parents[1])
 
 
 def token(path, op, ttl=300, grant=None, sub=None, listing=None):
-    now = int(time.time())
-    claims = {"iss": "inn-portal", "aud": NS, "jti": uuid.uuid4().hex, "iat": now, "exp": now + ttl,
-              "op": op, "path": path}
-    claims |= {k: v for k, v in (("grant", grant), ("sub", sub), ("list", listing)) if v is not None}
-    return jwt.encode(claims, KEY, algorithm="RS256")
+    return sign(path, op, ttl=ttl, grant=grant, sub=sub, list=listing)
 
 
 def as_user(uid, code, groups=()):
@@ -367,9 +360,7 @@ def test_each_temporary_id_is_recorded_with_its_link_and_user(env, caplog):
     """PX-10."""
     import logging
 
-    now = int(time.time())
-    t = jwt.encode({"iss": "inn-portal", "aud": NS, "jti": "link-1", "iat": now, "exp": now + 60, "op": "read",
-                    "path": f"{NS}/study/a.nii.gz", "sub": "user-42"}, KEY, algorithm="RS256")
+    t = sign(f"{NS}/study/a.nii.gz", "read", jti="link-1", sub="user-42")
     with caplog.at_level(logging.INFO, logger="storage-gateway.audit"):
         os.close(env["access"].open_read(t, f"{NS}/study/a.nii.gz", None)[0])
     link = env["helper"].ids.state["links"]["link-1"]

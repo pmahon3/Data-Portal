@@ -7,17 +7,14 @@ Verifies: PX-13.
 import hashlib
 import io
 import json
-import time
-import uuid
 import zipfile
 
-import jwt
 import pytest
 from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.main import create_app
-from tests.test_gateway import KEY, NS
+from tests.tokens import KEY, NS, sign
 
 FILES = {"study/a.nii": b"a" * 3000, "study/sub/b.csv": b"b,c\n" * 500}
 LIST = json.dumps({"folder_name": "my study", "paths": [f"{NS}/{k}" for k in FILES]}, separators=(",", ":"))
@@ -25,10 +22,7 @@ BUNDLE = f"{NS}/g1"
 
 
 def bundle_token(listing=LIST, op="bundle", path=BUNDLE):
-    now = int(time.time())
-    return jwt.encode({"iss": "inn-portal", "aud": NS, "jti": uuid.uuid4().hex, "iat": now, "exp": now + 60,
-                       "op": op, "path": path, "grant": "g1",
-                       "list": hashlib.sha256(listing.encode()).hexdigest()}, KEY, algorithm="RS256")
+    return sign(path, op, grant="g1", list=hashlib.sha256(listing.encode()).hexdigest())
 
 
 @pytest.fixture

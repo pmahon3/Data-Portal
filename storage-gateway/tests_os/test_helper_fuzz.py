@@ -16,7 +16,6 @@ import os
 import socket
 import sys
 import time
-import uuid
 
 import pytest
 from hypothesis import HealthCheck, given, settings
