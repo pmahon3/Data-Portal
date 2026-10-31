@@ -9,6 +9,7 @@ import {
   createPathMatcher,
   filterNodes,
   flattenVisibleTree,
+  getSearchablePath,
   getSelectedAncestorIds,
   isValidSearchPattern,
   trimFilterText,
@@ -70,6 +71,17 @@ export default function Tree({
     [appliedFilterText, appliedFilterMode],
   );
 
+  // Under a filter (a path search, "Find in selection", or both) the tree shows only part
+  // of each folder, so a click selects only what is shown (decision C3; requirement AC-4,
+  // docs/requirements/access-control.md). This tells each node whether it matches the
+  // filter itself, the same test filterNodes uses; null when no filter is active.
+  const filterMatch = useMemo(() => {
+    if (!pathMatcher && !filterSelectedOnly) return null;
+    return (node) =>
+      (!pathMatcher || pathMatcher.test(getSearchablePath(node))) &&
+      (!filterSelectedOnly || selected.has(String(node.id)));
+  }, [pathMatcher, filterSelectedOnly, selected]);
+
   // These booleans drive small UI details such as whether the search button
   // should be enabled and whether the empty state should say "No matches".
   const filterState = useMemo(() => {
@@ -104,12 +116,6 @@ export default function Tree({
     isPatternValid,
   ]);
 
-  // Under a filter (a path search or "Find in selection") the tree shows only part of
-  // each folder, so clicking a folder can't mean "everything in it", and selection
-  // mustn't spread up to parent folders. So while a filter is active, files are
-  // selected one at a time and folders can't be selected (requirement AC-4,
-  // docs/requirements/access-control.md).
-  const filterActive = filterState.hasActiveFilter;
 
   const applyFilter = async () => {
     if (!isPatternValid) return;
@@ -266,13 +272,14 @@ export default function Tree({
                     selected={selected}
                     onChange={onChange}
                     disableFileSelection={disableFileSelection}
-                    disableFolderSelection={disableFolderSelection || filterActive}
-                    disableCascade={disableCascade || filterActive}
+                    disableFolderSelection={disableFolderSelection}
+                    disableCascade={disableCascade}
                     onToggleExpand={toggleExpand}
                     isLoading={loadingNodeIds.has(String(node.id))}
                     hasSelectedDescendant={selectedAncestorIds.has(
                       String(node.id),
                     )}
+                    filterMatch={filterMatch}
                   />
                 </div>
               );

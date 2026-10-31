@@ -96,22 +96,34 @@ defineFeature(feature, (test) => {
     });
   };
 
-  test("Folders can't be selected under a filter", ({ given, when, and, then }) => {
-    givenTheBucket(given);
-    whenFiltering(when);
-    whenExpanding(and);
-    const checkboxDisabled = (text) =>
-      expect(within(rowFor(text)).getByRole("checkbox")).toBeDisabled();
-    then(/^the checkbox for "(.*)" is disabled$/, checkboxDisabled);
-    and(/^the checkbox for "(.*)" is disabled$/, checkboxDisabled);
-  });
+  const thenSelectionIsEmpty = (step) => {
+    step("the selection is empty", () => {
+      expect(selection.size).toBe(0);
+    });
+  };
 
-  test("Clicking a folder row selects nothing under a filter", ({ given, when, and, then }) => {
+  test("Under a filter, a folder selects only the files the filter shows", ({ given, when, and, then }) => {
     givenTheBucket(given);
     whenFiltering(when);
     whenClicking(and);
-    then("the selection is empty", () => {
-      expect(selection.size).toBe(0);
+    thenSelectionIs(then);
+  });
+
+  test("Clicking the folder again deselects what it showed", ({ given, when, and, then }) => {
+    givenTheBucket(given);
+    whenFiltering(when);
+    whenClicking(and);
+    whenClicking(and);
+    thenSelectionIsEmpty(then);
+  });
+
+  test("A folder shows as partly selected when only some of what it shows is", ({ given, when, and, then }) => {
+    givenTheBucket(given);
+    whenFiltering(when);
+    whenExpanding(and);
+    whenClicking(and);
+    then(/^the checkbox for "(.*)" is partly checked$/, (text) => {
+      expect(within(rowFor(text)).getByRole("checkbox")).toHaveAttribute("data-indeterminate", "true");
     });
   });
 
@@ -124,13 +136,21 @@ defineFeature(feature, (test) => {
     thenSelectionIs(then);
   });
 
+  test("A folder whose own name matches the filter is selected whole", ({ given, when, and, then }) => {
+    givenTheBucket(given);
+    whenFiltering(when);
+    whenExpanding(and);
+    whenClicking(and);
+    thenSelectionIs(then);
+  });
+
   test("Without a filter, selecting a folder selects everything in it", ({ given, when, then }) => {
     givenTheBucket(given);
     whenClicking(when);
     thenSelectionIs(then);
   });
 
-  test("Clicking a folder under \"Find in selection\" doesn't select the folder", ({ given, when, and, then }) => {
+  test("Under \"Find in selection\", clicking a folder acts only on the selected items it shows", ({ given, when, and, then }) => {
     givenTheBucket(given);
     whenExpanding(when);
     whenClicking(and);
@@ -138,6 +158,6 @@ defineFeature(feature, (test) => {
       fireEvent.click(screen.getByLabelText(label));
     });
     whenClicking(and);
-    thenSelectionIs(then);
+    thenSelectionIsEmpty(then);
   });
 });
