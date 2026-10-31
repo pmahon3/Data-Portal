@@ -10,6 +10,7 @@ Setup: see conftest.py.
 
 Verifies: design docs.
 """
+import os
 import re
 import subprocess
 import time
@@ -23,6 +24,10 @@ from portal import (BACKEND, GATEWAY_CONTAINER, NAMESPACE, TIMEOUT, delete_file,
                     unique_name, upload)
 
 BACKEND_CONTAINER = "ams-backend-posix"
+# The backend runs on this machine's Docker even when the file service is on another (DOCKER_HOST):
+BACKEND_DOCKER = {k: v for k, v in os.environ.items() if k != "DOCKER_HOST"}
+if os.getenv("E2E_BACKEND_DOCKER_HOST"):
+    BACKEND_DOCKER["DOCKER_HOST"] = os.environ["E2E_BACKEND_DOCKER_HOST"]
 AUDIT_OP = {"read": "open", "write": "begin_write", "placed": "commit", "stat": "stat", "delete": "delete"}
 IGNORED_PATHS = re.compile(r"^/(api/health|api/storage-links/jwks\.json|v1/health)")
 
@@ -35,9 +40,9 @@ def _ts(stamp: str) -> tuple[int, int]:
 def events_since(since: float) -> list[tuple[str, str, str | None, int | None]]:
     """(participant, verb, path, status) for each logged call since ``since``, oldest first."""
     found = []
-    for container in (BACKEND_CONTAINER, GATEWAY_CONTAINER):
+    for container, env in ((BACKEND_CONTAINER, BACKEND_DOCKER), (GATEWAY_CONTAINER, None)):
         out = subprocess.run(["docker", "logs", "--timestamps", "--since", f"{since:.3f}", container],
-                             capture_output=True, text=True)
+                             capture_output=True, text=True, env=env)
         for line in (out.stdout + out.stderr).splitlines():
             stamp, _, text = line.partition(" ")
             if m := re.search(r'uvicorn\.access.*"(\w+) (\S+) HTTP/[\d.]+" (\d{3})', text):
