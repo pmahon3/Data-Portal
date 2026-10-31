@@ -59,9 +59,6 @@ services:
       # Backend base URL
       BACKEND_BASE_URL: http://localhost:8000
 
-      # Bundler provider switch: set BUNDLER_PROVIDER to "python" or "java"
-      BUNDLER_PROVIDER: ${BUNDLER_PROVIDER:-java}
-      PYTHON_BUNDLER_URL: ${PYTHON_BUNDLER_URL:-http://bundler:8082}
       JAVA_BUNDLER_URL: ${JAVA_BUNDLER_URL:-http://host.docker.internal:8888}
 
       # Enable smoke tests

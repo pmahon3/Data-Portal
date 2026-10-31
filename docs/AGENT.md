@@ -240,7 +240,7 @@ This is a core product invariant. Avoid changes that move bulk data transfer int
 
 ## Bundler Service
 
-The Bundler service handles server-side ZIP creation for multi-file or folder-style downloads.
+The Java bundler (`java-bundler/`) handles server-side ZIP creation for multi-file or folder-style downloads.
 
 Current flow:
 
@@ -249,7 +249,7 @@ Current flow:
 - For the current S3-backed path, the backend generates short-lived presigned GET URLs for each authorized file and sends those URLs to Bundler.
 - Bundler accepts bundle requests at `/bundles`, processes them asynchronously, downloads the provided URLs into local staging space, and creates a ZIP archive.
 - Bundle status is polled through `/bundles/{bundleId}`.
-- Completed archives are fetched through `/bundles/{bundleId}/download`; the backend streams that ZIP response back to the frontend.
+- `/bundles/{bundleId}/download` returns a presigned URL for the completed archive in object storage; the backend passes that URL to the frontend.
 - Bundler should not be treated as the authorization authority. It assumes the backend has already checked access before submitting URLs.
 - Current implementation is URL-based and S3-oriented from the backend side; POSIX support should be added explicitly rather than assumed.
 

@@ -56,18 +56,10 @@ deployment/java-bundler/java-bundler.nomad
 
 ## Backend Configuration
 
-To route backend bundle requests to the Java bundler in production, set:
+To point the backend at the Java bundler in production, set:
 
 ```bash
-BUNDLER_PROVIDER=java
 JAVA_BUNDLER_URL='http://{{- range nomadService "java-bundler" }}{{ .Address }}:{{ .Port }}{{- end }}'
-```
-
-To route back to the Python bundler:
-
-```bash
-BUNDLER_PROVIDER=python
-PYTHON_BUNDLER_URL='http://{{- range nomadService "bundler-staging" }}{{ .Address }}:{{ .Port }}{{- end }}'
 ```
 
 ## Runtime Settings

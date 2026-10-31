@@ -80,4 +80,3 @@ docker compose down
 - [Local development](../local/README.md)
 - [Backend API reference](./api-reference.md)
 - [Java Bundler](../java-bundler/README.md)
-- [Python Bundler quickstart](../bundler/quickstart.md)
