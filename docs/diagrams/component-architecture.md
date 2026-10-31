@@ -1,6 +1,6 @@
 # Component Architecture
 
-**Last updated:** 2026-08-12
+**Last updated:** 2026-10-31
 
 ## System Overview
 
@@ -67,6 +67,8 @@ graph LR
         AssetAPI[Asset Access API]
         AdminAPI[Admin Endpoints]
         InstanceAPI[Instance Management API]
+        TreeAPI[File Tree API<br/>uploads, downloads, bundles]
+        NotifyAPI[Notifications API]
     end
 
     subgraph "Core Business Logic"
@@ -74,6 +76,8 @@ graph LR
         PolicyMgr[Policy<br/>Manager]
         InstanceMgr[Instance<br/>Manager]
         UserMgr[User<br/>Manager]
+        Notify[Notifications<br/>portal list + email]
+        Standards[Data Standards<br/>validator per standard]
     end
 
     subgraph "Storage Agents"
@@ -85,6 +89,8 @@ graph LR
     subgraph "External Services"
         KeycloakSvc[Keycloak<br/>Service]
         S3Backend[S3<br/>Backend]
+        Mongo[(MongoDB)]
+        Relay[Mail relay]
     end
 
     AuthAPI --> ConnMgr
@@ -92,6 +98,9 @@ graph LR
     AdminAPI --> PolicyMgr
     AdminAPI --> UserMgr
     InstanceAPI --> InstanceMgr
+    TreeAPI -->|upload complete| Notify
+    TreeAPI -->|upload complete| Standards
+    NotifyAPI --> Notify
 
     ConnMgr --> AbstractAgent
     InstanceMgr --> AbstractAgent
@@ -102,6 +111,9 @@ graph LR
     PolicyMgr -.->|Casbin Rules| PolicyMgr
     UserMgr -.->|CRUD Operations| KeycloakSvc
     S3Agent -.->|Presigned URLs| S3Backend
+    Notify -.->|notifications| Mongo
+    Notify -.->|email, when SMTP_HOST is set| Relay
+    Standards -.->|dataset-checks| Mongo
 
     style ConnMgr fill:#4A90E2
     style PolicyMgr fill:#FFD700
@@ -191,6 +203,8 @@ graph LR
 - Storage agent coordination (factory pattern)
 - User and instance management
 - File-tree metadata service (PostgreSQL)
+- Notifications to researchers, in the portal and by email ([Notifications](./notifications.md))
+- Dataset checks against declared standards such as BIDS ([Data Standards](./data-standards.md))
 
 ### Keycloak
 - User authentication (OIDC)
