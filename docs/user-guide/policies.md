@@ -50,6 +50,34 @@ gives no access to it: they can't download, upload into or delete it.
 The file tree is shown per action: browsing to upload shows what they may write, browsing to delete
 shows what they may delete.
 
+### Does this policy allow it?
+
+Each row is one policy and one question about it. "Browse" asks whether a folder appears in the
+person's file tree; "refused" means the portal won't save the policy.
+
+<!-- check: policy-examples (run by backend/tests/test_policy_guide.py) -->
+| Policy path | Action | Asked | About | Answer |
+|---|---|---|---|---|
+| `study-a/patient-7/scan.nii` | read | read | `study-a/patient-7/scan.nii` | yes |
+| `study-a/patient-7/scan.nii` | read | read | `study-a/patient-7/scan.nii.bak` | no |
+| `study-a/patient-7/scan.nii` | read | read | `study-a/patient-7/notes.txt` | no |
+| `study-a/patient-7/scan.nii` | read | browse | `study-a/` | yes |
+| `study-a/patient-7/scan.nii` | read | browse | `study-a/patient-7/` | yes |
+| `study-a/patient-7/scan.nii` | read | browse | `study-a/patient-8/` | no |
+| `study-a/patient-7/scan.nii` | read | delete | `study-a/patient-7/scan.nii` | no |
+| `study-a/patient-7/*` | read | read | `study-a/patient-7/session-2/new.nii` | yes |
+| `study-a/patient-7/*` | read | read | `study-a/patient-70/scan.nii` | no |
+| `study-a/incoming/*` | write | write | `study-a/incoming/s1.nii` | yes |
+| `study-a/incoming/*` | write | read | `study-a/incoming/s1.nii` | no |
+| `*` | * | delete | `study-b/any/file.txt` | yes |
+| `/study-a/scan.nii` | read | read | `study-a/scan.nii` | yes |
+| `study-a/sub-0[1-3]/*` | read | read | `study-a/sub-0[1-3]/scan.nii` | yes |
+| `study-a/sub-0[1-3]/*` | read | read | `study-a/sub-02/scan.nii` | no |
+| `.*` | read | | | refused |
+| `study-a/.*` | read | | | refused |
+| `study-a/sub-*/scan.nii` | read | | | refused |
+| `study-a/patient-7/` | read | | | refused |
+
 ### Examples, read aloud
 
 | Policy | Means |
@@ -72,11 +100,12 @@ shows what they may delete.
 
 ## Things that surprise people
 
-- **Paths aren't regular expressions.** `.*`, `study-a/.*`, `sub-0[1-3]/*` or a `*` in the middle of
-  a path are refused, with a message giving the right form. The file tree's search does accept
-  regular expressions; policies don't.
-- **A folder path needs the `/*`.** `study-a/patient-7/` without it names no files: it shows the
-  folder but gives nothing inside. Write `study-a/patient-7/*`.
+- **Paths aren't regular expressions.** `.*`, `study-a/.*` or a `*` in the middle of a path are
+  refused, with a message giving the right form. Other characters mean themselves: `sub-0[1-3]/*`
+  is a folder literally named `sub-0[1-3]`, not `sub-01` to `sub-03`. The file tree's search does
+  accept regular expressions; policies don't.
+- **A folder path needs the `/*`.** `study-a/patient-7/` without it is refused: write
+  `study-a/patient-7/*`.
 - **Access is by name.** A policy names a path, not a file. If a file is renamed or moved, policies on
   its old path no longer reach it. A new file put at the same path is covered by them.
 - **Single-file uploads never replace an existing file.** Replacing goes through a folder upload
