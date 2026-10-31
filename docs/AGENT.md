@@ -76,6 +76,7 @@ Main backend route groups:
 - `/api/instances` for storage instance CRUD
 - `/api/assets` for presigned asset upload/download/delete and dashboard-style asset data
 - `/api/tree` for DB-backed file tree endpoints
+- `/api/notifications` for the current user's notifications
 - `/api/health` for health and environment validation
 
 The system currently has two overlapping ways to reason about storage trees:
@@ -92,7 +93,7 @@ The application does not store everything in one database or one backend.
 Different kinds of data are persisted in different systems. This is important and easy to miss.
 
 - Keycloak stores users, credentials, and realm role assignments.
-- MongoDB stores storage instance configurations.
+- MongoDB stores storage instance configurations, notifications (`notifications`), bundle owners (`bundle-owners`), and dataset check results (`dataset-checks`).
 - Casbin policies are persisted through the MongoDB Casbin adapter.
 - PostgreSQL stores folder and file tree metadata used by the newer tree endpoints.
 - Object storage stores the actual data files.
@@ -238,7 +239,7 @@ The backend issues presigned URLs instead of proxying file content through the A
 
 Current behavior for the S3 agent:
 
-- `read` can match multiple files through regex-style resource matching
+- `read` can cover many files through a folder policy (`bucket/folder/*`); policy paths are literal
 - `write` and `delete` expect a single exact object path
 - the backend returns presigned URLs plus corresponding file paths
 
@@ -257,7 +258,26 @@ Current flow:
 - Bundle status is polled through `/bundles/{bundleId}`.
 - `/bundles/{bundleId}/download` returns a presigned URL for the completed archive in object storage; the backend passes that URL to the frontend.
 - Bundler should not be treated as the authorization authority. It assumes the backend has already checked access before submitting URLs.
+- A bundle belongs to the user who created it: the backend records the owner and the bundle's files, and refuses anyone else. When the bundle is fetched, every file in it is checked again, so revoked access or a deleted file stops the download (INN-272). Owner records expire after `BUNDLE_OWNER_RETENTION_HOURS` (192, a day past the bundler's 7-day retention).
 - Current implementation is URL-based and S3-oriented from the backend side; POSIX support should be added explicitly rather than assumed.
+
+## Notifications
+
+Completing an upload records a notification for the user (MongoDB `notifications`), listed at
+`GET /api/notifications/` and in the navbar bell. Each notification also goes to every channel in
+`core/services/notifications`; email is the only one, off until `SMTP_HOST` is set, and never names
+files, since file names can identify participants. See `docs/diagrams/notifications.md` and NT-1 in
+`docs/requirements/notifications.md`.
+
+## Data Standards
+
+A folder holding a standard's marker file at its root declares that standard (BIDS:
+`dataset_description.json`). When an upload completes, `core/services/standards` checks every
+declared dataset it touched, as a whole, by file names and layout from the PostgreSQL tree (no file
+contents). A failure puts the dataset in quarantine (MongoDB `dataset-checks`) and the upload response
+lists the problems in `checks`. Quarantine is recorded only, until what it holds back is decided.
+Standards plug in as validators; `DATA_STANDARDS` chooses them (default `bids`). See
+`docs/diagrams/data-standards.md` and `docs/requirements/data-standards.md`.
 
 ## Known Transitional Areas
 

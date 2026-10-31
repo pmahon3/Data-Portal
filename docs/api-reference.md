@@ -1,6 +1,6 @@
 # API Reference
 
-**Last updated:** 2026-08-27
+**Last updated:** 2026-10-31
 
 Backend routes use the `/api` prefix. Swagger UI is available at `/docs` and
 ReDoc at `/redoc` while the backend is running.
@@ -24,23 +24,34 @@ tree authorization behavior.
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/api/tree/root` | Get a bucket root. Requires `instance_name` and `bucket` query parameters. |
-| `GET` | `/api/tree/{folder_id}` | List a folder's immediate children. Requires `instance_name` and `bucket`. |
+| `GET` | `/api/tree/{folder_id}` | List a folder's immediate children. Requires `instance_name` and `bucket`; `access` (`read` by default, `write` or `delete`) lists only what the user may act on, and the folders on the way to it. |
 | `POST` | `/api/tree/folders` | Create a child folder. |
 | `POST` | `/api/tree/folders/ensure-path` | Create a nested folder path if it does not exist. |
 | `GET` | `/api/tree/dashboard/{instance_uuid}` | Return the complete authorized tree for one `access` type: `read`, `write`, or `delete`. |
 | `GET` | `/api/tree/dashboard/{instance_uuid}/children` | Lazy-load roots or children for one `access` type. Pass `parent_id` to load a folder. |
 | `POST` | `/api/tree/files/upload/init` | Create a pending file record and return a presigned upload URL. |
-| `POST` | `/api/tree/files/upload/complete` | Verify the upload and finalize its PostgreSQL metadata. |
+| `POST` | `/api/tree/files/upload/complete` | Verify the upload and finalize its PostgreSQL metadata. Returns `checks` (see below). |
+| `POST` | `/api/tree/folders/upload/init` | Check a folder upload's manifest, create its folders and pending files, and return one presigned upload URL per file. |
+| `POST` | `/api/tree/folders/upload/complete` | Verify a folder upload's files and finalize them. Returns `completed`, `failed` and `checks`. |
 | `GET` | `/api/tree/files/{file_id}/download-url` | Return a presigned download URL. Requires `instance_name`. |
 | `DELETE` | `/api/tree/files/{file_id}` | Delete a file from object storage and PostgreSQL. Requires `instance_name`. |
 | `DELETE` | `/api/tree/folders/{folder_id}` | Delete a folder subtree from object storage and PostgreSQL. Requires `instance_name` and `bucket`. |
+
+Completing an upload checks every dataset it belongs to that declares a standard (BIDS: a
+`dataset_description.json` at the dataset's root) by file names and layout. `checks` lists one entry
+per dataset and standard: `root`, `standard`, `quarantined`, `problems` (the count) and `findings`
+(the first 100, each `path` and `problem`). A failing dataset is held in quarantine until a later
+upload makes it pass. See [Data Standards](./diagrams/data-standards.md).
 
 The old `/api/assets/...` routes are no longer available. Use `/api/tree/...`
 for all file and folder operations.
 
 ## Bundle Downloads
 
-The backend checks Casbin read access before sending files to the bundler.
+The backend checks read access to every file before sending files to the bundler; one refused file
+refuses the bundle (403). A bundle belongs to the user who created it: anyone else gets 404 on its
+status and download. When the ZIP is fetched, every file in it is checked again, so revoked access or
+a deleted file refuses the download (403).
 
 | Method | Endpoint | Description |
 |---|---|---|
@@ -74,6 +85,17 @@ they manage.
 | `POST` | `/api/policies/` | Add a policy *(admin or project manager)*. |
 | `DELETE` | `/api/policies/` | Remove a policy *(admin or project manager)*. |
 | `POST` | `/api/policies/validate` | Test a policy without adding it *(admin)*. |
+
+`GET /api/policies/` filters by `username` or `instance_name` as well as by UUID. A policy's
+`resource` is a literal path: `bucket/path/file.txt` (that file), `bucket/folder/*` (that folder and
+everything in it) or `*` (the whole instance). Its `action` is one action (`read`, `write`, `delete`, `admin`) or `*`.
+Other forms are refused (400).
+
+## Notifications
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/notifications/` | The current user's newest 50 notifications, newest first: `kind` (`stored`, `stored_with_failures`), `message`, `created_at` (UTC), and what it's about (`file_id` or `folder_id`, counts). |
 
 ## Storage Instances
 

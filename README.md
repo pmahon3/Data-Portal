@@ -46,12 +46,12 @@ For detailed information, see the [project wiki](https://github.com/INN-SFU/Data
 
 ## Project Structure
 
-The React frontend calls the FastAPI backend using Keycloak-issued bearer tokens. The backend enforces Casbin policies, accesses S3-compatible storage through storage agents, stores configuration and policies in MongoDB, and maintains the searchable file tree and event queue in PostgreSQL. Multi-file downloads are built by the Java bundler, then written to object storage.
+The React frontend calls the FastAPI backend using Keycloak-issued bearer tokens. The backend enforces Casbin policies, accesses S3-compatible storage through storage agents, stores configuration and policies in MongoDB, and maintains the searchable file tree and event queue in PostgreSQL. Multi-file downloads are built by the Java bundler, then written to object storage. When an upload completes, the researcher is told in the portal (and by email once a mail relay is set), and any dataset it belongs to that declares a standard such as BIDS is checked against it.
 
 **Main Directories:**
 - `backend/` - Main backend service with FastAPI application
   - `api/v0_1/endpoints/` - API routes
-  - `core/services/` - Instances, policies, projects, users, file trees, and storage events
+  - `core/services/` - Instances, policies, projects, users, file trees, storage events, notifications, and data standards
   - `core/storage_agents/` - S3-compatible and dummy storage adapters
   - `core/db/` - MongoDB and PostgreSQL integration
   - `storage_events_worker/` - Asynchronous file-tree event processing and cleanup
