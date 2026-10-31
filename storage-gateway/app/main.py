@@ -15,12 +15,13 @@ from collections.abc import Callable
 
 from fastapi import FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse
 
 from app.auth import KeyResolver, bundle_listing, check_token, jwks_key_resolver, token_from_request
 from app.config import CANARY, Settings
 from app.broker import DirectAccess, HelperAccess
 from app.files import BadPath, Root, etag, file_headers, parse_range, read_chunks, split_key
+from app.metrics import Metrics
 from app.zipstream import Entry, ZipStream
 
 logger = logging.getLogger("storage-gateway")
@@ -38,6 +39,7 @@ def create_app(settings: Settings, resolve_key: KeyResolver | None = None,
     fetch_list = fetch_list or (lambda grant, token: _fetch_list(settings.bundle_list_url, grant, token))
     access = _file_access(settings)
     checksums: dict[tuple[str, str], int] = {}  # (path, ETag) -> CRC-32, so a resume needn't re-read earlier files
+    metrics = Metrics()
     app = FastAPI(title="POSIX file service", docs_url=None, redoc_url=None)
 
     if settings.cors_origins:
@@ -57,7 +59,13 @@ def create_app(settings: Settings, resolve_key: KeyResolver | None = None,
         uvicorn's own access log is turned off (``--no-access-log``).
         """
         request.state.link_id = "-"
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
+        except Exception:
+            metrics.error()
+            metrics.request(request.method, _route(request), 500)
+            raise
+        metrics.request(request.method, _route(request), response.status_code)
         response.headers["Referrer-Policy"] = "no-referrer"
         logger.info(
             "%s %s %s link=%s", request.method, request.url.path, response.status_code, request.state.link_id
@@ -85,6 +93,11 @@ def create_app(settings: Settings, resolve_key: KeyResolver | None = None,
         if not settings.root.is_dir():
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Storage root unavailable")
         return {"status": "ok", "namespace": settings.namespace}
+
+    @app.get("/v1/metrics", response_class=PlainTextResponse)
+    def metrics_text():
+        """Request and error counters (Prometheus text format)."""
+        return PlainTextResponse(metrics.render(), media_type="text/plain; version=0.0.4")
 
     @app.head("/v1/files/{resource:path}")
     def file_metadata(resource: str, request: Request):
@@ -176,6 +189,12 @@ def create_app(settings: Settings, resolve_key: KeyResolver | None = None,
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     return app
+
+
+def _route(request: Request) -> str:
+    """The matched route's template (never the path, which names a file), or ``unmatched``."""
+    route = request.scope.get("route")
+    return getattr(route, "path", "unmatched")
 
 
 def _part_to_send(request: Request, size: int, validators: tuple[str, ...],

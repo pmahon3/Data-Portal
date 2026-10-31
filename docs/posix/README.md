@@ -155,6 +155,15 @@ So an operating-system audit record for a temporary ID traces to an approval, it
 The path in these lines may itself be sensitive if file names identify participants (decisions
 document, Part D question 7).
 
+## Monitoring
+
+`GET /v1/health` says whether the storage root is reachable. `GET /v1/metrics` serves request and
+error counters in the Prometheus text format: `posix_file_service_requests_total` by method, route
+and status code, and `posix_file_service_errors_total` (unhandled exceptions). Requests are counted by
+route, never by path or query, since a path names a file and the query carries the link's token. A
+request that fails while its body is streaming is counted with the status it started with. Neither
+endpoint needs a link; restrict them at the proxy if the counts shouldn't be public.
+
 ## Data layout
 
 On the machine the governed tree must be: owned by the data-owner account; folders `0710` with the
