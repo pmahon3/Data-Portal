@@ -172,7 +172,7 @@ def test_the_helper_checks_every_token_itself(env, make_token, status):
     with pytest.raises(HTTPException) as refused:
         env["access"].open_read(make_token(), f"{NS}/study/a.nii.gz", None)
     assert refused.value.status_code == status
-    assert env["helper"].ids.state["links"] == {} or status == 403
+    assert env["helper"].ids.state["links"] == {}  # refused before any ID is assigned
 
 
 def test_symlinks_are_never_granted(env):
@@ -532,3 +532,22 @@ def test_a_batch_is_recorded_with_one_save(env, monkeypatch):
     for fd in env["access"].open_read_many(tok, files, bundle=f"{NS}/g1"):
         os.close(fd)
     assert len(saves) == 1  # already recorded
+
+
+@pytest.mark.parametrize("path,status", [
+    (f"{NS}/study/a.nii.gz/inner", 404),  # under a file
+    (f"{NS}/study", 409),                 # a folder is there
+    (f"{NS}/study/link", 400),            # a symlink is there
+    (f"{NS}/study/link/x", 400),          # under a symlink
+])
+def test_a_commit_to_an_awkward_path_is_refused_never_a_server_error(env, path, status):
+    """AC-3. With a real staged upload (which random requests rarely reach), every awkward target is
+    refused with the reason, never an unhandled 500."""
+    (env["data"] / "study" / "link").symlink_to(env["outside"] / "secret.txt")
+    pending = env["access"].begin_write(token(path, "write"), path, None)
+    pending.write(b"data")
+    with pytest.raises(HTTPException) as refused:
+        pending.commit()
+    pending.abort()
+    assert refused.value.status_code == status
+    assert (env["outside"] / "secret.txt").read_bytes() == b"SECRET"

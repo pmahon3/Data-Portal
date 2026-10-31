@@ -87,7 +87,7 @@ def test_any_request_sequence_leaves_the_tree_clean(batch):
         for request in batch:
             reply = send(str(e["base"] / "helper.sock"), request)
             assert isinstance(reply, dict) and "ok" in reply
-            assert reply.get("status") != 500 or request.get("op") in ("commit",), (request, reply)
+            assert reply.get("status") != 500, (request, reply)
 
         assert (e["outside"] / "secret.txt").read_bytes() == b"SECRET"
         with pytest.raises(OSError):
