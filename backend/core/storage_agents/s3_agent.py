@@ -105,7 +105,7 @@ class S3StorageAgent(AbstractStorageAgent):
             return [b['Name'] for b in resp.get('Buckets', []) if b['Name'] not in ['bundle', 'inn-test']]
 
     def generate_access_link(
-        self, resource: str, method: str, ttl: int
+        self, resource: str, method: str, ttl: int, subject: Optional[str] = None
     ) -> Tuple[List[str], List[str]]:
         """Generate a presigned upload or download URL for an object."""
         client_method_by_access = {
@@ -130,7 +130,7 @@ class S3StorageAgent(AbstractStorageAgent):
         logger.debug("generate_access_link (%s): URL for %s", method, resource)
         return [url], [resource]
 
-    def delete_object(self, resource: str):
+    def delete_object(self, resource: str, subject: Optional[str] = None):
         """Delete an object identified by ``bucket/key``."""
         try:
             bucket, key = resource.split("/", 1)

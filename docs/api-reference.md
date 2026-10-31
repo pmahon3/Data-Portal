@@ -102,11 +102,20 @@ Other forms are refused (400).
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/api/instances/` | List all instances for an admin or assigned instances for a project manager. |
-| `POST` | `/api/instances/` | Create an instance and grant the creator admin access. |
+| `POST` | `/api/instances/` | Create an instance and grant the creator admin access. `flavour` is `s3` or `posix`; a POSIX instance gives `instance_url` (its file service) and `namespace`. |
 | `GET` | `/api/instances/{instance_id}` | Get instance details without secrets *(admin)*. |
 | `POST` | `/api/instances/{instance_id}/sync` | Import S3 file-tree metadata into PostgreSQL *(admin or assigned project manager)*. |
 | `PATCH` | `/api/instances/{instance_id}` | Rename an instance *(admin)*. |
 | `DELETE` | `/api/instances/{instance_id}` | Delete the instance, tree metadata, project links, and policies *(admin)*. Stored objects are not deleted. |
+
+## Storage Links
+
+For POSIX file services, not browsers. File URLs for a POSIX instance are links to its file service,
+signed by the backend.
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/storage-links/jwks.json` | Public keys the file services verify links with. |
 
 ## Projects
 
