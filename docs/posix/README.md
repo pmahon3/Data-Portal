@@ -130,6 +130,11 @@ changes if any file changes, so the download starts again. Checksums are kept in
 restart, a resume re-reads the files before it. The link lasts `BUNDLE_SOURCE_URL_EXPIRATION_SECONDS`
 (2 hours by default).
 
+At most `GATEWAY_MAX_DOWNLOADS` (default 8) multi-file downloads stream at once per file service;
+another waits for a free slot, and after `GATEWAY_DOWNLOAD_WAIT_SECONDS` (default 5 minutes) is told
+to retry (503 with `Retry-After`). A slot is given back however a download ends. One download may list
+at most `GATEWAY_MAX_BUNDLE_FILES` (default 200,000) files; a longer list is refused (413).
+
 ## Temporary IDs
 
 Each approved request gets its own numeric user ID from a reserved range (locally 2,000,000 upward)
@@ -270,7 +275,7 @@ meet a proxy's request timeout.
 
 - For multi-file downloads: a link that outlives a long download (with a helper, each file is
   opened as the stream reaches it, so the link must still be valid then; how long links should last
-  is undecided), read-ahead for many small files, a cap on downloads at once, checksums that survive
+  is undecided), read-ahead for many small files, checksums that survive
   a restart.
 - Single-file downloads still get one approval per link; only multi-file downloads share one.
 - Getting files already on the machine into the portal's file tree (file tracking, RDT's decision).

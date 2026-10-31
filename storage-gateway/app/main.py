@@ -9,6 +9,7 @@ import hashlib
 import logging
 import os
 import re
+import threading
 import urllib.error
 import urllib.request
 from collections.abc import Callable
@@ -16,6 +17,7 @@ from collections.abc import Callable
 from fastapi import FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, StreamingResponse
+from starlette.background import BackgroundTask
 
 from app.auth import KeyResolver, bundle_listing, check_token, jwks_key_resolver, token_from_request
 from app.config import CANARY, OPEN_BATCH, Settings
@@ -40,7 +42,9 @@ def create_app(settings: Settings, resolve_key: KeyResolver | None = None,
     access = _file_access(settings)
     checksums: dict[tuple[str, str], int] = {}  # (path, ETag) -> CRC-32, so a resume needn't re-read earlier files
     metrics = Metrics()
+    slots = DownloadSlots(settings.max_downloads)
     app = FastAPI(title="POSIX file service", docs_url=None, redoc_url=None)
+    app.state.download_slots = slots
 
     if settings.cors_origins:
         app.add_middleware(
@@ -124,11 +128,26 @@ def create_app(settings: Settings, resolve_key: KeyResolver | None = None,
         claims = check_token(token, resolve_key, namespace=settings.namespace, issuer=settings.issuer,
                              path=resource, method="GET", operation="bundle")
         request.state.link_id = claims["jti"]
+        # Wait for a slot (STREAMING-SPEC: extra downloads wait rather than fail), but not forever.
+        slot = slots.acquire(timeout=settings.download_wait_seconds)
+        if slot is None:
+            return Response(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, headers={"Retry-After": "30"})
+        try:
+            return _bundle_response(resource, request, token, claims, slot)
+        except BaseException:
+            slots.release(slot)
+            raise
+
+    def _bundle_response(resource: str, request: Request, token: str, claims: dict, slot) -> Response:
+        """The ZIP for a bundle link already checked; ``slot`` is given back however the download ends."""
         body = fetch_list(claims["grant"], token)
         listing = bundle_listing(claims, body)
+        paths = listing["paths"]
+        if len(paths) > settings.max_bundle_files:
+            raise HTTPException(status_code=413,  # Content Too Large
+                                detail=f"A download may hold at most {settings.max_bundle_files} files")
         access.register_bundle(token, resource, body)
 
-        paths = listing["paths"]
         for path in paths:
             try:
                 split_key(settings.namespace, path)
@@ -153,18 +172,24 @@ def create_app(settings: Settings, resolve_key: KeyResolver | None = None,
 
         part = _part_to_send(request, archive.size, (tag,), headers)
         if part is None:
+            slots.release(slot)
             return _unsatisfiable(archive.size)
         start, end, code = part
 
         def stream():
-            with opener:  # files are opened a batch at a time as the stream reaches them
-                yield from archive.iter_bytes(start, end)
+            try:
+                with opener:  # files are opened a batch at a time as the stream reaches them
+                    yield from archive.iter_bytes(start, end)
+            finally:
+                slots.release(slot)
             if len(checksums) > 1_000_000:
                 checksums.clear()
             checksums.update({(p, t): crc for p, t, crc in zip(listing["paths"], tags, archive.checksums())
                               if crc is not None})
 
-        return StreamingResponse(stream(), status_code=code, headers=headers)
+        # The background task also gives the slot back if the client left before the stream started.
+        return StreamingResponse(stream(), status_code=code, headers=headers,
+                                 background=BackgroundTask(slots.release, slot))
 
     @app.put("/v1/files/{resource:path}")
     async def upload(resource: str, request: Request):
@@ -192,6 +217,37 @@ def create_app(settings: Settings, resolve_key: KeyResolver | None = None,
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     return app
+
+
+class DownloadSlots:
+    """Multi-file downloads streaming at once. Each slot is given back once, however often it's released."""
+
+    def __init__(self, size: int):
+        self.size = size
+        self._free = threading.BoundedSemaphore(size)
+        self._held: set[object] = set()
+        self._lock = threading.Lock()
+
+    def acquire(self, timeout: float) -> object | None:
+        """A slot, waiting up to ``timeout`` seconds for one; None if none came free."""
+        if not self._free.acquire(timeout=timeout):
+            return None
+        slot = object()
+        with self._lock:
+            self._held.add(slot)
+        return slot
+
+    def release(self, slot: object) -> None:
+        with self._lock:
+            if slot not in self._held:
+                return
+            self._held.remove(slot)
+        self._free.release()
+
+    @property
+    def free(self) -> int:
+        with self._lock:
+            return self.size - len(self._held)
 
 
 def _route(request: Request) -> str:

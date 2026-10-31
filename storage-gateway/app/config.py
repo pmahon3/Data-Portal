@@ -26,6 +26,9 @@ class Settings:
     :param require_isolation: Refuse to start without a helper (set in the deployed container).
     :param account_mode: Run without administrator access (``GATEWAY_ACCESS=account``): this service is
         one ordinary account that can read and write the data, and the portal's links alone decide access.
+    :param max_downloads: Multi-file downloads streaming at once; extra ones wait for a slot.
+    :param download_wait_seconds: How long an extra download waits before it's told to retry (503).
+    :param max_bundle_files: The most files one multi-file download may list.
     """
 
     root: Path
@@ -38,6 +41,9 @@ class Settings:
     require_isolation: bool = False
     account_mode: bool = False
     bundle_list_url: str = ""
+    max_downloads: int = 8
+    download_wait_seconds: int = 300
+    max_bundle_files: int = 200_000
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -53,4 +59,7 @@ class Settings:
             account_mode=os.getenv("GATEWAY_ACCESS", "helper") == "account",
             bundle_list_url=os.getenv("GATEWAY_BUNDLE_LIST_URL")
             or os.environ["GATEWAY_JWKS_URL"].rsplit("/", 1)[0] + "/bundles",
+            max_downloads=int(os.getenv("GATEWAY_MAX_DOWNLOADS", "8")),
+            download_wait_seconds=int(os.getenv("GATEWAY_DOWNLOAD_WAIT_SECONDS", "300")),
+            max_bundle_files=int(os.getenv("GATEWAY_MAX_BUNDLE_FILES", "200000")),
         )
