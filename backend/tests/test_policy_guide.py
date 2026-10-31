@@ -35,7 +35,7 @@ def rows():
 
 def decide(path, action, asked, about):
     rule = Rule(normalize_rule_path(path), validate_rule_action(action))
-    if asked == "browse":
+    if asked == "shown in tree":
         return rule_shows_folder(rule, about, "read")
     return rule_allows(rule, about, asked)
 
