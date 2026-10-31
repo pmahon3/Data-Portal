@@ -230,8 +230,6 @@ def test_a_bundle_is_refused_once_access_to_a_file_in_it_is_revoked(make_user, t
 
 # ------------------------------------------------- a grant covers exactly what it names
 
-@pytest.mark.xfail(strict=True, reason="instance-admin-grant: creating an instance still stores its "
-                   "creator's grant as the old pattern '.*', which the policy API itself refuses")
 def test_a_new_instance_grants_its_creator_a_rule_the_portal_accepts(portal):
     """AC-5. The grant made for an instance's creator is written as a literal path, like any other."""
     name = f"acl-test-instance-{uuid.uuid4().hex[:8]}"
