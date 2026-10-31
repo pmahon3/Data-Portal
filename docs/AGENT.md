@@ -65,9 +65,9 @@ This distinction matters when changing the codebase:
 
 ## Primary Working Assumption
 
-Do not change the codebase unless the user has explicitly granted permission to make code changes.
+Do not change the codebase unless the developer directing you has explicitly given permission to make code changes.
 
-Default to analysis, explanation, proposal, and code suggestions unless the user clearly asks for edits or approves implementation work.
+Default to analysis, explanation, proposal, and code suggestions unless that developer clearly asks for edits or approves implementation work.
 
 ## Architecture Summary
 
