@@ -187,7 +187,14 @@ export default function PolicyManagement() {
               value={resource}
               onChange={e => setResource(e.target.value)}
               placeholder="bucket/folder/* or bucket/path/file.ext"
+              aria-describedby="pm-resource-help"
             />
+            <small id="pm-resource-help" className="pm-muted">
+              One file (<code>bucket/path/file.ext</code>), a folder and everything in it, including
+              files added later (<code>bucket/folder/*</code>), or <code>*</code> for the whole
+              instance. Paths are literal, not patterns: <code>.*</code> and a <code>*</code> mid-path
+              are refused.
+            </small>
           </label>
 
           <label className="pm-field">
