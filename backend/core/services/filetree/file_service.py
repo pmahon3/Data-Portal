@@ -229,6 +229,21 @@ class FileService:
             select(func.count(File.id)).where(File.id == any_(file_ids), File.status == "complete")
         )).scalar_one())
 
+    async def complete_keys(self, bucket: str, keys: list[str]) -> set[str]:
+        """Which of these keys are complete files in the bucket."""
+        if not keys:
+            return set()
+        return set((await self.session.execute(
+            select(File.key).where(File.bucket == bucket, File.key == any_(keys), File.status == "complete")
+        )).scalars().all())
+
+    async def complete_keys_under(self, bucket: str, prefix: str) -> list[str]:
+        """Keys of every complete file under a folder prefix ("" for the whole bucket)."""
+        query = select(File.key).where(File.bucket == bucket, File.status == "complete")
+        if prefix:
+            query = query.where(File.key.startswith(prefix, autoescape=True))
+        return list((await self.session.execute(query.order_by(File.key))).scalars().all())
+
     async def delete_file_row(self, file: File) -> None:
         """
         Delete a file record from the database.
