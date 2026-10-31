@@ -20,6 +20,7 @@ Status: built and tested locally on branch `posix/stack`; not deployed. See
 | [Deployment](../diagrams/posix-deployment.md) | Processes, accounts, permissions on the machine | Dockerfile, entrypoint, the running container |
 | [Sequences](../diagrams/posix-sequences.md) | Download, resume, upload, delete, expiry | What each component logs, end to end |
 | [Temporary ID lifecycle](../diagrams/posix-link-lifecycle.md) | Free, Active, Quarantined, Retired | The helper's own records |
+| [Direct access alongside the portal](../diagrams/posix-direct-access.md) | Who sets what on the files: administrators by hand, the portal per approval | Not drawn from code; each rule is tested (`tests_os/test_direct_access.py`) |
 
 ## Decisions
 
@@ -44,7 +45,7 @@ that would need it.
 |---|---|---|---|
 | Who gets in through the portal | The portal checks access and signs a link per file; the file service checks each link. | Same. | Always; both ways. |
 | What the file service can read | It runs as one ordinary account that can read the governed files, so a fault in it could reach any of them. | It can't open data files. A helper opens each requested file as the link's temporary ID, so the operating system enforces each grant. | No requirement yet. Proposed for identifiable data ([PX-4](../requirements/posix-storage.md#px-4)); if kept, it becomes a requirement. |
-| Who owns the governed files | The researchers, as today. They give the service's account read access (for example an ACL). | A data-owner account; the layout tool converts the tree. | A1: the portal decides, for some or all data ([PX-9](../requirements/posix-storage.md#px-9)). |
+| Who owns the governed files | The researchers, as today. They give the service's account read access (for example an ACL). | Still the researchers: administrators manage direct access (A1). The layout tool only closes the area to everyone else. | Always ([PX-9](../requirements/posix-storage.md#px-9)). |
 | Records of portal access on the machine | The file service's line per request (link ID, path, status); the person is in the portal's records. | The helper's line per operation, so the machine's own records trace each temporary ID to a person. | A2, if the machine's own records must show portal access ([PX-10](../requirements/posix-storage.md#px-10)). |
 | Records of direct work on the machine, such as scrubbing | Not possible. | The administrator sets up the machine's auditing. | A2, second and third answers ([PX-10](../requirements/posix-storage.md#px-10)). |
 | New files showing in the portal | A regular check of the machine. | Change reports as they happen (at least to set up). | A3, "within seconds" ([PX-11](../requirements/posix-storage.md#px-11)). |
@@ -74,8 +75,8 @@ With administrator access (the tip of the branch).
   get write access to data folders, where they could delete or replace other files.
 
 **The helper enforces, after checking the token itself:**
-- Final placement of uploads (moved into place through no-follow handles, given to the data owner,
-  mode 0600).
+- Final placement of uploads (moved into place through no-follow handles, given to the data owner
+  with its folder's group and default entries, never open to everyone else).
 - Deletes. POSIX can't grant "delete only this one file", so this can't be pushed down to the OS.
 - Multi-file downloads: a file is opened for a bundle link only if it's on the list the link was
   signed for (the helper checks the list's SHA-256 against the link itself).
@@ -170,13 +171,33 @@ route, never by path or query, since a path names a file and the query carries t
 request that fails while its body is streaming is counted with the status it started with. Neither
 endpoint needs a link; restrict them at the proxy if the counts shouldn't be public.
 
-## Data layout
+## Working on the machine alongside the portal
 
-On the machine the governed tree must be: owned by the data-owner account; folders `0710` with the
-pass-through group; files `0600`. `python -m app.layout --root <data>` reports how a tree differs and,
-with `--apply`, converts it, through descriptors from a walk that never follows symlinks. Symlinks,
-special files, multiply-linked files and ACL entries left for temporary IDs are reported for an
-administrator and left alone. Run it once before first use, and any time to check.
+Two ways reach the same files. People and their pipelines work on the machine with their own
+accounts, and administrators and project managers manage that access by hand over SSH (A1). The
+portal reaches files only through the helper, as a temporary ID per approval.
+
+How the two meet on the files: [Direct access alongside the portal](../diagrams/posix-direct-access.md).
+
+| | Set by administrators | Set by the portal |
+|---|---|---|
+| Owners and groups | Yes | Never changed (uploads get the folder's group) |
+| ACL entries | Their own named entries | Only temporary-ID entries (user IDs from 2,000,000), added and removed per approval |
+| Access for everyone else | None, kept that way by the layout tool | None |
+| Folders | Whatever their groups need | Pass through only (`x` for the pass-through group), never list |
+| New files and folders | Start closed to everyone else, from the folder's default entries | Uploads and folders they create take the folder's group and default entries |
+
+For administrators:
+- Grant direct access with groups or ACL entries (`setfacl`); never open files to everyone else.
+- Don't use the ACL mask to limit someone: each portal grant recomputes it. Put the limit in their own entry.
+- Don't use user IDs in the temporary range, and never give the file service's account or the
+  pass-through group read access.
+- `python -m app.layout --root <area>` reports what differs from the above; `--apply` fixes it. It
+  leaves owners, groups and administrators' entries alone, and reports symlinks, special files,
+  multiply-linked files and leftover temporary entries for an administrator. Run it before first use,
+  and any time to check.
+
+Each of these is tested (`tests_os/test_direct_access.py`, `tests_os/test_layout.py`).
 
 ## Running it locally
 
