@@ -255,7 +255,7 @@ async def create_instance(
     new_admin_policy = Policy(
         user_uuid=user_uuid,
         instance_uuid=instance_uuid,
-        resource='.*',
+        resource='*',  # the whole instance, as a literal policy path (INN-297)
         action='admin'
     )
     

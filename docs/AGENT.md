@@ -130,7 +130,7 @@ Storage instances are managed through the backend `InstanceManager`.
 Important behavior:
 
 - Creating an instance also creates an in-memory storage agent.
-- Creating an instance automatically grants the creating admin an `admin` Casbin policy on resource `.*`.
+- Creating an instance automatically grants the creating admin an `admin` policy on the whole instance (`*`). Nothing checks the `admin` action on files; file access comes from `read`, `write` and `delete` grants.
 - Deleting an instance removes it from MongoDB and attempts to close the in-memory agent connection.
 
 ## Authorization Model In Practice

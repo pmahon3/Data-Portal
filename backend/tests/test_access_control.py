@@ -18,6 +18,7 @@ Each run creates its own bucket, and each test its own users with only the grant
 removed afterwards. Grants name single files, or folders as "folder/*".
 """
 import time
+import uuid
 
 import pytest
 
@@ -228,6 +229,18 @@ def test_a_bundle_is_refused_once_access_to_a_file_in_it_is_revoked(make_user, t
 
 
 # ------------------------------------------------- a grant covers exactly what it names
+
+def test_a_new_instance_grants_its_creator_a_rule_the_portal_accepts(portal):
+    """AC-5. The grant made for an instance's creator is written as a literal path, like any other."""
+    name = f"acl-test-instance-{uuid.uuid4().hex[:8]}"
+    created = portal.admin("POST", "/api/instances/", json={
+        "flavour": "dummy", "instance_name": name, "instance_url": "http://dummy.invalid"}).json()
+    try:
+        grants = portal.admin("GET", "/api/policies/", params={"instance_name": name}).json()["details"]
+        assert {(g["resource"], g["action"]) for g in grants} == {("*", "admin")}
+    finally:
+        portal.admin("DELETE", f"/api/instances/{created['instance']['uuid']}")
+
 
 def test_a_file_grant_does_not_cover_longer_names(make_user, tree):
     """AC-5. Read on shared/notes.txt gives nothing on shared/notes.txt.secret."""
