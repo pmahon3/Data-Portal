@@ -81,11 +81,7 @@ Main backend route groups:
 - `/api/instances` for storage instance CRUD
 - `/api/tree` for DB-backed file tree endpoints
 - `/api/notifications` for the current user's notifications
-<<<<<<< HEAD
-- `/api/storage-links` for POSIX file services: the public keys links are signed with
-=======
 - `/api/storage-links` for POSIX file services: the keys links are signed with, and approved bundle lists
->>>>>>> 1b66801 (docs(posix): project docs cover POSIX instances, the file service and storage links)
 - `/api/health` for health and environment validation
 
 The system currently has two overlapping ways to reason about storage trees:
@@ -268,11 +264,7 @@ Current flow:
 - `/bundles/{bundleId}/download` returns a presigned URL for the completed archive in object storage; the backend passes that URL to the frontend.
 - Bundler should not be treated as the authorization authority. It assumes the backend has already checked access before submitting URLs.
 - A bundle belongs to the user who created it: the backend records the owner and the bundle's files, and refuses anyone else. When the bundle is fetched, every file in it is checked again, so revoked access or a deleted file stops the download (INN-272). Owner records expire after `BUNDLE_OWNER_RETENTION_HOURS` (192, a day past the bundler's 7-day retention).
-<<<<<<< HEAD
-- The bundler serves object storage only; several files from a POSIX instance can't yet be downloaded as one ZIP (refused).
-=======
 - The bundler serves object storage only. On a POSIX machine the file service streams the ZIP itself, from a file list the backend approved (see POSIX Storage below).
->>>>>>> 1b66801 (docs(posix): project docs cover POSIX instances, the file service and storage links)
 
 ## Notifications
 
@@ -294,15 +286,6 @@ Standards plug in as validators; `DATA_STANDARDS` chooses them (default `bids`).
 
 ## POSIX Storage
 
-<<<<<<< HEAD
-A `posix` instance points at a small file service (`storage-gateway/`) on a POSIX machine, by URL and
-namespace (used like a bucket name). The backend checks access as for object storage and signs
-short-lived links (public keys at `/api/storage-links/jwks.json`); the file service checks each link
-and serves the file, so file contents never pass through the backend. The file service runs as one
-ordinary account that can read and write the data; it never follows symbolic links. Requirements are
-in `docs/requirements/posix-storage.md` (PX-n); `storage-gateway/contract/` holds the link format both
-sides test against, and `local/docker-compose.posix.yaml` runs it locally.
-=======
 A `posix` instance points at a small file service (`storage-gateway/`) on a POSIX machine, by URL
 and namespace (used like a bucket name). The backend checks access as for object storage and signs
 short-lived links (keys at `/api/storage-links/jwks.json`); the file service checks each link and
@@ -310,7 +293,6 @@ serves the file, so file contents never pass through the backend. Where INN has 
 a root helper on the machine also makes the operating system enforce each link's grant through
 temporary user IDs. Everything else, including what administrators may do directly on the machine,
 is in `docs/posix/README.md`.
->>>>>>> 1b66801 (docs(posix): project docs cover POSIX instances, the file service and storage links)
 
 ## Known Transitional Areas
 
@@ -345,9 +327,10 @@ Backend tests are in `backend/tests/`; frontend tests sit next to the components
 | smoke and CRUD tests (`test_*_smoke.py`, `test_policy_crud.py`) | Authentication, policies, users | Against the running backend |
 | `test_policy_guide.py` | The policy guide's "Does this policy allow it?" table, row by row, against the decision layer | From a checkout (it reads `docs/`): `pytest tests/test_policy_guide.py`; it skips in the container |
 | frontend | Components | From `frontend/`: `CI=true npm test` |
-| `storage-gateway/tests/` | The POSIX file service: links, ranges, uploads, adversarial and property tests | From `storage-gateway/`: `pytest tests` |
-| `storage-gateway/e2e/` | The portal and a POSIX file service end to end, and S3/POSIX parity | Needs the local stack and `local/docker-compose.posix.yaml` up; `pytest e2e` |
-| `backend/tests/test_posix_*.py` | The backend's POSIX connector and its link contract with the file service | `pytest tests/test_posix_agent.py tests/test_posix_contract.py` |
+| `storage-gateway/tests/` | The POSIX file service: links, ranges, ZIPs, limits, its diagrams against the code | From `storage-gateway/`: `pytest tests` |
+| `storage-gateway/tests_os/` | The operating-system boundary: temporary IDs, ACLs, the helper, direct access alongside the portal | Linux and root only: run in a throwaway privileged container (see `docs/posix/README.md`) |
+| `storage-gateway/e2e/` | The portal and a POSIX file service end to end, including the use case 5.1 walk | Needs the local stack and `local/docker-compose.posix.yaml` up; `pytest e2e` |
+| `backend/tests/test_posix_*.py` | The backend's POSIX connector and its contract with the file service | `pytest tests/test_posix_agent.py tests/test_posix_contract.py` |
 
 ## Requirements and Tests
 
