@@ -265,6 +265,12 @@ class User:
             "instance_name": self.portal.instance, "file_ids": list(file_ids),
             "folder_ids": list(folder_ids), "folder_name": ""})
 
+    def bundle_status(self, bundle_id: str) -> requests.Response:
+        return self._call("GET", f"/bundle/{bundle_id}/status")
+
+    def bundle_download(self, bundle_id: str) -> requests.Response:
+        return self._call("GET", f"/bundle/{bundle_id}/download")
+
 
 class Tree:
     """Finds folder and file ids by browsing as a user who can read every file it's asked
