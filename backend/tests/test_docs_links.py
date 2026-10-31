@@ -2,6 +2,8 @@
 The repository's Markdown links work: every relative link reaches a file, every #anchor into a
 Markdown file reaches a heading or an anchor in it, and every requirement ID mentioned in prose links
 to its row in the requirements register (when that register exists on this branch).
+
+Verifies: design docs.
 """
 import os
 import re
