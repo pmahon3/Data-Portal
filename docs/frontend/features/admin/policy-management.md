@@ -9,12 +9,15 @@ resource.
 | --- | --- |
 | Username | User receiving the permission. |
 | Instance | Storage instance containing the resource. |
-| Resource | Bucket, folder, subtree pattern, or exact file path. |
+| Resource | One file (`bucket/path/file.ext`), a folder and everything in it (`bucket/folder/*`), or everything on the instance (`*`). |
 | Action | `read`, `write`, `delete`, or `admin`. |
 
-Resource formatting matters. A policy may use a pattern such as
-`/bucket/prefix/.*` or an exact object path. The backend and Casbin interpret the
-resource and decide whether a request is allowed.
+Resource paths are literal, not patterns: `bucket/folder/*` covers that folder and
+everything in it, any other path names exactly one file, and `*` covers everything.
+The backend saves paths without a leading `/` and refuses a `*` anywhere except on its
+own or at the end of a folder path. Decisions are made in
+`backend/core/services/policies/rules.py`; requirements are in
+`docs/requirements/access-control.md`.
 
 ## Page flow
 

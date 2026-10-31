@@ -152,9 +152,15 @@ Do not treat Keycloak admin role checks as a replacement for Casbin resource che
 
 This codebase uses path-based authorization, and the exact path format matters.
 
-- Policies target storage resources as strings.
-- Resource strings may represent bucket roots, folders, or exact file keys.
-- Some flows use regex-style matching for reads.
+- Policies target storage resources as literal strings: one file (`bucket/key`), a
+  folder and everything in it (`bucket/folder/*`), or `*` for the whole instance.
+- Every decision goes through `backend/core/services/policies/rules.py`:
+  - `allows(path, action)`: may the user act on the path (used by every action);
+  - `shows_folder(folder, action)`: does the folder appear when browsing for that
+    action (the user holds the action on it or on something inside). Seeing a folder
+    never allows acting on it.
+- Build one checker per request (`policy_manager.checker(user, instance)`) and reuse it
+  for every path the request checks.
 - S3 write/delete presigned URL generation expects an exact `bucket/key` resource.
 - The DB-backed tree builds resource strings differently for folders and files:
   - folders use bucket + normalized full path
@@ -164,8 +170,8 @@ When changing policy logic, pay close attention to:
 
 - exact path formatting
 - trailing slash normalization
-- regex vs exact-match behavior
 - whether the target is a folder subtree or a single file
+- whether a check is about acting on a path or only browsing to it
 
 ## File Tree Model
 
