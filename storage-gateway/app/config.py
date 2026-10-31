@@ -29,6 +29,8 @@ class Settings:
     :param max_downloads: Multi-file downloads streaming at once; extra ones wait for a slot.
     :param download_wait_seconds: How long an extra download waits before it's told to retry (503).
     :param max_bundle_files: The most files one multi-file download may list.
+    :param state_dir: A folder this service can write to, for state kept across restarts (checksums
+        of files already sent); without one, that state is kept in memory.
     """
 
     root: Path
@@ -44,6 +46,7 @@ class Settings:
     max_downloads: int = 8
     download_wait_seconds: int = 300
     max_bundle_files: int = 200_000
+    state_dir: Path | None = None
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -62,4 +65,5 @@ class Settings:
             max_downloads=int(os.getenv("GATEWAY_MAX_DOWNLOADS", "8")),
             download_wait_seconds=int(os.getenv("GATEWAY_DOWNLOAD_WAIT_SECONDS", "300")),
             max_bundle_files=int(os.getenv("GATEWAY_MAX_BUNDLE_FILES", "200000")),
+            state_dir=Path(os.environ["GATEWAY_STATE_DIR"]) if os.getenv("GATEWAY_STATE_DIR") else None,
         )

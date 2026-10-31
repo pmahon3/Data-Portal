@@ -22,6 +22,7 @@ from starlette.background import BackgroundTask
 from app.auth import KeyResolver, bundle_listing, check_token, jwks_key_resolver, token_from_request
 from app.config import CANARY, OPEN_BATCH, Settings
 from app.broker import BatchOpener, DirectAccess, HelperAccess
+from app.checksums import ChecksumStore
 from app.files import BadPath, Root, etag, file_headers, parse_range, read_chunks, split_key
 from app.metrics import Metrics
 from app.zipstream import Entry, ZipStream
@@ -40,7 +41,7 @@ def create_app(settings: Settings, resolve_key: KeyResolver | None = None,
     resolve_key = resolve_key or jwks_key_resolver(settings.jwks_url)
     fetch_list = fetch_list or (lambda grant, token: _fetch_list(settings.bundle_list_url, grant, token))
     access = _file_access(settings)
-    checksums: dict[tuple[str, str], int] = {}  # (path, ETag) -> CRC-32, so a resume needn't re-read earlier files
+    checksums = ChecksumStore(settings.state_dir)  # so a resume needn't re-read earlier files
     metrics = Metrics()
     slots = DownloadSlots(settings.max_downloads)
     app = FastAPI(title="POSIX file service", docs_url=None, redoc_url=None)
@@ -163,7 +164,7 @@ def create_app(settings: Settings, resolve_key: KeyResolver | None = None,
             tags.append(etag(st))
             name = f"{listing['folder_name']}/{path}" if listing["folder_name"] else path
             entries.append(Entry(name, st.st_size, st.st_mtime, lambda path=path: opener.open(path),
-                                 checksums.get((path, tags[-1]))))
+                                 checksums.get(path, tags[-1])))
         archive = ZipStream(entries, settings.chunk_size)
         tag = f'"{hashlib.sha256(" ".join(tags).encode()).hexdigest()}"'
         filename = re.sub(r"[^\w.-]+", "_", listing["folder_name"] or "download")
@@ -182,10 +183,8 @@ def create_app(settings: Settings, resolve_key: KeyResolver | None = None,
                     yield from archive.iter_bytes(start, end)
             finally:
                 slots.release(slot)
-            if len(checksums) > 1_000_000:
-                checksums.clear()
-            checksums.update({(p, t): crc for p, t, crc in zip(listing["paths"], tags, archive.checksums())
-                              if crc is not None})
+            checksums.put_many([(p, t, crc) for p, t, crc in zip(listing["paths"], tags, archive.checksums())
+                                if crc is not None])
 
         # The background task also gives the slot back if the client left before the stream started.
         return StreamingResponse(stream(), status_code=code, headers=headers,

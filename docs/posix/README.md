@@ -126,8 +126,9 @@ approved list (MongoDB `posix-bundles`) and returns one link,
 doesn't match; with a helper, the helper checks it too. Entries are named `folder_name/namespace/key`,
 as the bundler names them. Entries are stored (not compressed) and ZIP64, so the length is exact and
 any byte range can be rebuilt: a broken download resumes with `Range` and `If-Range`, and the ETag
-changes if any file changes, so the download starts again. Checksums are kept in memory; after a
-restart, a resume re-reads the files before it. The link lasts `BUNDLE_SOURCE_URL_EXPIRATION_SECONDS`
+changes if any file changes, so the download starts again. Checksums of files already sent are kept
+so a resume reads only what's left: in `GATEWAY_STATE_DIR` (a folder the file service can write to),
+where they survive a restart, or in memory if it's unset. The link lasts `BUNDLE_SOURCE_URL_EXPIRATION_SECONDS`
 (2 hours by default).
 
 At most `GATEWAY_MAX_DOWNLOADS` (default 8) multi-file downloads stream at once per file service;
@@ -275,8 +276,7 @@ meet a proxy's request timeout.
 
 - For multi-file downloads: a link that outlives a long download (with a helper, each file is
   opened as the stream reaches it, so the link must still be valid then; how long links should last
-  is undecided), read-ahead for many small files, checksums that survive
-  a restart.
+  is undecided), read-ahead for many small files.
 - Single-file downloads still get one approval per link; only multi-file downloads share one.
 - Getting files already on the machine into the portal's file tree (file tracking, RDT's decision).
 - Deployment to a real machine: hosting is RDT's decision, and it depends on the system
