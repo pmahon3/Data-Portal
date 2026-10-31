@@ -1,6 +1,9 @@
 """
 Bundle-owner records (INN-272) expire with their bundles, a day after the bundler's own retention
-(168 hours by default), so they don't pile up and never vanish before the bundle does.
+(168 hours by default), so they don't pile up and never vanish before the bundle does: a bundle
+without its owner record can't be fetched by anyone, its creator included.
+
+Verifies: AC-3.
 """
 from core.db.mongodb import mongo_client
 
