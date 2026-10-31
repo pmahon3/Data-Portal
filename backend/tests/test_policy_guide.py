@@ -16,8 +16,7 @@ from core.services.policies.rules import Rule, normalize_rule_path, rule_allows,
 GUIDE = Path(__file__).resolve().parents[2] / "docs" / "user-guide" / "policies.md"
 
 
-KNOWN_FAILING = {"study-a/patient-7/": "policy-folder-path: a folder path without '/*' is saved, though it "
-                                       "names no files"}
+KNOWN_FAILING: dict[str, str] = {}  # policy path -> reason, while the portal and the guide disagree
 
 
 def rows():
