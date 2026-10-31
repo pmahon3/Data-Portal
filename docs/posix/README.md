@@ -247,6 +247,24 @@ past the spec's default cap of 8. Without a helper (`GATEWAY_ACCESS=account`) no
 The measurement also found that the helper's listen backlog was Python's default of 5, so 8
 downloads at once failed as unavailable; it's now the system's maximum.
 
+**Uploading a scanning session.** A session is usually thousands of small DICOM files, uploaded from
+the technician's browser as a folder: one request plans the folder and signs a link per file, the
+browser sends 6 files at a time, and one request completes them (`e2e/test_upload_session.py`; the
+gate runs 200 files). 3,000 files of 512 KB (1.5 GB), with 5 ms of added latency each way:
+
+| Step | Time |
+|---|---|
+| Plan (one request) | 12 s |
+| Transfer (6 at a time) | 96 s (16 MB/s) |
+| Complete (one request) | 10 s |
+| Total | 118 s, 39 ms per file |
+
+The cost is per file (each upload starts one process as the temporary ID to create its staging
+file), not per byte, and stays flat with size (36 ms per file for 200 files). Over fibre a session
+takes a few minutes, well within the links' 2 hours. The plan and complete steps are single requests
+that grow with the file count (about 4 ms per file each), so a folder of 15,000 or more files may
+meet a proxy's request timeout.
+
 ## What isn't built yet
 
 
