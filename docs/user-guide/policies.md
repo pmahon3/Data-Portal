@@ -19,7 +19,7 @@ to take access away, remove the policy that gives it.
 ## What a policy does
 
 ### The path
-<!-- claim: AC-5; tests: test_a_file_grant_does_not_cover_longer_names, test_a_folder_grant_does_not_cover_folders_sharing_its_name, test_a_dot_in_a_grant_is_just_a_dot -->
+<!-- claim: AC-1, AC-5; tests: test_a_file_grant_does_not_cover_longer_names, test_a_folder_grant_does_not_cover_folders_sharing_its_name, test_a_dot_in_a_grant_is_just_a_dot, test_a_grant_on_a_file_named_with_a_bracket_gives_access_to_it, test_a_folder_holding_a_file_named_with_a_bracket_can_be_browsed -->
 
 A path names exactly one of three things. It is read literally: no character in it is a pattern.
 
