@@ -29,6 +29,7 @@ from core.services.filetree.models.file import File
 from core.services.filetree.models.folder import Folder
 from core.services.filetree.file_service import FileService
 from core.services.filetree.tree_service import TreeService
+from core.services import notifications
 from core.utils.paths import build_object_key, join_child_full_path, normalize_folder_full_path
 
 router = APIRouter(prefix="/tree", tags=["Tree"])
@@ -645,6 +646,9 @@ async def folder_upload_complete(
         completed,
         len(failed),
     )
+    if skip_head_file_ids or head_updates or failed:  # something happened this time: tell the researcher once
+        notifications.folder_stored(str(user_uuid), folder_id=files[0].folder_id if files else None,
+                                    completed=completed, failed=len(failed))
 
     return FolderUploadCompleteOut(completed=completed, failed=failed)
 
@@ -705,10 +709,13 @@ async def upload_complete(
     policy_or_403(policy_manager, policy)
 
     head = agent.get_object_metadata(resource_for_key(file.bucket, file.key))
+    newly_stored = file.status != "complete"
     await file_svc.update_from_head(file, head)
     # Mark ancestor folders status from pending to complete because upload finished
     tree_svc = TreeService(session)
     await tree_svc.mark_folder_ancestors_complete(file.bucket, file.folder_id)
+    if newly_stored:  # completing twice tells the researcher once
+        notifications.file_stored(str(user_uuid), file.id, file.name)
     return {"status": "ok"}
 
 #################################################################################### Generate a presigned download URL for a file
