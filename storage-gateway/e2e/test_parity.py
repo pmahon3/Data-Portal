@@ -10,6 +10,7 @@ the main stack uses is touched. Setup: see conftest.py.
 Verifies: PX-3.
 """
 import json
+import os
 import subprocess
 import uuid
 from urllib.parse import urlparse
@@ -29,7 +30,8 @@ def mc(*args, stdin=None):
     script = ('mc alias set loc http://localhost:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null && '
               + " ".join(args))
     return subprocess.run(["docker", "exec", "-i", "ams-portal-minio-1", "sh", "-c", script],
-                          input=stdin, capture_output=True, text=True)
+                          input=stdin, env={k: v for k, v in os.environ.items() if k != "DOCKER_HOST"},  # MinIO is on this machine
+                          capture_output=True, text=True)
 
 
 def via_host(url):
