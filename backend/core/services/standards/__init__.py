@@ -44,6 +44,17 @@ class Tree(Protocol):
 VALIDATORS: list[Validator] = []
 
 
+def _plug_in() -> None:
+    """The standards named in DATA_STANDARDS (comma-separated; "" for none)."""
+    available = {"bids": "core.services.standards.bids:BIDS"}
+    for name in filter(None, (s.strip().lower() for s in os.getenv("DATA_STANDARDS", "bids").split(","))):
+        if name not in available:
+            logger.warning("DATA_STANDARDS names %r, which isn't available", name)
+            continue
+        module, cls = available[name].split(":")
+        VALIDATORS.append(getattr(__import__(module, fromlist=[cls]), cls)())
+
+
 def ancestors(key: str) -> list[str]:
     """Folder prefixes of an object key, nearest first: "a/b/c.nii" gives "a/b/", "a/", ""."""
     parts = key.split("/")[:-1]
@@ -92,3 +103,6 @@ def record(bucket: str, root: str, standard: str, findings: list[Finding]) -> di
 def quarantined(bucket: str, root: str) -> list[dict]:
     """The standards a dataset currently fails."""
     return list(_collection().find({"bucket": bucket, "root": root, "quarantined": True}))
+
+
+_plug_in()

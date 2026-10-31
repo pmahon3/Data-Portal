@@ -95,3 +95,6 @@ pymongo>=4.16.0
 
 #zip stream
 zipstream-ng==1.8.0
+
+# Data standards (STD-1): BIDS file names and layout
+bids-validator==1.14.7.post0

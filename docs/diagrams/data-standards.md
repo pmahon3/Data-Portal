@@ -43,6 +43,11 @@ Still open:
   shown, and holds nothing back.
 - **Which standards the portal checks (E-STD).** Each standard plugs in a validator.
 
+| Standard | Validator | Checks |
+|---|---|---|
+| BIDS | `bids-validator` (pinned in `requirements.txt`) | Every file's name and location against the BIDS schema; hidden files are left out |
+
 | Setting | Meaning |
 |---|---|
+| `DATA_STANDARDS` | Standards checked, comma-separated (default `bids`; empty for none) |
 | `MONGO_DATASET_CHECK_COLLECTION` | Collection for results (default `dataset-checks`), one per dataset and standard |
