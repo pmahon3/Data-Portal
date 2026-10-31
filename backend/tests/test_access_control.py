@@ -17,6 +17,8 @@ From backend/, after `set -a; . ../local/.env; set +a`:
 Each run creates its own bucket, and each test its own users with only the grants it names,
 removed afterwards. Grants name single files, or folders as "folder/*".
 """
+import time
+
 import pytest
 
 from portal_stack import Portal, StackUnavailable, Tree, browsed, key_in_url, listed
@@ -173,6 +175,35 @@ def test_a_download_refuses_a_selected_file_the_user_may_not_read(make_user, tre
     r = user.download_bundle(file_ids=[tree.file("study/patient-7/summary.csv"),
                                        tree.file("study/patient-7/identifiers-MRN-0047731.csv")])
     assert r.status_code == 403
+
+
+def test_another_users_bundle_cant_be_checked_or_fetched(make_user, tree):
+    """AC-3. A bundle ID isn't a permission: someone who holds none of the bundle's files gets
+    the same answer as for a bundle that doesn't exist."""
+    owner = make_user(("read", "study/scan-042.nii"), ("read", "study/scan-043.nii"))
+    r = owner.download_bundle(file_ids=[tree.file("study/scan-042.nii"), tree.file("study/scan-043.nii")])
+    assert r.status_code == 200, r.text
+    bundle_id = r.json()["bundle_id"]
+    assert owner.bundle_status(bundle_id).status_code != 404
+
+    other = make_user()
+    assert other.bundle_status(bundle_id).status_code == 404
+    assert other.bundle_download(bundle_id).status_code == 404
+
+
+def test_the_user_who_asked_for_a_bundle_can_fetch_it(make_user, tree):
+    """AC-3. Control: the owner's own bundle still downloads once it's ready."""
+    owner = make_user(("read", "study/scan-042.nii"), ("read", "study/scan-043.nii"))
+    r = owner.download_bundle(file_ids=[tree.file("study/scan-042.nii"), tree.file("study/scan-043.nii")])
+    assert r.status_code == 200, r.text
+    bundle_id = r.json()["bundle_id"]
+    for _ in range(60):
+        r = owner.bundle_download(bundle_id)
+        if r.status_code != 202:
+            break
+        time.sleep(1)
+    assert r.status_code == 200, r.text
+    assert r.json()["result_url"]
 
 
 # ------------------------------------------------- a grant covers exactly what it names
