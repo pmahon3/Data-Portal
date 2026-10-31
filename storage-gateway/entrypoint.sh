@@ -29,6 +29,10 @@ chown inndata:posix-traverse /srv/posix/data && chmod 0710 /srv/posix/data
 chown root:root /srv/posix/staging && chmod 0711 /srv/posix/staging
 chown root:root /srv/posix/.helper && chmod 0700 /srv/posix/.helper
 chown root:gateway /run/gateway && chmod 0750 /run/gateway
+# The web service's own state (GATEWAY_STATE_DIR), kept across restarts: created for it if missing.
+if [ -n "${GATEWAY_STATE_DIR:-}" ] && [ ! -d "$GATEWAY_STATE_DIR" ]; then
+  install -d -o gateway -g gateway -m 0700 "$GATEWAY_STATE_DIR"
+fi
 # The web service drops to 'gateway' before it reads the key, so it gets its own copy, readable by it alone.
 if [ ${#tls[@]} -gt 0 ]; then
   install -o gateway -g gateway -m 0400 "$GATEWAY_TLS_CERT" /run/gateway/tls.crt
