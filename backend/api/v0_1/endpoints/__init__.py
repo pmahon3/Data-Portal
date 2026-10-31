@@ -4,6 +4,7 @@ from .auth import auth_router
 from .file_tree_db import router as tree_db_router
 from .health import router as health_router
 from .instances import instances_router
+from .notifications import router as notifications_router
 from .object_storage_events import router as object_storage_events_router
 from .policies import policies_router
 from .projects import projects_router
@@ -18,6 +19,7 @@ application_router.include_router(policies_router)
 application_router.include_router(instances_router)
 application_router.include_router(projects_router)
 application_router.include_router(health_router)
+application_router.include_router(notifications_router)
 application_router.include_router(s3_router)
 application_router.include_router(tree_db_router)
 application_router.include_router(object_storage_events_router)
