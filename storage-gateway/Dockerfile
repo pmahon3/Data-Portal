@@ -12,7 +12,8 @@ RUN groupadd --system --gid 10010 posix-traverse \
  && groupadd --system --gid 10001 gateway \
  && groupadd --system --gid 10002 inndata \
  && useradd --system --uid 10001 --gid gateway --no-create-home gateway \
- && useradd --system --uid 10002 --gid inndata --no-create-home inndata
+ && useradd --system --uid 10002 --gid inndata --no-create-home inndata \
+ && mkdir -p /srv/posix/data && chown inndata:inndata /srv/posix/data
 
 # The helper runs as root and drops the web service to 'gateway' (see entrypoint.sh).
 ENV GATEWAY_ROOT=/srv/posix/data \

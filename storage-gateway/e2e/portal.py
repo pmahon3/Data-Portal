@@ -26,17 +26,17 @@ def login(user):
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
 
-def root_id(headers, instance):
+def root_id(headers, instance, bucket=NAMESPACE):
     r = requests.get(f"{BACKEND}/api/tree/root", headers=headers, timeout=TIMEOUT,
-                     params={"instance_name": instance, "bucket": NAMESPACE})
+                     params={"instance_name": instance, "bucket": bucket})
     assert r.status_code == 200, r.text
     return r.json()["id"]
 
 
-def upload(headers, instance, filename, content):
+def upload(headers, instance, filename, content, bucket=NAMESPACE):
     """Upload through the portal: init (signed link) -> PUT to the file service -> complete."""
     init = requests.post(f"{BACKEND}/api/tree/files/upload/init", headers=headers, timeout=TIMEOUT, json={
-        "instance_name": instance, "bucket": NAMESPACE, "folder_id": root_id(headers, instance),
+        "instance_name": instance, "bucket": bucket, "folder_id": root_id(headers, instance, bucket),
         "filename": filename, "content_type": "application/octet-stream",
     })
     assert init.status_code == 200, init.text

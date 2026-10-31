@@ -50,9 +50,15 @@ that would need it.
 | New files showing in the portal | A regular check of the machine. | Change reports as they happen (at least to set up). | A3, "within seconds" (PX-11). |
 | Reaching the machine: port, firewall, TLS | The machine's administrators, either way. | | Always. |
 
-**What the branch builds today.** The tip builds the second column only: the web service refuses to
-start if it can read the data, and never falls back. The first column is the branch as of the S3/POSIX
-parity commit ("S3 and POSIX give identical answers"), before temporary IDs.
+**Choosing per machine.** One build runs either way, set by `GATEWAY_ACCESS`:
+- `helper` (the default): the second column. The container starts the root helper and runs the web
+  service as `gateway`, which refuses to start if it can read the data and never falls back.
+- `account`: the first column. No root and no helper: the web service runs as the container's user,
+  which must hold the data (it refuses to start if it can't read and write it), and the portal's
+  links alone decide access. Run the container as that account (`user:` in compose).
+
+Locally, `posix-gateway` runs the helper mode and `posix-gateway-account` (port 9102, namespace
+`inn-posix-account`) the account mode; the end-to-end tests cover both.
 
 ## What enforces what
 
@@ -204,8 +210,6 @@ When the code changes, a test fails until the diagram is updated, and the other 
 
 ## What isn't built yet
 
-- Running without administrator access in the same build: a per-machine setting for the first
-  column of [Administrator access](#administrator-access), and packaging that doesn't need root.
 
 - For multi-file downloads: a link that outlives a long download (with a helper, each file is
   opened as the stream reaches it, so the link must still be valid then; how long links should last

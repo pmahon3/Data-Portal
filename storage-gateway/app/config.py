@@ -23,6 +23,8 @@ class Settings:
     :param helper_socket: The privileged helper's socket. When set, every file operation goes through
         the helper and this service can't read the data itself.
     :param require_isolation: Refuse to start without a helper (set in the deployed container).
+    :param account_mode: Run without administrator access (``GATEWAY_ACCESS=account``): this service is
+        one ordinary account that can read and write the data, and the portal's links alone decide access.
     """
 
     root: Path
@@ -33,6 +35,7 @@ class Settings:
     chunk_size: int = 1024 * 1024
     helper_socket: str | None = None
     require_isolation: bool = False
+    account_mode: bool = False
     bundle_list_url: str = ""
 
     @classmethod
@@ -46,6 +49,7 @@ class Settings:
             cors_origins=[o.strip() for o in origins.split(",") if o.strip()],
             helper_socket=os.getenv("GATEWAY_HELPER_SOCKET") or None,
             require_isolation=os.getenv("GATEWAY_REQUIRE_ISOLATION", "").lower() in {"1", "true", "yes"},
+            account_mode=os.getenv("GATEWAY_ACCESS", "helper") == "account",
             bundle_list_url=os.getenv("GATEWAY_BUNDLE_LIST_URL")
             or os.environ["GATEWAY_JWKS_URL"].rsplit("/", 1)[0] + "/bundles",
         )

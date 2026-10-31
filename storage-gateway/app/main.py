@@ -223,6 +223,14 @@ def _file_access(settings: Settings):
     itself: it checks that at startup by trying to read the helper's canary file, and refuses to start
     if it can. Without a helper, only local unit tests may run (``require_isolation`` is off).
     """
+    if settings.account_mode:
+        # Without administrator access: no helper, and this account must hold the data (the reverse
+        # of the helper mode's check), or nothing could be served.
+        if settings.helper_socket or settings.require_isolation:
+            raise RuntimeError("GATEWAY_ACCESS=account can't be combined with a helper or required isolation")
+        if not os.access(settings.root, os.R_OK | os.W_OK | os.X_OK):
+            raise RuntimeError(f"GATEWAY_ACCESS=account: this account can't read and write {settings.root}")
+        return DirectAccess(Root(settings.root))
     if settings.helper_socket:
         try:
             fd = os.open(settings.root / CANARY, os.O_RDONLY)

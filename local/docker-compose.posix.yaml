@@ -36,6 +36,28 @@ services:
         aliases:
           - posix-gateway.localhost
 
+  # The same file service without administrator access (GATEWAY_ACCESS=account): one ordinary account
+  # (inndata) holds the data; no root, no helper. Namespace inn-posix-account, on port 9102.
+  posix-gateway-account:
+    container_name: posix-gateway-account
+    build:
+      context: ../storage-gateway
+    user: "10002:10002"
+    environment:
+      GATEWAY_ACCESS: account
+      GATEWAY_PORT: "9102"  # the same port inside and out, so its URL works from the host and the backend
+      GATEWAY_NAMESPACE: inn-posix-account
+      GATEWAY_JWKS_URL: http://ams-backend-posix:8000/api/storage-links/jwks.json
+      GATEWAY_CORS_ORIGINS: http://localhost:3000,http://localhost:3001
+    volumes:
+      - posix-data-account:/srv/posix/data
+    ports:
+      - "9102:9102"
+    networks:
+      ams-portal_ams-network:
+        aliases:
+          - posix-gateway-account.localhost
+
   # Fault injection for tests (storage-gateway/e2e/test_faults.py): proxies :9101 to the file service
   # and can cut, slow or reset connections on command through its API on :8474.
   toxiproxy:
@@ -97,3 +119,4 @@ networks:
 
 volumes:
   posix-data:
+  posix-data-account:

@@ -6,6 +6,14 @@
 #   .helper/  the helper's state (which IDs hold which grants), so a restart still revokes them
 set -eu
 
+# Without administrator access (GATEWAY_ACCESS=account): no root, no helper. The web service runs as
+# the container's user, which must hold the data (docs/posix/README.md, "Administrator access").
+if [ "${GATEWAY_ACCESS:-helper}" = account ]; then
+  unset GATEWAY_HELPER_SOCKET
+  export GATEWAY_REQUIRE_ISOLATION=0
+  exec uvicorn --factory app.main:app_from_env --host 0.0.0.0 --port "${GATEWAY_PORT:-9100}" --no-access-log
+fi
+
 mkdir -p /srv/posix/data /srv/posix/staging /srv/posix/.helper /run/gateway
 chmod 0755 /srv/posix
 chown inndata:posix-traverse /srv/posix/data && chmod 0710 /srv/posix/data
@@ -20,7 +28,7 @@ for _ in $(seq 1 50); do [ -S "$HELPER_SOCKET" ] && break; sleep 0.1; done
 
 # The web service runs as 'gateway' with no supplementary groups and no way to regain privileges.
 setpriv --reuid=gateway --regid=gateway --clear-groups --no-new-privs \
-  uvicorn --factory app.main:app_from_env --host 0.0.0.0 --port 9100 --no-access-log &
+  uvicorn --factory app.main:app_from_env --host 0.0.0.0 --port "${GATEWAY_PORT:-9100}" --no-access-log &
 web=$!
 
 # If either process stops, stop the container (fail closed).
