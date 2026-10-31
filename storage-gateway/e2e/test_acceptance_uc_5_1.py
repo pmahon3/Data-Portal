@@ -12,7 +12,7 @@ import time
 import pytest
 import requests
 
-from portal import BACKEND, GATEWAY_CONTAINER, NAMESPACE, TIMEOUT, data_read, download_url, root_id, unique_name, upload
+from portal import BACKEND, GATEWAY, GATEWAY_CONTAINER, NAMESPACE, TIMEOUT, data_read, download_url, root_id, unique_name, upload
 
 CONTENT = b"identifiable scan, for the acceptance walk"
 
@@ -28,8 +28,8 @@ def test_step_1_the_researcher_signs_in(admin):
     assert admin["Authorization"].startswith("Bearer ")
 
 
-@pytest.mark.xfail(strict=True, reason="TLS terminates in the file service on a real machine "
-                   "(DS-tls-in-service, SA-12); the local stack runs plain HTTP")
+@pytest.mark.xfail(GATEWAY.startswith("http:"), strict=True, reason="the local stack runs plain HTTP; on a "
+                   "machine with a certificate the file service serves HTTPS itself (DS-tls-in-service, SA-12)")
 def test_step_2_data_is_uploaded_over_an_encrypted_channel(admin, instance):
     r = requests.post(f"{BACKEND}/api/tree/files/upload/init", headers=admin, timeout=TIMEOUT, json={
         "instance_name": instance, "bucket": NAMESPACE, "folder_id": root_id(admin, instance), "filename": unique_name()})

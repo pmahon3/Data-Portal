@@ -51,6 +51,11 @@ that would need it.
 | New files showing in the portal | A regular check of the machine. | Change reports as they happen (at least to set up). | A3, "within seconds" ([PX-11](../requirements/posix-storage.md#px-11)). |
 | Reaching the machine: port, firewall, TLS | The machine's administrators, either way. | | Always. |
 
+**HTTPS.** The file service serves TLS itself, so nothing sits between users and the storage: set
+`GATEWAY_TLS_CERT` and `GATEWAY_TLS_KEY` to the host's certificate and key (PEM). With a helper, the
+web service gets its own copy of the key, readable only by it. Without them it serves plain HTTP,
+for local tests only.
+
 **Choosing per machine.** One build runs either way, set by `GATEWAY_ACCESS`:
 - `helper` (the default): the second column. The container starts the root helper and runs the web
   service as `gateway`, which refuses to start if it can read the data and never falls back.
