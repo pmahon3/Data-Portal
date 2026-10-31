@@ -49,7 +49,8 @@ def normalize_rule_path(path: str) -> str:
     """
     The saved form of a policy path: no leading "/", no repeated "/".
     Raises ValueError unless "*" is used on its own or as the last part of a folder path, since
-    anywhere else Casbin's key_match would ignore what follows it and silently widen the policy.
+    anywhere else Casbin's key_match would ignore what follows it and silently widen the policy;
+    and for a path ending in "/", which names no file (a folder is "folder/*").
     """
     path = path.strip()
     while "//" in path:
@@ -62,6 +63,8 @@ def normalize_rule_path(path: str) -> str:
             "Use '*' on its own (everything) or as the last part of a folder path "
             "(e.g. 'bucket/folder/*'). Other paths name exactly one file."
         )
+    if path.endswith("/"):
+        raise ValueError(f"A folder path ends in '/*' (e.g. '{path}*'); '{path}' names no file.")
     return path
 
 
