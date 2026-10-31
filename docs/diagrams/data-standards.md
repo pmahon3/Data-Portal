@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-10-31
 
-How uploaded data is checked against the standard it declares (STD-1). A folder declares a standard
+How uploaded data is checked against the standard it declares ([STD-1](../requirements/data-standards.md#std-1)). A folder declares a standard
 by holding that standard's marker file at its root (BIDS: `dataset_description.json`), so data
 placed on a machine directly declares it the same way. When an upload completes, every declared
 dataset it touched is checked as a whole. A failure puts the dataset in quarantine and the upload's

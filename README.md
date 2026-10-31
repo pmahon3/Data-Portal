@@ -20,7 +20,7 @@ For detailed information, see the [project wiki](https://github.com/INN-SFU/Data
 - [Quickstart](./docs/quickstart.md) - Local setup and development
 - [Policies](./docs/user-guide/policies.md) - What a policy does and how to write one (for administrators and project managers)
 - [API Reference](./docs/api-reference.md) - Backend endpoint reference
-- [File Tree Loading](./docs/file-tree-loading/) - PostgreSQL tree model, browse/search modes, and lazy loading
+- [File Tree Loading](./docs/frontend/file-tree-loading/) - PostgreSQL tree model, browse/search modes, and lazy loading
 - [Java Bundler](./java-bundler/README.md) - ZIP bundle service configuration
 
 **Architecture diagrams:**

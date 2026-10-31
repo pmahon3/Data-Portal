@@ -216,13 +216,11 @@ sequenceDiagram
 - **Use Case:** Service-to-service communication
 - **Security:** Machine authentication, no user context
 - **Implementation:** Backend uses this for Keycloak admin operations
-- **Details:** See [Backend Initialization](../../backend/docs/INITIALIZATION.md)
 
 ### Pattern 3: Resource Owner Password Flow
 - **Use Case:** Trusted first-party apps
 - **Security:** Less secure, credentials exposed to client
 - **Status:** Used only for admin CLI token in init scripts
-- **Details:** See [Backend Initialization](../../backend/docs/INITIALIZATION.md)
 
 ---
 

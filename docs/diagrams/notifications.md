@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-10-31
 
-How a researcher is told their upload is stored (NT-1): in the portal and by email. Completing an
+How a researcher is told their upload is stored ([NT-1](../requirements/notifications.md#nt-1)): in the portal and by email. Completing an
 upload records one notification per user in MongoDB; the navbar bell lists them. Each notification
 is also passed to every delivery channel. Email is the only channel, and it's off until a mail relay
 is set (`SMTP_HOST`). Emails name no files, since file names can identify participants.

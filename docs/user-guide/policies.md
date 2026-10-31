@@ -137,12 +137,12 @@ shows.
 <!-- planned: AC-7, AC-8, STD-1 -->
 
 These are planned but not decided, so no policy expresses them yet:
-- access that expires with the agreement that grants it (AC-8);
-- blocking new access to a withdrawn participant's data (AC-7);
-- what quarantine holds back when data fails its standard's checks (STD-1).
+- access that expires with the agreement that grants it ([AC-8](../requirements/access-control.md#ac-8));
+- blocking new access to a withdrawn participant's data ([AC-7](../requirements/access-control.md#ac-7));
+- what quarantine holds back when data fails its standard's checks ([STD-1](../requirements/data-standards.md#std-1)).
 
 ## Where this comes from
 
 Each statement here is a requirement in [access control](../requirements/access-control.md)
-(AC-1 to AC-5), checked by `backend/tests/test_access_control.py` against the running portal.
+([AC-1](../requirements/access-control.md#ac-1) to [AC-5](../requirements/access-control.md#ac-5)), checked by `backend/tests/test_access_control.py` against the running portal.
 How the portal decides is in `backend/core/services/policies/rules.py`.
