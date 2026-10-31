@@ -50,7 +50,8 @@ def test_step_4_data_is_stored_with_access_control(stored, u1, instance):
     assert download_url(u1, instance, stored["id"]).status_code in (403, 404)
 
 
-@pytest.mark.xfail(strict=True, reason="notifications aren't built (strategy 5.1 step 5)")
+@pytest.mark.xfail(strict=True, reason="notifications are built on their own branch, feat/notifications "
+                   "(NT-1), not yet merged into this stack's base")
 def test_step_5_the_researcher_is_told_the_data_is_stored(admin, stored):
     r = requests.get(f"{BACKEND}/api/notifications/", headers=admin, timeout=TIMEOUT)
     assert r.status_code == 200 and any(str(stored["id"]) in str(n) for n in r.json())
