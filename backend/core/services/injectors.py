@@ -29,8 +29,6 @@ def _get_keycloak_admin() -> KeycloakAdmin:
     if _keycloak_admin is None:
         admin_secret = os.getenv("KEYCLOAK_ADMIN_CLIENT_SECRET")
         logger.info(f"Admin secret available: {'YES' if admin_secret else 'NO'}")
-        logger.info(f"Admin secret length: {len(admin_secret) if admin_secret else 0}")
-        logger.info(f"Admin secret preview: {admin_secret[:8]}..." if admin_secret else "Admin secret is None/empty")
 
         logger.info(f"KEYCLOAK_REALM: {os.getenv('KEYCLOAK_REALM')}")
         logger.info(f"KEYCLOAK_ADMIN_CLIENT_ID: {os.getenv('KEYCLOAK_ADMIN_CLIENT_ID')}")
