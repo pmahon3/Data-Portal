@@ -314,6 +314,7 @@ Backend tests are in `backend/tests/`; frontend tests sit next to the components
 | `test_access_rules.py` with `features/` | The policy rules, as scenarios and property tests | `pytest tests/test_access_rules.py` (needs `pytest-bdd` and `hypothesis`) |
 | `test_notifications.py`, `test_standards.py`, `test_bids.py`, `test_bundle_owner_ttl.py` | Units, with MongoDB and the file tree faked | In the backend container: `docker exec -w /app ams-backend python -m pytest tests/<file>` |
 | smoke and CRUD tests (`test_*_smoke.py`, `test_policy_crud.py`) | Authentication, policies, users | Against the running backend |
+| `test_policy_guide.py` | The policy guide's "Does this policy allow it?" table, row by row, against the decision layer | From a checkout (it reads `docs/`): `pytest tests/test_policy_guide.py`; it skips in the container |
 | frontend | Components | From `frontend/`: `CI=true npm test` |
 
 ## Requirements and Tests
@@ -345,6 +346,9 @@ it serves, and whether it's settled, proposed or open.
   The system overview (`docs/diagrams/component-architecture.md`) shows only what's merged; an MR
   adds itself there once the MRs it would clash with are merged.
 - Stacked MRs (one built on another) say what they're based on, and merge in that order.
+- User-facing docs (`docs/user-guide/`) mark what each section states with hidden comments:
+  `<!-- claim: AC-5; tests: test_... -->`, or `<!-- planned: AC-7 -->` for what isn't settled. A table
+  marked `<!-- check: ... -->` is executed by the test it names, so change the table and the rules together.
 
 Changes in these areas deserve extra care:
 
