@@ -1,8 +1,8 @@
 """
 Notifications to researchers about their data (strategy 5.1: stored, and the exceptions: failed
 validation, held in quarantine). Each is recorded per user in the portal and listed at
-``GET /api/notifications/``; other channels (email, ...) plug in as ``CHANNELS`` once the way
-researchers are told is decided (N-NOTIFY). A channel that fails is logged and never fails the
+``GET /api/notifications/``, and also sent by every channel in ``CHANNELS``: researchers are told
+both in the portal and by email (N-NOTIFY). A channel that fails is logged and never fails the
 operation that raised the notification.
 """
 import logging
@@ -16,7 +16,7 @@ from core.db.mongodb.mongo_client import get_mongo_database
 logger = logging.getLogger(__name__)
 
 LISTED = 50  # the newest this many are listed
-CHANNELS: list[Callable[[dict], None]] = []  # delivery besides the portal's own list
+CHANNELS: list[Callable[[dict], None]] = []  # delivery besides the portal's own list (email: see below)
 
 
 def _collection():
@@ -55,3 +55,14 @@ def folder_stored(user: str, folder_id: int, completed: int, failed: int) -> dic
         return notify(user, "stored_with_failures", f"Stored {completed} files; {failed} failed and weren't stored",
                       folder_id=folder_id, completed=completed, failed=failed)
     return notify(user, "stored", f"Stored {completed} files", folder_id=folder_id, completed=completed, failed=0)
+
+
+def _register_channels() -> None:
+    from core.services.notifications import email_channel
+
+    email = email_channel.channel()
+    if email:
+        CHANNELS.append(email)
+
+
+_register_channels()
