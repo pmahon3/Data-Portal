@@ -56,12 +56,26 @@ def check(root: str, owner: tuple[int, int], traverse_gid: int, apply: bool = Fa
         if ids:
             report.for_admin.append({"path": path, "issue": "ACL entries for temporary IDs", "ids": ids})
         st = os.fstat(fd)
-        have = (st.st_uid, st.st_gid, stat_module.S_IMODE(st.st_mode))
+        mode = stat_module.S_IMODE(st.st_mode)
+        entries = acl.read(fd)
+        if any(e[0] in (acl.USER, acl.GROUP) for e in entries):
+            # With named entries, the mode's group bits show the mask; the group's own are in the ACL.
+            group = next(p for t, p, _ in entries if t == acl.GROUP_OBJ)
+            mode = (mode & ~0o070) | (group << 3)
+        have = (st.st_uid, st.st_gid, mode)
         if have != want:
             report.changed.append({"path": path, "kind": kind, "from": _fmt(*have), "to": _fmt(*want)})
             if apply:
+                named = [e for e in acl.read(fd) if e[0] in (acl.USER, acl.GROUP)]
                 os.fchown(fd, want[0], want[1])
                 os.fchmod(fd, want[2])
+                if named:
+                    # With an ACL, chmod sets only the mask (from the group bits: none here), switching
+                    # off every named entry, an administrator's or a temporary ID's in use, and leaves
+                    # the group's own entry as it was. Set the owner, group and other entries to the
+                    # layout, keep the named ones, and recompute the mask from them.
+                    base = {acl.USER_OBJ: (want[2] >> 6) & 7, acl.GROUP_OBJ: (want[2] >> 3) & 7, acl.OTHER: want[2] & 7}
+                    acl.write(fd, [(t, base[t], i) for t, _, i in acl.read(fd) if t in base] + named)
 
     def visit(dir_fd: int, rel: str) -> None:
         fix(dir_fd, rel or ".", "folder", (uid, traverse_gid, DIR_MODE))

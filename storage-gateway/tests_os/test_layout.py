@@ -48,6 +48,19 @@ def test_report_only_changes_nothing(messy):
     assert all((before[p].st_uid, before[p].st_mode) == (after[p].st_uid, after[p].st_mode) for p in before)
 
 
+def layout_mode(path) -> int:
+    """The file's mode as the layout sees it: where it has an ACL with named entries, the mode's group
+    bits show the mask, so the owning group's own permission is read from the ACL instead."""
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        mode, entries = os.fstat(fd).st_mode & 0o7777, acl.read(fd)
+    finally:
+        os.close(fd)
+    if any(t in (acl.USER, acl.GROUP) for t, _, _ in entries):
+        mode = (mode & ~0o070) | (next(p for t, p, _ in entries if t == acl.GROUP_OBJ) << 3)
+    return mode
+
+
 def test_apply_converts_and_a_second_run_changes_nothing(messy):
     root, _ = messy
     check(str(root), OWNER, TRAVERSE, apply=True)
@@ -56,7 +69,7 @@ def test_apply_converts_and_a_second_run_changes_nothing(messy):
         assert (st.st_uid, st.st_gid, st.st_mode & 0o7777) == (10002, TRAVERSE, 0o710)
     for f in (root / "lab" / "notes.txt", root / "lab" / "raw" / "scan.nii.gz"):
         st = os.stat(f)
-        assert (st.st_uid, st.st_gid, st.st_mode & 0o7777) == (*OWNER, 0o600)
+        assert (st.st_uid, st.st_gid, layout_mode(f)) == (*OWNER, 0o600)
     assert (root / "lab" / "notes.txt").read_text() == "notes"
     assert check(str(root), OWNER, TRAVERSE, apply=True).changed == []
 

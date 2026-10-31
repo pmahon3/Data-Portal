@@ -50,7 +50,7 @@ def can_write(uid, path, groups=()):
 
 
 def portal_reads(env, name):
-    fd, _ = env["access"].open_read(token(f"{NS}/study/{name}", "read", ttl=1), f"{NS}/study/{name}", None)
+    fd, _ = env["access"].open_read(token(f"{NS}/study/{name}", "read", ttl=3), f"{NS}/study/{name}", None)
     read_fd(fd)
 
 
@@ -61,8 +61,7 @@ def test_an_administrators_entries_survive_portal_grants_and_expiry(env):
     portal_reads(env, "a.nii.gz")
     temporary = uid_of_only_link(env["helper"])
     assert can_read(PERSON, f, groups=[TRAVERSE]) and can_read(temporary, f, groups=[TRAVERSE])
-    time.sleep(1.5)
-    env["helper"].sweep(now=time.time() + 10)
+    env["helper"].sweep(now=time.time() + 10)  # past the link's expiry
     assert can_read(PERSON, f, groups=[TRAVERSE]) and not can_read(temporary, f, groups=[TRAVERSE])
 
 
@@ -94,8 +93,6 @@ def test_portal_uploads_dont_inherit_a_folders_default_entries(env):
     assert can_read(PERSON, direct, groups=[TRAVERSE])
 
 
-@pytest.mark.xfail(strict=True, reason="layout --apply resets the mode with chmod, which on a file with an ACL "
-                   "sets the mask to the group bits (none), switching off every named entry")
 def test_the_layout_tool_keeps_administrators_entries_working(env):
     """PX-9. Resetting a file's mode mustn't switch off the access an administrator granted on it."""
     f = env["data"] / "study" / "a.nii.gz"
