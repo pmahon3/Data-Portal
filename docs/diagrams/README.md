@@ -22,6 +22,11 @@ Authentication and authorization flows:
 - User management
 - Logout flow
 
+### 🔔 [Notifications](./notifications.md)
+How researchers are told their upload is stored:
+- In the portal (navbar bell)
+- By email, through a mail relay
+
 ### 💾 [Storage Access Sequences](./sequence-storage-access.md)
 Storage operations and access control:
 - File download (S3)
