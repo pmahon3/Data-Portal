@@ -49,5 +49,14 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "devDependencies": {
+    "jest-cucumber": "3.0.2"
+  },
+  "overrides": {
+    "jest-cucumber": {
+      "jest": "27.5.1",
+      "@types/jest": "27.5.2"
+    }
   }
 }
