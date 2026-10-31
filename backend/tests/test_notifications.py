@@ -85,6 +85,7 @@ def test_the_endpoint_lists_only_the_callers_own(store):
 
     listed = endpoint.list_notifications(user={"preferred_username": "alice"}, user_manager=Users())
     assert [n.message for n in listed] == ["mine"] and listed[0].file_id == 1
+    assert listed[0].created_at.tzinfo is not None  # browsers would read a zoneless time as local
 
 
 def test_a_folder_upload_is_one_notification_with_its_counts(store):

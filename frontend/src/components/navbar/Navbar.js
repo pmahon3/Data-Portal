@@ -2,6 +2,7 @@ import React from "react";
 import { Link } from "react-router-dom";
 import { useKeycloak } from "@react-keycloak/web";
 import PersonIcon from '@mui/icons-material/Person';
+import Notifications from "./Notifications";
 import "./Navbar.css";
 
 function Navbar() {
@@ -14,6 +15,7 @@ function Navbar() {
       <div className="navbar-right">
         <Link to={isLoggedIn ? "/app" : "/"} className="navbar-link">Home</Link>
         <Link to="/about" className="navbar-link">About</Link>
+        {isLoggedIn && <Notifications />}
         {isLoggedIn && (
           <div className="navbar-user">
             <span>{keycloak.tokenParsed?.preferred_username}</span>

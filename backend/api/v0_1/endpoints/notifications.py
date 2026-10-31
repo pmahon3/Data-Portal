@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -29,5 +29,7 @@ def list_notifications(
 ) -> list[NotificationOut]:
     """The caller's own notifications, newest first."""
     user_uuid = str(user_manager.get_user_uuid(user["preferred_username"]))
-    return [NotificationOut(id=n["_id"], **{k: v for k, v in n.items() if k not in ("_id", "user")})
+    # MongoDB returns UTC times without a zone; mark them, or browsers read them as local time.
+    return [NotificationOut(id=n["_id"], **{k: v for k, v in n.items() if k not in ("_id", "user", "created_at")},
+                            created_at=n["created_at"].replace(tzinfo=UTC))
             for n in notifications.for_user(user_uuid)]
