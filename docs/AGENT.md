@@ -1,5 +1,10 @@
 # Agent Context
 
+Context for anyone, human or AI agent, working in this repository. It grows with use: when you learn
+something about the codebase or a way of working that the next person would want, add it here, and
+fix or remove what has stopped being true. Keep entries short and concrete. Name the person or
+ticket behind a rule when that helps someone ask about it later.
+
 ## Product Summary
 
 This repository implements an access management system for brain research data used by the Institute for Neuroscience and Neurotechnology (INN).
@@ -74,7 +79,6 @@ Main backend route groups:
 - `/api/users` for user CRUD and instance listing
 - `/api/policies` for policy CRUD
 - `/api/instances` for storage instance CRUD
-- `/api/assets` for presigned asset upload/download/delete and dashboard-style asset data
 - `/api/tree` for DB-backed file tree endpoints
 - `/api/notifications` for the current user's notifications
 - `/api/health` for health and environment validation
@@ -233,9 +237,9 @@ The frontend uses bearer tokens from Keycloak and refreshes them with `updateTok
 
 The backend issues presigned URLs instead of proxying file content through the API.
 
-- upload uses `/api/assets/upload`
-- download uses `/api/assets/download`
-- delete uses `/api/assets/delete`
+- upload: `/api/tree/files/upload/init`, the browser PUTs to the URL, then `/api/tree/files/upload/complete` (folders: `/api/tree/folders/upload/...`)
+- download: `/api/tree/files/{file_id}/download-url`; several files: `/api/tree/bundle/zip`
+- delete: `DELETE /api/tree/files/{file_id}` or `/api/tree/folders/{folder_id}`
 
 Current behavior for the S3 agent:
 
@@ -283,7 +287,7 @@ Standards plug in as validators; `DATA_STANDARDS` chooses them (default `bids`).
 
 Some parts of the repository are clearly in transition and should be handled carefully.
 
-- There are legacy asset/dashboard endpoints alongside newer DB-backed tree endpoints.
+- The old `/api/assets` endpoints are gone; the tree endpoints (`/api/tree/...`) replace them. Two routers share the `/tree` prefix (`s3_endpoints.py`, `file_tree_db.py`).
 - Policy deletion currently accepts UUIDs directly and includes comments marking this as temporary.
 - The frontend normal-user experience is not yet feature-complete.
 - The admin asset management flow appears to rely on user-instance discovery first, then per-instance tree loading.
@@ -302,14 +306,45 @@ For agent work, avoid assuming the local Docker setup and the deployed Nomad set
 
 ## Testing Notes
 
-The backend has smoke and CRUD-oriented tests for:
+Backend tests are in `backend/tests/`; frontend tests sit next to the components (`*.test.js`).
 
-- authentication
-- policies
-- Casbin migration behavior
-- user CRUD
+| Tests | What they check | How to run |
+|---|---|---|
+| `test_access_control.py` | Access control through the HTTP API, as a user would hit it (AC-n) | Needs the local stack. From `backend/`: `set -a; . ../local/.env; set +a`, then `pytest tests/test_access_control.py -v` |
+| `test_access_rules.py` with `features/` | The policy rules, as scenarios and property tests | `pytest tests/test_access_rules.py` (needs `pytest-bdd` and `hypothesis`) |
+| `test_notifications.py`, `test_standards.py`, `test_bids.py`, `test_bundle_owner_ttl.py` | Units, with MongoDB and the file tree faked | In the backend container: `docker exec -w /app ams-backend python -m pytest tests/<file>` |
+| smoke and CRUD tests (`test_*_smoke.py`, `test_policy_crud.py`) | Authentication, policies, users | Against the running backend |
+| frontend | Components | From `frontend/`: `CI=true npm test` |
 
-There is much less evidence of deep frontend test coverage.
+## Requirements and Tests
+
+What the system must do is written down in `docs/requirements/`: access control (AC-n), notifications
+(NT-n), data standards (STD-n). Each entry says which part of the INN Digital Infrastructure Strategy
+it serves, and whether it's settled, proposed or open.
+
+- Each test names the requirement it checks: its docstring starts with the ID (`"""AC-3. ..."""`), or
+  the module docstring has a `Verifies: AC-1, AC-3` line covering every test in the file.
+- A test that walks a whole use case through the running application says so in its module docstring
+  (`Accepts: UC-5.1.`). Steps not built yet are known-failing, each naming what it waits on.
+- When a test shows a requirement is wrong, change the requirement first, then the code.
+
+## Bug Fixes
+
+- Write the test that shows the bug first, in its own commit, marked known-failing:
+  `pytest.mark.xfail(strict=True, reason="INN-123: ...")`, named for the ticket.
+- Run it without the fix and see it fail. The fix removes the marker in the same change.
+- Markers are strict, so a test that starts passing while still marked fails the run. That is how a
+  fix landing elsewhere shows up (`--runxfail` shows the real failures).
+
+## Merge Requests
+
+- One change per MR: a fix, a feature, or a docs change. Its title is a Conventional Commits subject
+  (`fix(authz): ...`); the body says which ticket it addresses, in a sentence or a few bullets.
+- An MR that adds a component, endpoint or setting documents it in the same MR: the README's project
+  structure, this file, `docs/api-reference.md`, and a page in `docs/diagrams/` when it adds a flow.
+  The system overview (`docs/diagrams/component-architecture.md`) shows only what's merged; an MR
+  adds itself there once the MRs it would clash with are merged.
+- Stacked MRs (one built on another) say what they're based on, and merge in that order.
 
 Changes in these areas deserve extra care:
 
@@ -329,7 +364,7 @@ Changes in these areas deserve extra care:
 - Treat storage ownership and access governance as separate concerns.
 - Changes around auth, policy, or storage routing should be considered high risk.
 
-## Guidance For Future Codex Work
+## Guidance For Future Agent Work
 When working in this repository, optimize for:
 
 - preserving the separation between authentication, roles, and policy enforcement
