@@ -45,7 +45,7 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
-from app import acl
+from app import acl, layout
 from app.auth import bundle_listing, check_token, jwks_key_resolver
 from app.config import CANARY, OPEN_BATCH
 from app.files import BadPath, Root, split_key
@@ -213,7 +213,7 @@ class Helper:
         self.acl_lock = threading.Lock()
         self.bundles: dict[str, tuple[frozenset[str], int]] = {}  # list digest -> (paths, expiry)
         # Folders created by uploads: owned by the data owner; the traverse group may pass through, not list.
-        self.tree = Root(settings.data_root, dir_owner=(settings.data_uid, settings.traverse_gid), dir_mode=0o710)
+        self.tree = Root(settings.data_root, on_create=self._new_folder, dir_mode=0o700)
 
     # --- checks ---
 
@@ -400,9 +400,8 @@ class Helper:
                     raise Refused(400)
                 if existing is not None and stat_module.S_ISDIR(existing.st_mode):
                     raise Refused(409)
-                # Hand the file to the data owner before it appears in the tree.
-                os.fchown(fd, self.s.data_uid, self.s.data_gid)
-                os.fchmod(fd, 0o600)
+                # Hand the file to the data owner, with its folder's permissions, before it appears.
+                self._placed_permissions(fd, target_dir)
                 os.fsync(fd)
                 os.replace(name, parts[-1], src_dir_fd=staging_dir, dst_dir_fd=target_dir)
                 st = os.fstat(fd)
@@ -427,6 +426,39 @@ class Helper:
             os.unlink(name, dir_fd=staging_dir)
         finally:
             os.close(staging_dir)
+
+    def _temporary(self, uid: int) -> bool:
+        return self.s.id_start <= uid < self.s.id_start + self.s.id_count
+
+    def _placed_permissions(self, fd: int, folder_fd: int) -> None:
+        """
+        An upload gets what a file made in its folder would: the folder's group and default entries
+        (it's moved in from staging, so the kernel doesn't apply them), but never access for everyone
+        else and never a temporary ID's entry. A folder nobody set up keeps it the data owner's alone.
+        """
+        defaults = acl.read_default(folder_fd)
+        if not defaults:
+            os.fchown(fd, self.s.data_uid, self.s.data_gid)
+            os.fchmod(fd, 0o600)
+            return
+        os.fchown(fd, self.s.data_uid, os.fstat(folder_fd).st_gid)
+        acl.write(fd, [(t, 0 if t == acl.OTHER else p & (acl.READ | acl.WRITE), i) for t, p, i in defaults
+                       if t != acl.MASK and not (t == acl.USER and self._temporary(i))])
+
+    def _new_folder(self, fd: int, parent_fd: int) -> None:
+        """A folder an upload creates follows its parent, as one made there would: the parent's group
+        and default entries, closed to everyone else and passable by the portal's temporary IDs. Under
+        a parent nobody set up, it's the data owner's, passable by the pass-through group only."""
+        defaults = acl.read_default(parent_fd)
+        if not defaults:
+            os.fchown(fd, self.s.data_uid, self.s.traverse_gid)
+            os.fchmod(fd, 0o710)
+            return
+        os.fchown(fd, self.s.data_uid, os.fstat(parent_fd).st_gid)
+        kept = [e for e in defaults if e[0] != acl.MASK and not (e[0] == acl.USER and self._temporary(e[2]))]
+        acl.write(fd, kept)
+        acl.write_default(fd, kept)
+        layout.folder_changes(fd, self.s.traverse_gid, apply=True)
 
     # --- deletes ---
 

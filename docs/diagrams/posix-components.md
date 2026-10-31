@@ -79,7 +79,7 @@ flowchart TB
     subgraph privileged["Privileged helper (root)"]
         helper["app/helper<br/>tokens, bundle lists, temporary IDs, grants, staging, sweeper, audit"]
         acl["app/acl<br/>POSIX ACLs through descriptors"]
-        layout["app/layout<br/>data-layout check and conversion"]
+        layout["app/layout<br/>exposed-area rules: check, apply,<br/>uploads and new folders"]
     end
     opener["app/opener<br/>opens files as the link's temporary ID"]
 
@@ -94,6 +94,7 @@ flowchart TB
     helper --> auth
     helper --> config
     helper --> files
+    helper --> layout
     layout --> acl
     opener --> files
 

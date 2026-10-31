@@ -60,6 +60,34 @@ def write(fd: int, entries: list[Entry]) -> None:
     os.setxattr(fd, XATTR, struct.pack("<I", _VERSION) + b"".join(struct.pack("<HHI", *e) for e in full))
 
 
+DEFAULT_XATTR = "system.posix_acl_default"
+
+
+def read_default(fd: int) -> list[Entry]:
+    """A folder's default ACL (what new files and folders in it start with); [] if it has none."""
+    try:
+        data = os.getxattr(fd, DEFAULT_XATTR)
+    except OSError as e:
+        if e.errno not in (errno.ENODATA, getattr(errno, "ENOATTR", errno.ENODATA)):
+            raise
+        return []
+    return [struct.unpack_from("<HHI", data, 4 + 8 * i) for i in range((len(data) - 4) // 8)]
+
+
+def write_default(fd: int, entries: list[Entry]) -> None:
+    """Write a folder's default ACL; the mask is recomputed from the named entries."""
+    base = {tag: perm for tag, perm, _ in entries if tag in (USER_OBJ, GROUP_OBJ, OTHER)}
+    named = sorted({(t, i): (t, p, i) for t, p, i in entries if t in (USER, GROUP)}.values(), key=lambda e: (e[0], e[2]))
+    full = [(USER_OBJ, base[USER_OBJ], UNDEFINED), (GROUP_OBJ, base[GROUP_OBJ], UNDEFINED), (OTHER, base[OTHER], UNDEFINED)]
+    if named:
+        mask = base[GROUP_OBJ]
+        for _, perm, _ in named:
+            mask |= perm
+        full += [(MASK, mask, UNDEFINED), *named]
+    full.sort(key=lambda e: (e[0], e[2]))
+    os.setxattr(fd, DEFAULT_XATTR, struct.pack("<I", _VERSION) + b"".join(struct.pack("<HHI", *e) for e in full))
+
+
 def grant_user(fd: int, uid: int, perm: int) -> None:
     """Give ``uid`` exactly ``perm`` on the file (replacing any entry it had). Granting what's already
     there changes nothing, not even the file's change time, which download validators include."""

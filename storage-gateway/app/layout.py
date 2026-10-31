@@ -1,13 +1,19 @@
 """
-Check, and optionally convert, a data tree to the layout the file service needs.
+Check, and optionally apply, the layout the file service needs in the area a machine exposes to it.
 
     python -m app.layout --root /srv/posix/data              # report only (default)
-    python -m app.layout --root /srv/posix/data --apply      # convert
+    python -m app.layout --root /srv/posix/data --apply      # apply
 
-The layout (STATUS.md, 2026-10-23): everything owned by the data-owner account; folders 0710 with
-the pass-through group, so temporary IDs can pass through but never list; files 0600, so nothing but
-a temporary ID's own ACL entry can read them. Run as root on the machine, before the file service
-is first used, and again any time to check.
+Owners, groups and administrators' ACL entries are left alone: administrators and project managers
+manage direct access on the machine (A1, 2026-10-31), and researchers' processes keep working on raw
+data and derivatives. The tool only makes sure the portal's grants are the one way in for anyone
+else, and that new files and folders start that way:
+- nothing is open to everyone else ("other" has no access, on files and folders);
+- folders let the pass-through group through (``x``, never ``r``), so a temporary ID reaches a file
+  it was granted and nothing else;
+- folders have default entries with the same two rules, so a file or folder made later (by a
+  pipeline, with any umask) starts closed to everyone else and passable.
+Run as root on the machine, before the file service is first used, and again any time to check.
 
 Changes are made through descriptors from a walk that never follows symlinks. Things the tool won't
 decide are reported for an administrator and left alone: symlinks (the service refuses them),
@@ -24,7 +30,6 @@ from dataclasses import dataclass, field
 
 from app import acl
 
-DIR_MODE, FILE_MODE = 0o710, 0o600
 
 
 @dataclass
@@ -44,41 +49,67 @@ def _temporary_acl_ids(fd: int, id_start: int, id_count: int) -> list[int]:
     return [i for tag, _, i in entries if tag == acl.USER and id_start <= i < id_start + id_count]
 
 
-def check(root: str, owner: tuple[int, int], traverse_gid: int, apply: bool = False,
+def file_changes(fd: int, apply: bool) -> list[str]:
+    """Close a file to everyone else; return what differed."""
+    entries = acl.read(fd)
+    other = next(p for t, p, _ in entries if t == acl.OTHER)
+    if not other:
+        return []
+    if apply:
+        acl.write(fd, [(t, 0 if t == acl.OTHER else p, i) for t, p, i in entries if t != acl.MASK])
+    return [f"everyone else: {_rwx(other)} -> ---"]
+
+
+def folder_changes(fd: int, traverse_gid: int, apply: bool) -> list[str]:
+    """Close a folder to everyone else, let the pass-through group through, and set the same rules as
+    defaults for what's made in it later; return what differed."""
+    changes = []
+    entries, defaults = acl.read(fd), acl.read_default(fd)
+    other = next(p for t, p, _ in entries if t == acl.OTHER)
+    passing = next((p for t, p, i in entries if t == acl.GROUP and i == traverse_gid), 0)
+    if other:
+        changes.append(f"everyone else: {_rwx(other)} -> ---")
+    if not passing & acl.EXECUTE:
+        changes.append("pass-through for the portal's temporary IDs added")
+    if other or not passing & acl.EXECUTE:
+        if apply:
+            acl.write(fd, [(t, 0 if t == acl.OTHER else p, i) for t, p, i in entries
+                           if t != acl.MASK and not (t == acl.GROUP and i == traverse_gid)]
+                      + [(acl.GROUP, passing | acl.EXECUTE, traverse_gid)])
+    if not defaults:
+        base = {t: p for t, p, _ in acl.read(fd) if t in (acl.USER_OBJ, acl.GROUP_OBJ)}
+        defaults = [(acl.USER_OBJ, base[acl.USER_OBJ], acl.UNDEFINED), (acl.GROUP_OBJ, base[acl.GROUP_OBJ], acl.UNDEFINED),
+                    (acl.OTHER, 0, acl.UNDEFINED)]
+        changes.append("defaults for new files and folders set")
+        stale = True
+    else:
+        d_other = next(p for t, p, _ in defaults if t == acl.OTHER)
+        d_passing = next((p for t, p, i in defaults if t == acl.GROUP and i == traverse_gid), 0)
+        stale = bool(d_other) or not d_passing & acl.EXECUTE
+        if stale:
+            changes.append("defaults for new files and folders corrected")
+    if stale and apply:
+        d_passing = next((p for t, p, i in defaults if t == acl.GROUP and i == traverse_gid), 0)
+        acl.write_default(fd, [(t, 0 if t == acl.OTHER else p, i) for t, p, i in defaults
+                               if t != acl.MASK and not (t == acl.GROUP and i == traverse_gid)]
+                          + [(acl.GROUP, d_passing | acl.EXECUTE, traverse_gid)])
+    return changes
+
+
+def check(root: str, traverse_gid: int, apply: bool = False,
           id_start: int = 2_000_000, id_count: int = 1_000_000) -> Report:
     """Walk ``root`` without following symlinks; report (and with ``apply``, fix) layout differences."""
     report = Report()
-    uid, gid = owner
 
-    def fix(fd: int, path: str, kind: str, want: tuple[int, int, int]) -> None:
-        """Report leftover temporary-ID entries, and owner and mode that differ from ``want``."""
+    def note(fd: int, path: str, kind: str, changes: list[str]) -> None:
         ids = _temporary_acl_ids(fd, id_start, id_count)
         if ids:
             report.for_admin.append({"path": path, "issue": "ACL entries for temporary IDs", "ids": ids})
-        st = os.fstat(fd)
-        mode = stat_module.S_IMODE(st.st_mode)
-        entries = acl.read(fd)
-        if any(e[0] in (acl.USER, acl.GROUP) for e in entries):
-            # With named entries, the mode's group bits show the mask; the group's own are in the ACL.
-            group = next(p for t, p, _ in entries if t == acl.GROUP_OBJ)
-            mode = (mode & ~0o070) | (group << 3)
-        have = (st.st_uid, st.st_gid, mode)
-        if have != want:
-            report.changed.append({"path": path, "kind": kind, "from": _fmt(*have), "to": _fmt(*want)})
-            if apply:
-                named = [e for e in acl.read(fd) if e[0] in (acl.USER, acl.GROUP)]
-                os.fchown(fd, want[0], want[1])
-                os.fchmod(fd, want[2])
-                if named:
-                    # With an ACL, chmod sets only the mask (from the group bits: none here), switching
-                    # off every named entry, an administrator's or a temporary ID's in use, and leaves
-                    # the group's own entry as it was. Set the owner, group and other entries to the
-                    # layout, keep the named ones, and recompute the mask from them.
-                    base = {acl.USER_OBJ: (want[2] >> 6) & 7, acl.GROUP_OBJ: (want[2] >> 3) & 7, acl.OTHER: want[2] & 7}
-                    acl.write(fd, [(t, base[t], i) for t, _, i in acl.read(fd) if t in base] + named)
+        if changes:
+            report.changed.append({"path": path, "kind": kind, "changes": changes})
 
     def visit(dir_fd: int, rel: str) -> None:
-        fix(dir_fd, rel or ".", "folder", (uid, traverse_gid, DIR_MODE))
+        note(dir_fd, rel or ".", "folder", folder_changes(dir_fd, traverse_gid, apply))
         for entry in sorted(os.scandir(dir_fd), key=lambda e: e.name):
             path = f"{rel}/{entry.name}" if rel else entry.name
             est = os.stat(entry.name, dir_fd=dir_fd, follow_symlinks=False)
@@ -99,10 +130,9 @@ def check(root: str, owner: tuple[int, int], traverse_gid: int, apply: bool = Fa
     def visit_file(dir_fd: int, name: str, path: str) -> None:
         fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)
         try:
-            st = os.fstat(fd)
-            if st.st_nlink > 1:
-                report.for_admin.append({"path": path, "issue": f"{st.st_nlink} hard links (another path can reach it)"})
-            fix(fd, path, "file", (uid, gid, FILE_MODE))
+            if os.fstat(fd).st_nlink > 1:
+                report.for_admin.append({"path": path, "issue": f"{os.fstat(fd).st_nlink} hard links (another path can reach it)"})
+            note(fd, path, "file", file_changes(fd, apply))
         finally:
             os.close(fd)
 
@@ -114,19 +144,17 @@ def check(root: str, owner: tuple[int, int], traverse_gid: int, apply: bool = Fa
     return report
 
 
-def _fmt(uid: int, gid: int, mode: int) -> str:
-    return f"{uid}:{gid} {mode:04o}"
+def _rwx(perm: int) -> str:
+    return "".join(c if perm & bit else "-" for c, bit in (("r", 4), ("w", 2), ("x", 1)))
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--root", required=True)
-    parser.add_argument("--owner", default="10002:10002", help="uid:gid of the data-owner account")
     parser.add_argument("--traverse-gid", type=int, default=10010)
     parser.add_argument("--apply", action="store_true", help="make the changes (default: report only)")
     args = parser.parse_args(argv)
-    uid, gid = (int(x) for x in args.owner.split(":"))
-    report = check(args.root, (uid, gid), args.traverse_gid, apply=args.apply)
+    report = check(args.root, args.traverse_gid, apply=args.apply)
     json.dump(report.as_dict() | {"applied": args.apply}, sys.stdout, indent=2)
     print()
     return 0

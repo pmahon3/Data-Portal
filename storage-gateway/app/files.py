@@ -9,6 +9,7 @@ redirect a request outside the root (CWE-59, the race fixed in rsync's CVE-2026-
 import errno
 import mimetypes
 import os
+from collections.abc import Callable
 import stat as stat_module
 import uuid
 from collections.abc import Iterator
@@ -64,15 +65,16 @@ class Root:
 
     :param path_only: Open folders with ``O_PATH`` (Linux), so walking needs only permission to pass
         through each folder, not to list it. Used by the opener running as a link's temporary ID.
-    :param dir_owner: (uid, gid) for folders created by uploads; with ``dir_mode``. Used by the helper.
+    :param on_create: Called with (new folder, parent folder) descriptors when an upload creates a
+        folder, to set its owner and permissions. Used by the helper.
     """
 
-    def __init__(self, path: Path, path_only: bool = False, dir_owner: tuple[int, int] | None = None,
-                 dir_mode: int = 0o750):
+    def __init__(self, path: Path, path_only: bool = False,
+                 on_create: Callable[[int, int], None] | None = None, dir_mode: int = 0o750):
         if path_only and not _O_PATH:
             raise RuntimeError("path_only needs O_PATH (Linux)")
         self.path = path
-        self.dir_owner = dir_owner
+        self.on_create = on_create
         self.dir_mode = dir_mode
         self._base = _O_PATH if path_only else os.O_RDONLY
         self._dir_flags = self._base | os.O_DIRECTORY | os.O_NOFOLLOW
@@ -95,9 +97,8 @@ class Root:
                     except FileExistsError:
                         pass
                     next_fd = os.open(name, self._dir_flags, dir_fd=fd)
-                    if self.dir_owner is not None:
-                        os.fchown(next_fd, *self.dir_owner)
-                        os.fchmod(next_fd, self.dir_mode)
+                    if self.on_create is not None:
+                        self.on_create(next_fd, fd)
                 except OSError as e:
                     raise _refusal(e, name, fd) from e
                 os.close(fd)
