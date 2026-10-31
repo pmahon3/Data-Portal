@@ -21,6 +21,7 @@ from api.v0_1.common.models import BundleCreateRequest, BundleCreateResponse, Bu
 # DB models
 from core.db.mongodb.mongo_client import get_bundle_owner_collection
 from core.db.postgres.session import get_session
+from core.services import standards
 from core.services.injectors import get_instance_manager, get_policy_manager, get_user_manager
 from core.services.instances import AbstractInstanceManager
 from core.services.policies import CasbinPolicyManager
@@ -95,6 +96,20 @@ class FolderUploadCompleteIn(BaseModel):
     file_ids: list[int] = Field(..., min_length=1)
 
 
+# A declared dataset checked against its standard (STD-1); `findings` lists the first problems.
+class DatasetFindingOut(BaseModel):
+    path: str
+    problem: str
+
+
+class DatasetCheckOut(BaseModel):
+    root: str
+    standard: str
+    quarantined: bool
+    problems: int
+    findings: list[DatasetFindingOut]
+
+
 # One file that could not be completed.
 class FolderUploadCompleteFailureOut(BaseModel):
     file_id: int
@@ -106,6 +121,7 @@ class FolderUploadCompleteFailureOut(BaseModel):
 class FolderUploadCompleteOut(BaseModel):
     completed: int
     failed: list[FolderUploadCompleteFailureOut]
+    checks: list[DatasetCheckOut] = []
 
 
 # One file inside the selected folder.
@@ -176,6 +192,7 @@ class ListChildrenOut(BaseModel):
 
 class UploadCompleteOut(BaseModel):
     status: str
+    checks: list[DatasetCheckOut] = []
 
 
 class DownloadUrlOut(BaseModel):
@@ -643,6 +660,7 @@ async def folder_upload_complete(
         await file_svc.update_many_from_head(head_updates)
 
     completed = await file_svc.count_completed_files(payload.file_ids)
+    checks: list[dict] = []
 
     if failed:
         # Log one summary instead of one line per file. Large folder uploads can
@@ -674,6 +692,14 @@ async def folder_upload_complete(
             for folder_id in folder_ids:
                 await tree_svc.mark_folder_ancestors_complete(bucket, folder_id)
 
+        # Check the declared datasets these files belong to (STD-1).
+        keys_by_bucket: dict[str, list[str]] = {}
+        for file in files:
+            if file.bucket in completed_folders_by_bucket:
+                keys_by_bucket.setdefault(file.bucket, []).append(file.key)
+        for bucket, keys in keys_by_bucket.items():
+            checks += await standards.check_upload(file_svc, bucket, keys)
+
     logger.info(
         "Folder upload complete finished: completed=%s failed=%s",
         completed,
@@ -683,7 +709,7 @@ async def folder_upload_complete(
         notifications.folder_stored(str(user_uuid), folder_id=files[0].folder_id if files else None,
                                     completed=completed, failed=len(failed))
 
-    return FolderUploadCompleteOut(completed=completed, failed=failed)
+    return FolderUploadCompleteOut(completed=completed, failed=failed, checks=checks)
 
 #################################################################################### initialize upload.It creates the DB record and returns a presigned URL so the client can start uploading the file bytes
 @router.post("/files/upload/init", response_model=UploadInitOut)
@@ -749,7 +775,8 @@ async def upload_complete(
     await tree_svc.mark_folder_ancestors_complete(file.bucket, file.folder_id)
     if newly_stored:  # completing twice tells the researcher once
         notifications.file_stored(str(user_uuid), file.id, file.name)
-    return {"status": "ok"}
+    checks = await standards.check_upload(file_svc, file.bucket, [file.key])
+    return {"status": "ok", "checks": checks}
 
 #################################################################################### Generate a presigned download URL for a file
 

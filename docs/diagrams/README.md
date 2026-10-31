@@ -12,6 +12,11 @@ System structure and component relationships:
 - Policy management
 - Data flow
 
+### ✅ [Data Standards](./data-standards.md)
+How uploaded datasets are checked against the standard they declare:
+- Declaring a standard
+- Checking on upload, and quarantine
+
 ### 🔐 [Authentication Sequences](./sequence-authentication.md)
 Authentication and authorization flows:
 - User login flow (OAuth2/OIDC)
