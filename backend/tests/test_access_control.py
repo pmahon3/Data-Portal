@@ -292,3 +292,19 @@ def test_listings_above_a_file_show_only_the_path_to_it(make_user, tree):
     r = user.list_folder(tree.folder(""))
     assert r.status_code == 200, r.text
     assert listed(r) == ({"/study/"}, set())
+
+
+@pytest.mark.parametrize("action", ["write", "delete"])
+def test_a_listing_for_an_action_shows_what_the_user_may_do_it_to(make_user, tree, action):
+    """AC-1. With only write (or delete) on summary.csv, listing study/patient-7/ for that action
+    shows that file and not the one beside it, and study/ shows only patient-7/; the listing for
+    read refuses."""
+    user = make_user((action, "study/patient-7/summary.csv"))
+    folder = tree.folder("study/patient-7/")
+    r = user.list_folder(folder, access=action)
+    assert r.status_code == 200, r.text
+    assert listed(r) == (set(), {"study/patient-7/summary.csv"})
+    r = user.list_folder(tree.folder("study/"), access=action)
+    assert r.status_code == 200, r.text
+    assert listed(r) == ({"/study/patient-7/"}, set())
+    assert user.list_folder(folder).status_code == 403
