@@ -465,3 +465,70 @@ def test_a_bundle_list_other_than_the_signed_one_is_refused(env):
     tok = token(f"{NS}/g1", "bundle", grant="g1", listing="unregistered")
     with pytest.raises(HTTPException):
         env["access"].open_read(tok, f"{NS}/study/a.nii.gz", None, bundle=f"{NS}/g1")
+
+
+def many_files(env, n):
+    for i in range(n):
+        f = env["data"] / "study" / f"m{i:03d}.dat"
+        f.write_bytes(f"{i}".encode())
+        os.chown(f, DATA_OWNER, DATA_OWNER)
+        os.chmod(f, 0o600)
+    return [f"{NS}/study/m{i:03d}.dat" for i in range(n)]
+
+
+def test_a_bundle_opens_its_files_in_batches_one_process_each(env, monkeypatch):
+    """AC-3, PX-14. Many files of one bundle are opened by a few processes, as the temporary ID."""
+    files = many_files(env, 100)
+    tok = bundle(env, files)
+    started = []
+    real_run = subprocess.run
+    monkeypatch.setattr("app.helper.subprocess.run", lambda *a, **k: started.append(k["user"]) or real_run(*a, **k))
+    opened = env["access"].open_read_many(tok, files[:64], bundle=f"{NS}/g1")
+    opened += env["access"].open_read_many(tok, files[64:], bundle=f"{NS}/g1")
+    assert [read_fd(fd) for fd in opened] == [f"{i}".encode() for i in range(100)]
+    assert len(started) == 2 and set(started) == {uid_of_only_link(env["helper"])}
+
+
+def test_a_batch_with_a_file_off_the_list_is_refused_whole(env):
+    """AC-3. The web service can't slip an unapproved file into a batch."""
+    files = many_files(env, 3)
+    tok = bundle(env, files[:2])
+    with pytest.raises(HTTPException) as refused:
+        env["access"].open_read_many(tok, files, bundle=f"{NS}/g1")
+    assert refused.value.status_code == 403
+
+
+def test_a_batch_is_capped(env):
+    """AC-3. A batch larger than the cap is refused, so one request can't hold unbounded files open."""
+    files = many_files(env, 65)
+    tok = bundle(env, files)
+    with pytest.raises(HTTPException) as refused:
+        env["access"].open_read_many(tok, files, bundle=f"{NS}/g1")
+    assert refused.value.status_code == 400
+
+
+def test_a_file_missing_from_a_batch_fails_only_itself(env):
+    """PX-14. A file gone since it was listed fails when the stream reaches it; the rest still open."""
+    files = many_files(env, 3)
+    tok = bundle(env, files)
+    (env["data"] / "study" / "m001.dat").unlink()
+    opened = env["access"].open_read_many(tok, files, bundle=f"{NS}/g1")
+    assert read_fd(opened[0]) == b"0" and read_fd(opened[2]) == b"2"
+    assert isinstance(opened[1], HTTPException) and opened[1].status_code == 404
+
+
+def test_a_batch_is_recorded_with_one_save(env, monkeypatch):
+    """PX-14. Grants are recorded before they're made, once per batch: a save rewrites the whole
+    state, so saving per file made a download's cost grow with the square of its size."""
+    files = many_files(env, 64)
+    tok = bundle(env, files)
+    env["access"].stat(tok, files[0], None, bundle=f"{NS}/g1")  # the approval's ID is assigned
+    saves = []
+    real_save = env["helper"].ids._save
+    monkeypatch.setattr(env["helper"].ids, "_save", lambda: saves.append(1) or real_save())
+    stats = env["access"].stat_many(tok, files, bundle=f"{NS}/g1")
+    assert [s.st_size for s in stats] == [len(f"{i}") for i in range(64)]
+    assert len(saves) == 1
+    for fd in env["access"].open_read_many(tok, files, bundle=f"{NS}/g1"):
+        os.close(fd)
+    assert len(saves) == 1  # already recorded

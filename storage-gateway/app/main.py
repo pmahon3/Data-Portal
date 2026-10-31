@@ -18,8 +18,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
 from app.auth import KeyResolver, bundle_listing, check_token, jwks_key_resolver, token_from_request
-from app.config import CANARY, Settings
-from app.broker import DirectAccess, HelperAccess
+from app.config import CANARY, OPEN_BATCH, Settings
+from app.broker import BatchOpener, DirectAccess, HelperAccess
 from app.files import BadPath, Root, etag, file_headers, parse_range, read_chunks, split_key
 from app.metrics import Metrics
 from app.zipstream import Entry, ZipStream
@@ -128,21 +128,23 @@ def create_app(settings: Settings, resolve_key: KeyResolver | None = None,
         listing = bundle_listing(claims, body)
         access.register_bundle(token, resource, body)
 
-        entries, tags = [], []
-        for path in listing["paths"]:
+        paths = listing["paths"]
+        for path in paths:
             try:
-                parts = split_key(settings.namespace, path)
+                split_key(settings.namespace, path)
             except BadPath:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Bad path")
-            st = access.stat(token, path, parts, bundle=resource)
+        stats = [st for i in range(0, len(paths), OPEN_BATCH)
+                 for st in access.stat_many(token, paths[i:i + OPEN_BATCH], resource)]
+        opener = BatchOpener(access, token, resource, paths)
+        entries, tags = [], []
+        for path, st in zip(paths, stats):
+            if isinstance(st, HTTPException):
+                raise st
             tags.append(etag(st))
-
-            def open_entry(path=path, parts=parts):
-                fd, _ = access.open_read(token, path, parts, bundle=resource)
-                return os.fdopen(fd, "rb")
-
             name = f"{listing['folder_name']}/{path}" if listing["folder_name"] else path
-            entries.append(Entry(name, st.st_size, st.st_mtime, open_entry, checksums.get((path, tags[-1]))))
+            entries.append(Entry(name, st.st_size, st.st_mtime, lambda path=path: opener.open(path),
+                                 checksums.get((path, tags[-1]))))
         archive = ZipStream(entries, settings.chunk_size)
         tag = f'"{hashlib.sha256(" ".join(tags).encode()).hexdigest()}"'
         filename = re.sub(r"[^\w.-]+", "_", listing["folder_name"] or "download")
@@ -155,7 +157,8 @@ def create_app(settings: Settings, resolve_key: KeyResolver | None = None,
         start, end, code = part
 
         def stream():
-            yield from archive.iter_bytes(start, end)
+            with opener:  # files are opened a batch at a time as the stream reaches them
+                yield from archive.iter_bytes(start, end)
             if len(checksums) > 1_000_000:
                 checksums.clear()
             checksums.update({(p, t): crc for p, t, crc in zip(listing["paths"], tags, archive.checksums())

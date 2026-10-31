@@ -68,12 +68,12 @@ Dotted arrows are runtime relationships, not imports.
 flowchart TB
     subgraph webside["Web service (uid 10001, can't read the data)"]
         main["app/main<br/>HTTP endpoints, access log, startup check"]
-        broker["app/broker<br/>HelperAccess (deployed), DirectAccess (tests)"]
+        broker["app/broker<br/>HelperAccess (deployed), DirectAccess,<br/>batched opens for multi-file downloads"]
         zipstream["app/zipstream<br/>ZIP built as it's sent: exact size, any byte range"]
     end
     subgraph shared["Shared"]
         auth["app/auth<br/>token checks"]
-        config["app/config<br/>settings, canary name"]
+        config["app/config<br/>settings, canary name, batch size"]
         files["app/files<br/>no-follow walk, byte ranges, validators"]
     end
     subgraph privileged["Privileged helper (root)"]
@@ -88,6 +88,7 @@ flowchart TB
     main --> config
     main --> files
     main --> zipstream
+    broker --> config
     broker --> files
     helper --> acl
     helper --> auth

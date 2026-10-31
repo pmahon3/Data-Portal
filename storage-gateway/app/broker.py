@@ -14,9 +14,11 @@ import json
 import os
 import socket
 from types import SimpleNamespace
+from typing import BinaryIO
 
 from fastapi import HTTPException, status
 
+from app.config import OPEN_BATCH
 from app.files import BadPath, Root
 
 
@@ -41,6 +43,24 @@ class DirectAccess:
         except (BadPath, FileNotFoundError) as e:
             raise _refused(e)
 
+    def open_read_many(self, token, resources, bundle):
+        opened = []
+        for resource in resources:
+            try:
+                opened.append(self.open_read(token, resource, resource.split("/")[1:], bundle)[0])
+            except HTTPException as e:
+                opened.append(e)
+        return opened
+
+    def stat_many(self, token, resources, bundle):
+        stats = []
+        for resource in resources:
+            try:
+                stats.append(self.stat(token, resource, resource.split("/")[1:], bundle))
+            except HTTPException as e:
+                stats.append(e)
+        return stats
+
     def stat(self, token, resource, parts, bundle=None):
         try:
             return self.root.stat_file(parts)
@@ -64,13 +84,13 @@ class HelperAccess:
     def __init__(self, socket_path: str):
         self.socket_path = socket_path
 
-    def call(self, request: dict) -> tuple[dict, list[int]]:
+    def call(self, request: dict, max_fds: int = 8) -> tuple[dict, list[int]]:
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
                 sock.settimeout(60)
                 sock.connect(self.socket_path)
                 sock.sendall(json.dumps(request).encode() + b"\n")
-                message, fds, _, _ = socket.recv_fds(sock, 1 << 16, 8)
+                message, fds, _, _ = socket.recv_fds(sock, 1 << 16, max_fds)
         except OSError:
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="File access unavailable")
         reply = json.loads(message or b'{"ok": false, "status": 503}')
@@ -97,9 +117,27 @@ class HelperAccess:
         _, fds = self.call(self._read_request("open", token, resource, bundle))
         return fds[0], os.fstat(fds[0])
 
+    def open_read_many(self, token, resources, bundle):
+        """
+        Open several files of a bundle in one request (one process in the helper). Returns, in order,
+        a descriptor or the ``HTTPException`` for each file that couldn't be opened.
+        """
+        reply, fds = self.call({"op": "open_many", "token": token, "path": bundle, "bundle": bundle,
+                                "paths": list(resources)}, max_fds=OPEN_BATCH)
+        given = iter(fds)
+        return [next(given) if result["ok"] else HTTPException(status_code=result["status"], detail="File access failed")
+                for result in reply["results"]]
+
     def stat(self, token, resource, parts, bundle=None):
         reply, _ = self.call(self._read_request("stat", token, resource, bundle))
         return SimpleNamespace(**reply["stat"])
+
+    def stat_many(self, token, resources, bundle):
+        """Stat (and grant) several files of a bundle in one request; a stat or an ``HTTPException`` each."""
+        reply, _ = self.call({"op": "stat_many", "token": token, "path": bundle, "bundle": bundle,
+                              "paths": list(resources)})
+        return [SimpleNamespace(**r["stat"]) if r["ok"] else HTTPException(status_code=r["status"], detail="File access failed")
+                for r in reply["results"]]
 
     def begin_write(self, token, resource, parts):
         reply, fds = self.call({"op": "begin_write", "token": token, "path": resource})
@@ -139,3 +177,38 @@ class HelperWrite:
             self.access.call({"op": "abort", "token": self.token, "path": self.resource, "staging": self.staging})
         except HTTPException:
             pass  # the sweeper removes staging files when the link expires
+
+
+class BatchOpener:
+    """
+    Opens a multi-file download's files a batch at a time, starting from the file the stream reaches,
+    so the helper starts one process per batch rather than one per file. Files opened but never sent
+    (the stream ended or stopped early) are closed on exit.
+    """
+
+    def __init__(self, access, token: str, bundle: str, paths: list[str], batch: int = OPEN_BATCH):
+        self.access, self.token, self.bundle, self.paths, self.batch = access, token, bundle, paths, batch
+        self._index = {path: i for i, path in enumerate(paths)}
+        self._opened: dict[str, int | HTTPException] = {}
+
+    def open(self, path: str) -> BinaryIO:
+        if path not in self._opened:
+            start = self._index[path]
+            wanted = [p for p in self.paths[start:start + self.batch] if p not in self._opened]
+            self._opened.update(zip(wanted, self.access.open_read_many(self.token, wanted, self.bundle)))
+        opened = self._opened.pop(path)
+        if isinstance(opened, HTTPException):
+            raise opened
+        return os.fdopen(opened, "rb")
+
+    def close(self) -> None:
+        for opened in self._opened.values():
+            if isinstance(opened, int):
+                os.close(opened)
+        self._opened.clear()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()

@@ -3,7 +3,7 @@ Load on the POSIX machine with a helper (administrator access): many small files
 download, where each file is granted and then opened by a new process running as the approval's
 temporary ID, and several such downloads at once. The steps are the ones the file service takes for
 ``/v1/bundles`` (register the list, then stat and open each file through the helper, streaming the
-ZIP as it goes); only HTTP is left out.
+ZIP as it goes, checking and opening files a batch at a time); only HTTP is left out.
 
 The gate runs a few hundred files. For the full measurement:
 
@@ -27,6 +27,8 @@ import pytest
 if sys.platform != "linux" or os.geteuid() != 0:
     pytest.skip("operating-system boundary tests need Linux and root", allow_module_level=True)
 
+from app.broker import BatchOpener  # noqa: E402
+from app.config import OPEN_BATCH  # noqa: E402
 from app.zipstream import Entry, ZipStream  # noqa: E402
 from tests_os.test_isolation import DATA_OWNER, TRAVERSE, close_env, make_env, token  # noqa: E402
 from tests.tokens import NS  # noqa: E402
@@ -67,16 +69,11 @@ def download(env, grant: str, paths: list[str]) -> bytes:
     listing = json.dumps({"folder_name": "", "paths": paths})
     tok = token(bundle, "bundle", ttl=3600, grant=grant, listing=hashlib.sha256(listing.encode()).hexdigest())
     access.register_bundle(tok, bundle, listing)
-    entries = []
-    for path in paths:
-        st = access.stat(tok, path, path.split("/")[1:], bundle=bundle)
-
-        def open_entry(path=path):
-            fd, _ = access.open_read(tok, path, path.split("/")[1:], bundle=bundle)
-            return os.fdopen(fd, "rb")
-
-        entries.append(Entry(path, st.st_size, st.st_mtime, open_entry))
-    return b"".join(ZipStream(entries).iter_bytes())
+    stats = [st for i in range(0, len(paths), OPEN_BATCH) for st in access.stat_many(tok, paths[i:i + OPEN_BATCH], bundle)]
+    opener = BatchOpener(access, tok, bundle, paths)
+    entries = [Entry(path, st.st_size, st.st_mtime, lambda path=path: opener.open(path)) for path, st in zip(paths, stats)]
+    with opener:
+        return b"".join(ZipStream(entries).iter_bytes())
 
 
 def paths(n: int) -> list[str]:

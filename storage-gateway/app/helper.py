@@ -47,7 +47,7 @@ from fastapi import HTTPException
 
 from app import acl
 from app.auth import bundle_listing, check_token, jwks_key_resolver
-from app.config import CANARY
+from app.config import CANARY, OPEN_BATCH
 from app.files import BadPath, Root, split_key
 
 logger = logging.getLogger("storage-gateway.helper")
@@ -169,13 +169,17 @@ class LinkIds:
             self._save()
             return candidate
 
-    def record_file(self, key: str, parts: list[str], st: os.stat_result) -> None:
-        """Remember a grant with the file's identity, so expiry revokes it on the same file."""
+    def record_files(self, key: str, grants: list[tuple[list[str], os.stat_result]]) -> None:
+        """Remember grants with each file's identity, so expiry revokes them on the same files. One
+        save for the lot: saving rewrites the whole state, so saving per file grew with the square of
+        a download's size."""
         with self.lock:
             files = self.state["links"][key]["files"]
-            entry = [parts, st.st_dev, st.st_ino]
-            if entry not in files:
-                files.append(entry)
+            known = {(tuple(parts), dev, ino) for parts, dev, ino in files}
+            new = [[parts, st.st_dev, st.st_ino] for parts, st in grants
+                   if (tuple(parts), st.st_dev, st.st_ino) not in known]
+            if new:
+                files.extend(new)
                 self._save()
 
     def expired(self, now: float) -> list[tuple[str, dict]]:
@@ -259,15 +263,55 @@ class Helper:
             raise Refused(results[0]["status"])
         return fds[0]
 
+    def open_read_many(self, token: str, paths: list[str], bundle: str) -> tuple[list[dict], list[int]]:
+        """
+        Open several files of a bundle with one process as its temporary ID. Every path must be on
+        the bundle's list, or nothing is opened; a file that can't be opened fails alone.
+        """
+        checked = [self._verify(token, path, "GET", bundle) for path in paths]
+        claims = checked[0][0]
+        key, uid = grant_key(claims), self._uid(claims)
+        results: list[dict | None] = []
+        for path, granted in zip(paths, self._grant_reads(uid, key, [parts for _, parts in checked])):
+            if isinstance(granted, Refused):  # gone or replaced since it was listed: only this file fails
+                results.append({"ok": False, "status": granted.status})
+                continue
+            results.append(None)
+            audit.info("read link=%s id=%s user=%s path=%s%s", claims["jti"], uid, claims.get("sub", "-"), path,
+                       _grant_note(claims))
+        granted = [parts for (_, parts), result in zip(checked, results) if result is None]
+        opened, fds = self._as_link(uid, {"mode": "read", "root": str(self.s.data_root), "paths": granted},
+                                    extra_groups=[self.s.traverse_gid]) if granted else ([], [])
+        from_opener = iter(opened)
+        return [result or next(from_opener) for result in results], fds
+
     def _grant_read(self, uid: int, key: str, parts: list[str]) -> None:
-        with _refusing():
-            fd, st = self.tree.open_file(parts)
+        (granted,) = self._grant_reads(uid, key, [parts])
+        if isinstance(granted, Refused):
+            raise granted
+
+    def _grant_reads(self, uid: int, key: str, paths: list[list[str]]) -> list[os.stat_result | Refused]:
+        """Grant ``uid`` read access to each file; return each file's status after its grant, or why it
+        couldn't be granted."""
+        opened: list[tuple[int, os.stat_result] | Refused] = []
         try:
-            self.ids.record_file(key, parts, st)  # recorded first, so a crash can't leave an unrecorded grant
+            for parts in paths:
+                try:
+                    with _refusing():
+                        opened.append(self.tree.open_file(parts))
+                except Refused as e:
+                    opened.append(e)
+            # Recorded first, so a crash can't leave an unrecorded grant.
+            self.ids.record_files(key, [(parts, o[1]) for parts, o in zip(paths, opened) if not isinstance(o, Refused)])
             with self.acl_lock:
-                acl.grant_user(fd, uid, acl.READ)
+                for o in opened:
+                    if not isinstance(o, Refused):
+                        acl.grant_user(o[0], uid, acl.READ)
+            return [o if isinstance(o, Refused) else os.fstat(o[0]) for o in opened]
         finally:
-            os.close(fd)
+            for o in opened:
+                if not isinstance(o, Refused):
+                    os.close(o[0])
 
     def stat(self, token: str, path: str, bundle: str | None = None) -> dict:
         claims, parts = self._verify(token, path, "HEAD", bundle)
@@ -281,6 +325,16 @@ class Helper:
             fd, st = self.tree.open_file(parts)
         os.close(fd)
         return _stat_fields(st)
+
+    def stat_many(self, token: str, paths: list[str], bundle: str) -> list[dict]:
+        """Grant and stat several files of a bundle (see ``stat``); every path must be on its list."""
+        checked = [self._verify(token, path, "HEAD", bundle) for path in paths]
+        claims = checked[0][0]
+        granted = self._grant_reads(self._uid(claims), grant_key(claims), [parts for _, parts in checked])
+        for path in paths:
+            audit.info("stat link=%s user=%s path=%s", claims["jti"], claims.get("sub", "-"), path)
+        return [{"ok": False, "status": g.status} if isinstance(g, Refused) else {"ok": True, "stat": _stat_fields(g)}
+                for g in granted]
 
     # --- writes ---
 
@@ -397,7 +451,7 @@ class Helper:
             if result.returncode != 0:
                 logger.error("opener failed for id %s: %s", uid, result.stderr.decode()[-500:])
                 raise Refused(500)
-            message, fds, _, _ = socket.recv_fds(parent, 1 << 16, 64)
+            message, fds, _, _ = socket.recv_fds(parent, 1 << 16, OPEN_BATCH)
             return json.loads(message), fds
         finally:
             parent.close()
@@ -460,7 +514,7 @@ def _stat_fields(st: os.stat_result) -> dict:
 
 # --- socket server ---
 
-_OPS = {"open", "stat", "begin_write", "commit", "abort", "delete", "bundle"}
+_OPS = {"open", "open_many", "stat", "stat_many", "begin_write", "commit", "abort", "delete", "bundle"}
 
 
 def _validated(req) -> dict:
@@ -471,6 +525,11 @@ def _validated(req) -> dict:
     needed = ["token", "path"] + {"commit": ["staging"], "abort": ["staging"], "bundle": ["list"]}.get(req["op"], [])
     if not all(isinstance(req.get(name), str) for name in needed) or not isinstance(req.get("bundle", ""), str):
         raise Refused(400)
+    if req["op"] in ("open_many", "stat_many"):
+        paths = req.get("paths")
+        if (not isinstance(req.get("bundle"), str) or not isinstance(paths, list)
+                or not 0 < len(paths) <= OPEN_BATCH or not all(isinstance(p, str) for p in paths)):
+            raise Refused(400)
     return req
 
 
@@ -499,6 +558,11 @@ def make_server(helper: Helper) -> socketserver.ThreadingUnixStreamServer:
                 if op == "open":
                     fds = [helper.open_read(token, path, req.get("bundle"))]
                     reply = {"ok": True}
+                elif op == "open_many":
+                    results, fds = helper.open_read_many(token, req["paths"], req["bundle"])
+                    reply = {"ok": True, "results": results}
+                elif op == "stat_many":
+                    reply = {"ok": True, "results": helper.stat_many(token, req["paths"], req["bundle"])}
                 elif op == "stat":
                     reply = {"ok": True, "stat": helper.stat(token, path, req.get("bundle"))}
                 elif op == "bundle":

@@ -7,6 +7,7 @@ from pathlib import Path
 # A file only the data owner can read. The helper writes it; the web service refuses to start if it
 # can read it (that would mean it isn't isolated from the data).
 CANARY = ".gateway-canary"
+OPEN_BATCH = 64  # files of a multi-file download opened per request to the helper (one process there)
 
 
 @dataclass(frozen=True)

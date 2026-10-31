@@ -228,22 +228,24 @@ When the code changes, a test fails until the diagram is updated, and the other 
 Measured 2026-10-31 with a helper (administrator access), in a Linux container on a 10-CPU laptop,
 using 1 KB files (`tests_os/test_scale.py`; the gate runs a 300-file version):
 
-| Multi-file download | Time | Files per second |
-|---|---|---|
-| 10,000 files, one download | 296 s | 34 |
-| 625 files each, 1 at once | 19 s | 33 |
-| 625 files each, 4 at once | 33 s | 77 |
-| 625 files each, 8 at once | 59 s | 85 |
-| 625 files each, 16 at once | 163 s | 61 |
+| Multi-file download | Before batching | Now | Files per second now |
+|---|---|---|---|
+| 10,000 files, one download | 296 s | 7.6 s | 1,316 |
+| 625 files each, 1 at once | 19 s | 0.4 s | 1,416 |
+| 625 files each, 4 at once | 33 s | 1.3 s | 1,945 |
+| 625 files each, 8 at once | 59 s | 3.4 s | 1,457 |
+| 625 files each, 16 at once | 163 s | 8.3 s | 1,212 |
 
-About 30 ms of each file's cost is the helper starting a process as the temporary ID to open it, so
-small files are dominated by that, not by their bytes. The 34,000-file MEG derivatives case would take
-about 17 minutes as one download. Throughput peaks around 8 downloads at once (the spec's default
-cap) and falls beyond it. One long-lived process per approval, opening all its files, would remove
-most of the per-file cost. Without a helper (`GATEWAY_ACCESS=account`) no process is started.
+A multi-file download checks and opens its files 64 at a time (`OPEN_BATCH`): the helper grants each
+file and records the grants with one save, then starts one process as the temporary ID to open the
+batch, so the operating system still checks every file as that ID. Before, each file cost a process
+start (about 30 ms) and a rewrite of the helper's whole state, which grew with the square of the
+download's size. Files opened ahead of the stream are closed if it stops early; a file gone since it
+was listed fails when the stream reaches it. Throughput peaks around 4 downloads at once and holds
+past the spec's default cap of 8. Without a helper (`GATEWAY_ACCESS=account`) no process is started.
 
-The measurement found that the helper's listen backlog was Python's default of 5, so 8 downloads at
-once failed as unavailable; it's now the system's maximum.
+The measurement also found that the helper's listen backlog was Python's default of 5, so 8
+downloads at once failed as unavailable; it's now the system's maximum.
 
 ## What isn't built yet
 
@@ -251,7 +253,7 @@ once failed as unavailable; it's now the system's maximum.
 - For multi-file downloads: a link that outlives a long download (with a helper, each file is
   opened as the stream reaches it, so the link must still be valid then; how long links should last
   is undecided), read-ahead for many small files, a cap on downloads at once, checksums that survive
-  a restart, and one process per approval instead of one per file (see Load).
+  a restart.
 - Single-file downloads still get one approval per link; only multi-file downloads share one.
 - Getting files already on the machine into the portal's file tree (file tracking, RDT's decision).
 - Deployment to a real machine: hosting is RDT's decision, and it depends on the system
