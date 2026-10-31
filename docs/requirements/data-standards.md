@@ -1,9 +1,10 @@
 # Data standards requirements
 
 What the portal does with data declared to follow a community standard. Each entry serves part of
-the INN Digital Infrastructure Strategy (2026); both come from its proposals (marked in red there,
-not yet agreed), so both are open. Which standards the portal supports is a class question whose
-answers accumulate (BIDS is proposed first); a second standard gets its own entries here.
+the INN Digital Infrastructure Strategy (2026), where both are proposals. The portal supports BIDS
+(Patrick, 31 October 2026); both entries stay open until the questions they name are answered. Which
+standards the portal supports is a class question whose answers accumulate (E-STD); a second standard
+gets its own entries here.
 
 Open entries name the question that settles them in *INN use cases: decisions* (27 October 2026).
 Each test will name the entry it checks (a `Verifies:` line in the module's docstring).
