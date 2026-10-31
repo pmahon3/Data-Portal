@@ -1,9 +1,13 @@
 """
-Fixtures for end-to-end tests (local stack only).
+Fixtures for end-to-end tests (the local stack, or another machine: see below).
 
 Needs the main stack plus `docker compose -p ams-posix -f local/docker-compose.posix.yaml up -d`,
 and the throwaway local test users qa-authz-admin and qa-authz-u1 (password "<username>-pw").
 A POSIX instance is created for the session and removed afterwards.
+
+Against another machine's file service, set E2E_GATEWAY_URL and E2E_NAMESPACE, and E2E_GATEWAY_DATA to
+that machine's data folder mounted here (for example over SSHFS), so tests can look at the data; the
+fault tests need the local stack's containers and are left out there.
 
     uv run --no-project --with pytest --with requests pytest storage-gateway/e2e -q
 """

@@ -10,7 +10,7 @@ BACKEND = os.getenv("E2E_BACKEND_URL", "http://localhost:8001")
 KEYCLOAK = os.getenv("E2E_KEYCLOAK_URL", "http://localhost:8080")
 GATEWAY = os.getenv("E2E_GATEWAY_URL", "http://posix-gateway.localhost:9100")
 DATA = Path(os.getenv("E2E_GATEWAY_DATA", Path(__file__).resolve().parents[1] / "data"))
-NAMESPACE = "inn-posix"
+NAMESPACE = os.getenv("E2E_NAMESPACE", "inn-posix")
 TIMEOUT = 15
 
 
