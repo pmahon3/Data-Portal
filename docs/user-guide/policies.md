@@ -19,6 +19,7 @@ to take access away, remove the policy that gives it.
 ## What a policy does
 
 ### The path
+<!-- claim: AC-5; tests: test_a_file_grant_does_not_cover_longer_names, test_a_folder_grant_does_not_cover_folders_sharing_its_name, test_a_dot_in_a_grant_is_just_a_dot -->
 
 A path names exactly one of three things. It is read literally: no character in it is a pattern.
 
@@ -29,6 +30,7 @@ A path names exactly one of three things. It is read literally: no character in 
 | `*` | Everything on the instance, including what's added later. |
 
 ### The action
+<!-- claim: AC-2, AC-3, AC-5; tests: test_a_user_can_read_a_file_they_hold, test_a_user_can_delete_a_file_they_hold, test_a_folder_grant_allows_uploading_into_and_deleting_the_folder, test_a_file_grant_does_not_allow_creating_longer_names, test_a_new_instance_grants_its_creator_a_rule_the_portal_accepts -->
 
 | Action | With a file path, the person can | With a folder path (`folder/*`), the person can |
 |---|---|---|
@@ -41,6 +43,7 @@ The `admin` action is given to whoever creates an instance. It has no effect on 
 access always comes from `read`, `write` and `delete`.
 
 ### What the person sees
+<!-- claim: AC-1, AC-2; tests: test_listings_above_a_file_show_only_the_path_to_it, test_a_folder_listing_shows_only_files_the_user_may_read, test_a_listing_for_an_action_shows_what_the_user_may_do_it_to, test_a_file_grant_does_not_allow_deleting_the_folder_above -->
 
 When browsing, a person sees what they can act on, and the folders on the way to it, nothing else.
 With `read` on `study-a/patient-7/scan.nii` alone, they see `study-a/`, then `patient-7/` inside
@@ -79,6 +82,7 @@ person's file tree; "refused" means the portal won't save the policy.
 | `study-a/patient-7/` | read | | | refused |
 
 ### Examples, read aloud
+<!-- claim: AC-1, AC-5 -->
 
 | Policy | Means |
 |---|---|
@@ -88,6 +92,7 @@ person's file tree; "refused" means the portal won't save the policy.
 | `carol`, `inn-storage`, `*`, `*` | Carol can do anything with any file on the instance. |
 
 ## Writing the policy you want
+<!-- claim: AC-1, AC-5 -->
 
 | You want | Write |
 |---|---|
@@ -99,6 +104,7 @@ person's file tree; "refused" means the portal won't save the policy.
 | To remove access | Delete the policy that gives it. Access stops at once for anything new. |
 
 ## Things that surprise people
+<!-- claim: AC-2, AC-3, AC-4, AC-5; tests: test_uploading_a_file_never_replaces_an_existing_one, test_a_download_refuses_a_selected_file_the_user_may_not_read, test_a_folder_download_holds_only_files_the_user_may_read, test_another_users_bundle_cant_be_checked_or_fetched, test_a_bundle_is_refused_once_access_to_a_file_in_it_is_revoked, test_a_grant_written_with_a_leading_slash_gives_access -->
 
 - **Paths aren't regular expressions.** `.*`, `study-a/.*` or a `*` in the middle of a path are
   refused, with a message giving the right form. Other characters mean themselves: `sub-0[1-3]/*`
@@ -125,6 +131,7 @@ instances in projects they manage. The portal checks this when the policy is sav
 shows.
 
 ## Not yet part of a policy
+<!-- planned: AC-7, AC-8, STD-1 -->
 
 These are planned but not decided, so no policy expresses them yet:
 - access that expires with the agreement that grants it (AC-8);
