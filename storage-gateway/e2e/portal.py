@@ -11,7 +11,7 @@ KEYCLOAK = os.getenv("E2E_KEYCLOAK_URL", "http://localhost:8080")
 GATEWAY = os.getenv("E2E_GATEWAY_URL", "http://posix-gateway.localhost:9100")
 GATEWAY_CONTAINER = os.getenv("E2E_GATEWAY_CONTAINER", "posix-gateway")
 DATA_ROOT = "/srv/posix/data"
-NAMESPACE = "inn-posix"
+NAMESPACE = os.getenv("E2E_NAMESPACE", "inn-posix")
 TIMEOUT = 15
 
 
