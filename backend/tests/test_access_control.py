@@ -216,7 +216,6 @@ def ready_download(owner, bundle_id):
     return r
 
 
-@pytest.mark.xfail(strict=True, reason="INN-272: a bundle's files aren't re-checked when it's fetched")
 def test_a_bundle_is_refused_once_access_to_a_file_in_it_is_revoked(make_user, tree, portal):
     """AC-3. A bundle is built from what its owner could read when they asked; if that access is
     revoked before they fetch it, the archive isn't handed over."""

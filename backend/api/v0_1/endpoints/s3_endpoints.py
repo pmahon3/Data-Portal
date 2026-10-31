@@ -1060,13 +1060,16 @@ async def create_asset_bundle(
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Something went wrong while preparing your download. Please try again.")
 
     # Only the user who asked for a bundle may check or fetch it (require_bundle_owner)
-    get_bundle_owner_collection().insert_one({"_id": bundle_id, "owner": str(user_uuid), "created_at": datetime.utcnow()})
+    # and only while they can still read every file in it (recheck_bundle_access).
+    bundled_file_ids = [f.id for f in files_to_bundle.values() if check.allows(resource_for_key(f.bucket, f.key), "read")]
+    get_bundle_owner_collection().insert_one({"_id": bundle_id, "owner": str(user_uuid), "created_at": datetime.utcnow(),
+                                              "instance_name": request.instance_name, "file_ids": bundled_file_ids})
 
     # Send bundle id and status back to client
     return BundleCreateResponse(bundle_id=bundle_id, status="processing", folder_name=folder_name)
 
 
-def require_bundle_owner(bundle_id: str, user: dict, user_manager: AbstractUserManager, detail: str) -> None:
+def require_bundle_owner(bundle_id: str, user: dict, user_manager: AbstractUserManager, detail: str) -> dict:
     """
     Refuse a bundle to anyone but the user who asked for it.
 
@@ -1077,6 +1080,27 @@ def require_bundle_owner(bundle_id: str, user: dict, user_manager: AbstractUserM
     if record is None or record["owner"] != str(user_manager.get_user_uuid(user["preferred_username"])):
         logger.warning(f"Bundle {bundle_id} refused to '{user['preferred_username']}': not their bundle")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
+    return record
+
+
+async def recheck_bundle_access(record: dict, user_uuid, session: AsyncSession, policy_manager: CasbinPolicyManager,
+                                instance_manager: AbstractInstanceManager) -> None:
+    """
+    Refuse a bundle whose owner can no longer read every file in it, or one of whose files is gone:
+    the archive was built from what they could read when they asked, and access can be revoked
+    since. Bundles recorded before their files were (no file list) aren't re-checked; their records
+    expire with them.
+    """
+    if "file_ids" not in record:
+        return
+    instance_uuid, _agent = get_instance_agent(instance_manager, record["instance_name"])
+    files = await FileService(session).get_files(record["file_ids"])
+    check = policy_manager.checker(user_uuid, instance_uuid)
+    if len(files) != len(set(record["file_ids"])) or not all(
+            check.allows(resource_for_key(f.bucket, f.key), "read") for f in files):
+        logger.warning(f"Bundle {record['_id']} refused: its owner can no longer read every file in it")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail="You no longer have access to every file in this ZIP archive.")
 
 
 @router.get(
@@ -1133,10 +1157,15 @@ async def get_bundle_status(
 async def get_bundle_download_url(
     bundle_id: str,
     user: dict = Depends(decode_token),
+    session: AsyncSession = Depends(get_session),
     user_manager: AbstractUserManager = Depends(get_user_manager),
+    policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
+    instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
 ):
     # Bundles are downloaded from object storage; this endpoint returns a presigned URL, not ZIP bytes.
-    require_bundle_owner(bundle_id, user, user_manager, "This ZIP archive is not available.")
+    record = require_bundle_owner(bundle_id, user, user_manager, "This ZIP archive is not available.")
+    await recheck_bundle_access(record, user_manager.get_user_uuid(user["preferred_username"]), session,
+                                policy_manager, instance_manager)
     try:
         bundler_url = get_bundler_url(get_bundler_provider())
         url_res = await bundler_client.get(f"{bundler_url}/bundles/{bundle_id}/download", timeout=5.0)
