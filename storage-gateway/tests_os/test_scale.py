@@ -131,7 +131,6 @@ def test_downloads_at_once(env, downloads):
         "files_each": per_download, "seconds": round(elapsed, 2), "files_per_second": round(total / elapsed, 1)}
 
 
-@pytest.mark.xfail(strict=True, reason="the helper's listen backlog is 5; a full backlog refuses at once (EAGAIN)")
 def test_a_burst_of_requests_is_queued_not_refused(env):
     """PX-14. Many requests reaching the helper at once wait their turn; none fails as unavailable."""
     grant, files = "scale-burst", paths(64)

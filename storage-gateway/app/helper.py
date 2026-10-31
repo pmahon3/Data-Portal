@@ -533,9 +533,15 @@ def make_server(helper: Helper) -> socketserver.ThreadingUnixStreamServer:
         os.unlink(helper.s.socket_path)
     except FileNotFoundError:
         pass
-    server = socketserver.ThreadingUnixStreamServer(helper.s.socket_path, Handler)
+    server = _HelperServer(helper.s.socket_path, Handler)
     server.daemon_threads = True
     return server
+
+
+class _HelperServer(socketserver.ThreadingUnixStreamServer):
+    # The default backlog is 5, and the file service connects with a timeout, which makes a full
+    # backlog refuse at once (EAGAIN) rather than wait: a few downloads at once failed as unavailable.
+    request_queue_size = socket.SOMAXCONN
 
 
 def serve(settings: HelperSettings, resolve_key=None, socket_mode: int = 0o660, socket_gid: int | None = None):
