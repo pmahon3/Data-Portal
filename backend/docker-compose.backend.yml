@@ -62,9 +62,6 @@ services:
       MONGO_INIT_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:-1q2w3e4r}
       MONGO_DB: ${MONGO_DB:-inn_mongo}
 
-      # Bundler provider switch: set BUNDLER_PROVIDER to "python" or "java"
-      BUNDLER_PROVIDER: ${BUNDLER_PROVIDER:-java}
-      PYTHON_BUNDLER_URL: ${PYTHON_BUNDLER_URL:-http://bundler:8082}
       JAVA_BUNDLER_URL: ${JAVA_BUNDLER_URL:-http://java-bundler:8888}
 
       # Control smoke test execution on startup (default: true)

@@ -33,9 +33,6 @@ from core.utils.paths import build_object_key, join_child_full_path, normalize_f
 
 router = APIRouter(prefix="/tree", tags=["Tree"])
 logger = logging.getLogger("api.endpoints")
-BUNDLER_PROVIDER = os.getenv("BUNDLER_PROVIDER", "java").strip().lower()
-BUNDLER_URL = os.getenv("BUNDLER_URL", "http://bundler:8082")
-PYTHON_BUNDLER_URL = os.getenv("PYTHON_BUNDLER_URL", BUNDLER_URL)
 JAVA_BUNDLER_URL = os.getenv("JAVA_BUNDLER_URL", "http://localhost:8888")
 BUNDLE_SOURCE_URL_EXPIRATION_SECONDS = int(os.getenv("BUNDLE_SOURCE_URL_EXPIRATION_SECONDS", "7200"))
 FOLDER_UPLOAD_PUT_EXPIRATION_SECONDS = int(os.getenv("FOLDER_UPLOAD_PUT_EXPIRATION_SECONDS", "7200"))
@@ -829,27 +826,6 @@ async def delete_folder(
 
 # --------------- Bundler Endpoints ---------------
 
-def get_bundler_provider() -> str:
-    provider = BUNDLER_PROVIDER
-    if provider not in {"python", "java"}:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Unsupported BUNDLER_PROVIDER '{provider}'. Use 'python' or 'java'."
-        )
-    return provider
-
-
-def get_bundler_url(provider: str) -> str:
-    if provider == "python":
-        return PYTHON_BUNDLER_URL
-    if provider == "java":
-        return JAVA_BUNDLER_URL
-    raise HTTPException(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        detail=f"Unsupported bundler provider '{provider}'."
-    )
-
-
 @router.post(
     "/bundle/zip",
     response_model=BundleCreateResponse,
@@ -996,23 +972,14 @@ async def create_asset_bundle(
     # Top level archive structure is bucket_{uuid}/{folder_name}/
     # Empty string removes the folder_name level
     folder_name = request.folder_name or ""
-    provider = get_bundler_provider()
-    bundler_url = get_bundler_url(provider)
-    
-    if provider == "java":
-        init_payload = {
-            "folderName": folder_name,
-            "files": java_bundle_files,
-            "compression": "zip"
-        }
-    else:
-        init_payload = {
-            "urls": all_presigned_urls,
-            "folderName": folder_name
-        }
-    
+    init_payload = {
+        "folderName": folder_name,
+        "files": java_bundle_files,
+        "compression": "zip"
+    }
+
     try:
-        init_res = await bundler_client.post(f"{bundler_url}/bundles", json=init_payload, timeout=10.0)
+        init_res = await bundler_client.post(f"{JAVA_BUNDLER_URL}/bundles", json=init_payload, timeout=10.0)
     except httpx.RequestError as e:
         logger.error(f"Request error while communicating with Bundler: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Something went wrong while preparing your download. Please try again.")
@@ -1055,8 +1022,7 @@ async def get_bundle_status(
         dict: The current status of the bundle.
     """
     try:
-        bundler_url = get_bundler_url(get_bundler_provider())
-        poll_res = await bundler_client.get(f"{bundler_url}/bundles/{bundle_id}", timeout=5.0)
+        poll_res = await bundler_client.get(f"{JAVA_BUNDLER_URL}/bundles/{bundle_id}", timeout=5.0)
     except httpx.RequestError as e:
         logger.error(f"Bundler status check failed for bundle {bundle_id}: {e}")
         raise HTTPException(
@@ -1087,8 +1053,7 @@ async def get_bundle_download_url(
 ):
     # Bundles are downloaded from object storage; this endpoint returns a presigned URL, not ZIP bytes.
     try:
-        bundler_url = get_bundler_url(get_bundler_provider())
-        url_res = await bundler_client.get(f"{bundler_url}/bundles/{bundle_id}/download", timeout=5.0)
+        url_res = await bundler_client.get(f"{JAVA_BUNDLER_URL}/bundles/{bundle_id}/download", timeout=5.0)
     except httpx.RequestError as e:
         logger.error(f"Bundler download URL request failed for bundle {bundle_id}: {e}")
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="We couldn't create a secure download link for this ZIP archive. Please try again.")

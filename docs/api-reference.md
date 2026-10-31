@@ -125,7 +125,7 @@ These routes do not require a bearer token.
 Portal clients should use `/api/tree/bundle/...` instead of calling a bundler
 directly.
 
-### Java Bundler (Default)
+### Java Bundler
 
 | Method | Endpoint | Description |
 |---|---|---|
@@ -133,10 +133,3 @@ directly.
 | `GET` | `/bundles/{bundleId}` | Get job status. |
 | `GET` | `/bundles/{bundleId}/download` | Return a presigned `resultUrl`. |
 | `GET` | `/bundles/admin/jobs` | List all jobs. |
-
-### Python Bundler (Alternative)
-
-The Python service exposes the same create, status, and download routes under
-`/bundles`, `/v1/bundles`, and `/v2/bundles`. Its download route streams ZIP
-bytes instead of returning a presigned URL. It also provides `/health`,
-`/metrics`, and optional `/actuator` operational routes.
