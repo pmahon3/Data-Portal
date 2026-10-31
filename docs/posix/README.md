@@ -223,13 +223,35 @@ Only Mermaid blocks whose first line is `%% check: <name>` are checked; others a
 
 When the code changes, a test fails until the diagram is updated, and the other way round.
 
+## Load
+
+Measured 2026-10-31 with a helper (administrator access), in a Linux container on a 10-CPU laptop,
+using 1 KB files (`tests_os/test_scale.py`; the gate runs a 300-file version):
+
+| Multi-file download | Time | Files per second |
+|---|---|---|
+| 10,000 files, one download | 296 s | 34 |
+| 625 files each, 1 at once | 19 s | 33 |
+| 625 files each, 4 at once | 33 s | 77 |
+| 625 files each, 8 at once | 59 s | 85 |
+| 625 files each, 16 at once | 163 s | 61 |
+
+About 30 ms of each file's cost is the helper starting a process as the temporary ID to open it, so
+small files are dominated by that, not by their bytes. The 34,000-file MEG derivatives case would take
+about 17 minutes as one download. Throughput peaks around 8 downloads at once (the spec's default
+cap) and falls beyond it. One long-lived process per approval, opening all its files, would remove
+most of the per-file cost. Without a helper (`GATEWAY_ACCESS=account`) no process is started.
+
+The measurement found that the helper's listen backlog was Python's default of 5, so 8 downloads at
+once failed as unavailable; it's now the system's maximum.
+
 ## What isn't built yet
 
 
 - For multi-file downloads: a link that outlives a long download (with a helper, each file is
   opened as the stream reaches it, so the link must still be valid then; how long links should last
   is undecided), read-ahead for many small files, a cap on downloads at once, checksums that survive
-  a restart, and measurement (10,000 small files).
+  a restart, and one process per approval instead of one per file (see Load).
 - Single-file downloads still get one approval per link; only multi-file downloads share one.
 - Getting files already on the machine into the portal's file tree (file tracking, RDT's decision).
 - Deployment to a real machine: hosting is RDT's decision, and it depends on the system
