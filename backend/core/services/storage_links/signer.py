@@ -5,6 +5,7 @@ The backend decides access; the file service only checks that a link was signed 
 namespace, path and operation, and hasn't expired.
 """
 import base64
+import hashlib
 import os
 import time
 import uuid
@@ -19,33 +20,36 @@ ALGORITHM = "RS256"
 ISSUER = "inn-portal"
 KEY_ENV = "STORAGE_LINK_SIGNING_KEY"            # the PEM itself, as deployments pass secrets
 KEY_FILE_ENV = "STORAGE_LINK_SIGNING_KEY_FILE"  # or a path to it (local stacks)
+PREVIOUS_KEY_ENV = "STORAGE_LINK_SIGNING_KEY_PREVIOUS"  # during a rotation: the old key's PEM, still published
 OPERATIONS = {"read", "write", "stat", "delete"}
 
 
 class LinkSigner:
     """Signs and publishes the public key for storage link tokens."""
 
-    def __init__(self, private_key: rsa.RSAPrivateKey, key_id: str = "storage-links-1"):
+    def __init__(self, private_key: rsa.RSAPrivateKey, previous: list[rsa.RSAPublicKey] = ()):
         """
         :param private_key: RSA private key used to sign tokens.
-        :param key_id: Key identifier published with the public key.
+        :param previous: Public keys from before a rotation, still published (and accepted) so links
+            signed with them keep working until they expire.
         """
         self._private_key = private_key
-        self.key_id = key_id
+        self._public = {_key_id(k): k for k in [private_key.public_key(), *previous]}
+        self.key_id = _key_id(private_key.public_key())
 
     @classmethod
-    def from_pem(cls, pem: bytes) -> "LinkSigner":
+    def from_pem(cls, pem: bytes, previous: list[rsa.RSAPublicKey] = ()) -> "LinkSigner":
         """Load the signing key from PEM text."""
         key = serialization.load_pem_private_key(pem, password=None)
         if not isinstance(key, rsa.RSAPrivateKey):
             raise TypeError("Storage link signing key must be an RSA private key")
-        return cls(key)
+        return cls(key, previous)
 
     @classmethod
-    def from_pem_file(cls, path: str) -> "LinkSigner":
+    def from_pem_file(cls, path: str, previous: list[rsa.RSAPublicKey] = ()) -> "LinkSigner":
         """Load the signing key from a PEM file."""
         with open(path, "rb") as f:
-            return cls.from_pem(f.read())
+            return cls.from_pem(f.read(), previous)
 
     def sign(self, namespace: str, path: str, operation: str, ttl: int, subject: str | None = None) -> str:
         """
@@ -78,16 +82,21 @@ class LinkSigner:
         return jwt.encode(claims, self._private_key, algorithm=ALGORITHM, headers={"kid": self.key_id})
 
     def jwks(self) -> dict[str, Any]:
-        """Return the public key as a JSON Web Key Set."""
-        numbers = self._private_key.public_key().public_numbers()
+        """Return the public keys (current first) as a JSON Web Key Set."""
         return {"keys": [{
             "kty": "RSA",
             "use": "sig",
             "alg": ALGORITHM,
-            "kid": self.key_id,
-            "n": _b64url_uint(numbers.n),
-            "e": _b64url_uint(numbers.e),
-        }]}
+            "kid": kid,
+            "n": _b64url_uint(key.public_numbers().n),
+            "e": _b64url_uint(key.public_numbers().e),
+        } for kid, key in self._public.items()]}
+
+
+def _key_id(key: rsa.RSAPublicKey) -> str:
+    """A key's ID: its fingerprint, so a new key never shares an ID with the one it replaces."""
+    der = key.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+    return hashlib.sha256(der).hexdigest()[:16]
 
 
 def _b64url_uint(value: int) -> str:
@@ -103,16 +112,22 @@ def get_link_signer() -> LinkSigner:
 
     :raises RuntimeError: If neither is configured, or the key can't be read.
     """
+    previous = []
+    if os.getenv(PREVIOUS_KEY_ENV):
+        try:
+            previous = [serialization.load_pem_private_key(os.environ[PREVIOUS_KEY_ENV].encode(), password=None).public_key()]
+        except (ValueError, TypeError) as e:
+            raise RuntimeError(f"Unable to load the previous signing key from {PREVIOUS_KEY_ENV}") from e
     pem = os.getenv(KEY_ENV)
     if pem:
         try:
-            return LinkSigner.from_pem(pem.encode())
+            return LinkSigner.from_pem(pem.encode(), previous)
         except (ValueError, TypeError) as e:
             raise RuntimeError(f"Unable to load the storage link signing key from {KEY_ENV}") from e
     path = os.getenv(KEY_FILE_ENV)
     if not path:
         raise RuntimeError(f"Neither {KEY_ENV} nor {KEY_FILE_ENV} is set; POSIX storage links can't be signed")
     try:
-        return LinkSigner.from_pem_file(path)
+        return LinkSigner.from_pem_file(path, previous)
     except (OSError, ValueError, TypeError) as e:
         raise RuntimeError(f"Unable to load the storage link signing key from {path}") from e
