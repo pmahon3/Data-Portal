@@ -22,7 +22,7 @@ A1 to A3 in Part A, D1 to D9 in Part D.
 | <a id="px-6"></a>PX-6 | An upload is either complete or absent: a failed upload never leaves part of a file, and never replaces an existing file. | 5.1 postcondition | proposed |
 | <a id="px-7"></a>PX-7 | File contents move directly between the user and the machine, not through the portal's servers. | 5.8 main flow step 2 | proposed |
 | <a id="px-8"></a>PX-8 | It works on a machine where INN has no administrator access. Where INN has it, it is used only where another requirement needs it. | decisions Part A (the setup balance) | proposed |
-| <a id="px-9"></a>PX-9 | Who decides who else can open the governed files on each machine is as A1 decides. | 5.1 postcondition | open |
+| <a id="px-9"></a>PX-9 | On each machine, its system administrators and project managers manage direct access to the governed files by hand (A1); the portal governs only access through itself. | 5.1 postcondition | proposed |
 | <a id="px-10"></a>PX-10 | Activity on POSIX data is recorded as A2 decides (access through the portal is also covered by [AC-9](access-control.md#ac-9)). | 4.1 outcome (transparent logging); 5.1 non-functional requirements | open |
 | <a id="px-11"></a>PX-11 | Files created, changed or deleted directly on a machine appear in the portal within the time A3 sets. | 4.1 step 2 | open |
 | <a id="px-12"></a>PX-12 | Identifiable data moves between the INN and ImageTech machines as D1 decides. | 5.1; 4.7 | open |

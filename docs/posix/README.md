@@ -6,7 +6,7 @@ portal is the interface: it decides who may do what and signs links. A small fil
 machine serves files to holders of those links. Where INN has administrator access, the operating
 system also enforces each link's grant; see [Administrator access](#administrator-access).
 
-Requirements: [POSIX storage](../requirements/posix-storage.md) (PX-1 to PX-15) and
+Requirements: [POSIX storage](../requirements/posix-storage.md) ([PX-1](../requirements/posix-storage.md#px-1) to [PX-15](../requirements/posix-storage.md#px-15)) and
 [access control](../requirements/access-control.md).
 
 Status: built and tested locally on branch `posix/stack`; not deployed. See
@@ -31,23 +31,23 @@ Status: built and tested locally on branch `posix/stack`; not deployed. See
 | 2026-10-23 | With administrator access: temporary user IDs, and the web-facing service can't read the data, so the operating system enforces each grant. |
 | 2026-10-23 | Downloads stream; nothing identifiable is pre-built into a stored copy. |
 | 2026-10-27 | One temporary ID per approval, not per link (replaces one per link). |
-| 2026-10-28 | Administrator access is used only where a requirement needs it (PX-8; proposed). |
-| 2026-10-29 | Multi-file downloads are one ZIP streamed by the file service, never stored (PX-13, PX-14). Object storage keeps the bundler. |
+| 2026-10-28 | Administrator access is used only where a requirement needs it ([PX-8](../requirements/posix-storage.md#px-8); proposed). |
+| 2026-10-29 | Multi-file downloads are one ZIP streamed by the file service, never stored ([PX-13](../requirements/posix-storage.md#px-13), [PX-14](../requirements/posix-storage.md#px-14)). Object storage keeps the bundler. |
 
 ## Administrator access
 
-The aim (PX-8): the same design works on a machine where INN has no administrator access, and uses
+The aim ([PX-8](../requirements/posix-storage.md#px-8)): the same design works on a machine where INN has no administrator access, and uses
 that access only where a requirement needs it. Each use below names the requirement or decision
 that would need it.
 
 | | Without administrator access | With it, added | Needed when |
 |---|---|---|---|
 | Who gets in through the portal | The portal checks access and signs a link per file; the file service checks each link. | Same. | Always; both ways. |
-| What the file service can read | It runs as one ordinary account that can read the governed files, so a fault in it could reach any of them. | It can't open data files. A helper opens each requested file as the link's temporary ID, so the operating system enforces each grant. | No requirement yet. Proposed for identifiable data (PX-4); if kept, it becomes a requirement. |
-| Who owns the governed files | The researchers, as today. They give the service's account read access (for example an ACL). | A data-owner account; the layout tool converts the tree. | A1: the portal decides, for some or all data (PX-9). |
-| Records of portal access on the machine | The file service's line per request (link ID, path, status); the person is in the portal's records. | The helper's line per operation, so the machine's own records trace each temporary ID to a person. | A2, if the machine's own records must show portal access (PX-10). |
-| Records of direct work on the machine, such as scrubbing | Not possible. | The administrator sets up the machine's auditing. | A2, second and third answers (PX-10). |
-| New files showing in the portal | A regular check of the machine. | Change reports as they happen (at least to set up). | A3, "within seconds" (PX-11). |
+| What the file service can read | It runs as one ordinary account that can read the governed files, so a fault in it could reach any of them. | It can't open data files. A helper opens each requested file as the link's temporary ID, so the operating system enforces each grant. | No requirement yet. Proposed for identifiable data ([PX-4](../requirements/posix-storage.md#px-4)); if kept, it becomes a requirement. |
+| Who owns the governed files | The researchers, as today. They give the service's account read access (for example an ACL). | A data-owner account; the layout tool converts the tree. | A1: the portal decides, for some or all data ([PX-9](../requirements/posix-storage.md#px-9)). |
+| Records of portal access on the machine | The file service's line per request (link ID, path, status); the person is in the portal's records. | The helper's line per operation, so the machine's own records trace each temporary ID to a person. | A2, if the machine's own records must show portal access ([PX-10](../requirements/posix-storage.md#px-10)). |
+| Records of direct work on the machine, such as scrubbing | Not possible. | The administrator sets up the machine's auditing. | A2, second and third answers ([PX-10](../requirements/posix-storage.md#px-10)). |
+| New files showing in the portal | A regular check of the machine. | Change reports as they happen (at least to set up). | A3, "within seconds" ([PX-11](../requirements/posix-storage.md#px-11)). |
 | Reaching the machine: port, firewall, TLS | The machine's administrators, either way. | | Always. |
 
 **Choosing per machine.** One build runs either way, set by `GATEWAY_ACCESS`:
@@ -118,7 +118,7 @@ a file is replaced, rewritten or re-stamped (inode, change time, size, modificat
 ## Multi-file downloads
 
 Several files download as one ZIP streamed by the file service, so nothing is built ahead or stored
-(PX-13, PX-14); object storage keeps the bundler. The portal checks access to every file, records the
+([PX-13](../requirements/posix-storage.md#px-13), [PX-14](../requirements/posix-storage.md#px-14)); object storage keeps the bundler. The portal checks access to every file, records the
 approved list (MongoDB `posix-bundles`) and returns one link,
 `{instance_url}/v1/bundles/{namespace}/{grant}`, whose token has `op: bundle`, the approval ID and
 `list`, the SHA-256 of the list as served. The file service fetches the list from `GET
