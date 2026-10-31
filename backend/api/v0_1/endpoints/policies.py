@@ -98,6 +98,15 @@ async def get_policies(
             action=None
         )
 
+    # Names are accepted as filters; stored rules hold UUIDs
+    try:
+        if policy_filter.username:
+            policy_filter.user_uuid = user_manager.get_user_uuid(policy_filter.username)
+        if policy_filter.instance_name:
+            policy_filter.instance_uuid = instance_manager.get_instance_uuid(policy_filter.instance_name)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="User or instance not found")
+
     policies = policy_manager.filter_policies(policy_filter)
     if policies is None:
         logger.error("No policies found matching the filter criteria")

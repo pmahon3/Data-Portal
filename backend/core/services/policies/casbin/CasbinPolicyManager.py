@@ -97,7 +97,8 @@ class CasbinPolicyManager:
         def convert_to_str(value: object | None) -> str:
             return value.__str__() if value is not None else ""
 
-        filter_ = tuple(map(convert_to_str, filter_.dict().values()))
+        # Only the fields a stored rule has (p = sub, dom, obj, act in model.conf)
+        filter_ = tuple(map(convert_to_str, (filter_.user_uuid, filter_.instance_uuid, filter_.resource, filter_.action)))
 
         # Retrieve the policies matching the filter
         policies = self.enforcer.get_filtered_policy(0, *filter_)
