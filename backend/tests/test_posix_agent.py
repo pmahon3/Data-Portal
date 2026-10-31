@@ -314,3 +314,35 @@ def test_delete_records_who_asked(signer):
 
     make_agent(signer, handler).delete_object(f"{NAMESPACE}/a.txt", subject="user-7")
     assert seen["claims"]["sub"] == "user-7"
+
+
+def test_a_rotated_signer_publishes_both_keys_and_signs_with_the_current_one():
+    """PX-1. During a rotation the portal publishes the old key too, so links issued before it still work."""
+    old, new = (rsa.generate_private_key(public_exponent=65537, key_size=2048) for _ in range(2))
+    rotated = LinkSigner(new, previous=[old.public_key()])
+    kids = [k["kid"] for k in rotated.jwks()["keys"]]
+    assert len(set(kids)) == 2 and kids[0] == rotated.key_id == LinkSigner(new).key_id
+    assert jwt.get_unverified_header(rotated.sign(NAMESPACE, f"{NAMESPACE}/a.txt", "read", 60))["kid"] == kids[0]
+    issued_before = LinkSigner(old).sign(NAMESPACE, f"{NAMESPACE}/g1", "bundle", 60, grant="g1", listing="d")
+    assert rotated.verify(issued_before)["grant"] == "g1"
+    with pytest.raises(jwt.PyJWTError):
+        LinkSigner(new).verify(issued_before)  # once the old key is dropped, its links stop working
+
+
+def test_the_previous_key_is_read_from_the_environment(monkeypatch):
+    """PX-1."""
+    from cryptography.hazmat.primitives import serialization
+
+    from core.services.storage_links import signer as signer_module
+
+    def pem(key):
+        return key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                 serialization.NoEncryption()).decode()
+    old, new = (rsa.generate_private_key(public_exponent=65537, key_size=2048) for _ in range(2))
+    monkeypatch.setenv(signer_module.KEY_ENV, pem(new))
+    monkeypatch.setenv(signer_module.PREVIOUS_KEY_ENV, pem(old))
+    signer_module.get_link_signer.cache_clear()
+    try:
+        assert signer_module.get_link_signer().jwks() == LinkSigner(new, previous=[old.public_key()]).jwks()
+    finally:
+        signer_module.get_link_signer.cache_clear()

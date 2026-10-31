@@ -105,6 +105,12 @@ named by `STORAGE_LINK_SIGNING_KEY_FILE` for local stacks) and publishes the pub
 approval the link belongs to). The agreed contract, including URL encodings of awkward names, is
 `storage-gateway/contract/link-contract.json`; both the backend and the file service test against it.
 
+**Rotating the key.** Each key's ID (`kid`) is its fingerprint. To rotate, move the old PEM to
+`STORAGE_LINK_SIGNING_KEY_PREVIOUS`, put the new one in `STORAGE_LINK_SIGNING_KEY` and restart the
+backend: new links are signed with the new key, and both public keys are published, so links issued
+before the rotation keep working until they expire. Once the longest-lived of them has expired
+(`BUNDLE_SOURCE_URL_EXPIRATION_SECONDS`, 2 hours by default, is the longest), remove the previous key.
+
 Browser links use the query string; the backend's own calls (metadata, delete) send a short-lived
 token as `Authorization: Bearer`. Downloads support `Range` and `If-Range`; the validator changes when
 a file is replaced, rewritten or re-stamped (inode, change time, size, modification time).
