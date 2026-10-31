@@ -13,7 +13,7 @@ flowchart TB
     browser(["Browser and portal backend"])
 
     subgraph container["POSIX machine: file service"]
-        web["Web service · process uvicorn · uid 10001 · groups none · port 9100<br/>checks tokens for early refusals; can't open any data file"]
+        web["Web service · process uvicorn · uid 10001 · groups none · port 9100<br/>checks tokens for early refusals; serves HTTPS itself when given a certificate; can't open any data file"]
         helper["Privileged helper · process app.helper · uid 0<br/>checks every token itself; grants, places, deletes, revokes"]
         opener["Opener · one per request · uid from 2000000 · group 10010<br/>opens files as the link's temporary ID"]
         sock["socket /run/gateway/helper.sock · mode 0660 · owner 0:10001"]
@@ -52,9 +52,14 @@ flowchart TB
   expired, and opens its socket.
 - The web service starts as `gateway` with `--no-new-privs`. It tries to read the canary: if it can,
   it refuses to start.
+- With a certificate (`GATEWAY_TLS_CERT`, `GATEWAY_TLS_KEY`), the web service gets its own copy of
+  the key in `/run/gateway`, readable by `gateway` alone, before it starts. Locally there's no
+  certificate and it serves plain HTTP.
+- With `GATEWAY_STATE_DIR` set, that folder is created for `gateway` if missing; the web service keeps
+  ZIP checksums there across restarts.
 - If either process stops, the container stops. If the helper is unreachable, requests get 503;
   nothing falls back to direct access.
 
 ---
 
-**Last Updated:** 2026-10-29
+**Last Updated:** 2026-10-31
