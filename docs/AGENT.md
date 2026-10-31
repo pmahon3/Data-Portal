@@ -270,7 +270,7 @@ Current flow:
 Completing an upload records a notification for the user (MongoDB `notifications`), listed at
 `GET /api/notifications/` and in the navbar bell. Each notification also goes to every channel in
 `core/services/notifications`; email is the only one, off until `SMTP_HOST` is set, and never names
-files, since file names can identify participants. See `docs/diagrams/notifications.md` and NT-1 in
+files, since file names can identify participants. See `docs/diagrams/notifications.md` and [NT-1](requirements/notifications.md#nt-1) in
 `docs/requirements/notifications.md`.
 
 ## Data Standards

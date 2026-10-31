@@ -18,7 +18,7 @@ in object storage and are transferred with presigned URLs.
 
 ## File Tree
 
-See [File Tree Loading](./file-tree-loading/) for loading modes, caching, and
+See [File Tree Loading](./frontend/file-tree-loading/) for loading modes, caching, and
 tree authorization behavior.
 
 | Method | Endpoint | Description |

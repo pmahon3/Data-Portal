@@ -55,8 +55,10 @@ shows what they may delete.
 
 ### Does this policy allow it?
 
-Each row is one policy and one question about it. "Browse" asks whether a folder appears in the
-person's file tree; "refused" means the portal won't save the policy.
+Each row is one policy and one question about it: may the person `read`, `write` or `delete` the
+path, or is a folder `shown in tree`? A folder is shown when it lies on the way to something the
+person holds; only its name appears. That gives no access to the folder, and its other contents stay
+hidden. "Refused" means the portal won't save the policy.
 
 <!-- check: policy-examples (run by backend/tests/test_policy_guide.py) -->
 | Policy path | Action | Asked | About | Answer |
@@ -64,9 +66,10 @@ person's file tree; "refused" means the portal won't save the policy.
 | `study-a/patient-7/scan.nii` | read | read | `study-a/patient-7/scan.nii` | yes |
 | `study-a/patient-7/scan.nii` | read | read | `study-a/patient-7/scan.nii.bak` | no |
 | `study-a/patient-7/scan.nii` | read | read | `study-a/patient-7/notes.txt` | no |
-| `study-a/patient-7/scan.nii` | read | browse | `study-a/` | yes |
-| `study-a/patient-7/scan.nii` | read | browse | `study-a/patient-7/` | yes |
-| `study-a/patient-7/scan.nii` | read | browse | `study-a/patient-8/` | no |
+| `study-a/patient-7/scan.nii` | read | shown in tree | `study-a/` | yes |
+| `study-a/patient-7/scan.nii` | read | shown in tree | `study-a/patient-7/` | yes |
+| `study-a/patient-7/scan.nii` | read | read | `study-a/patient-7/` | no |
+| `study-a/patient-7/scan.nii` | read | shown in tree | `study-a/patient-8/` | no |
 | `study-a/patient-7/scan.nii` | read | delete | `study-a/patient-7/scan.nii` | no |
 | `study-a/patient-7/*` | read | read | `study-a/patient-7/session-2/new.nii` | yes |
 | `study-a/patient-7/*` | read | read | `study-a/patient-70/scan.nii` | no |
@@ -134,12 +137,12 @@ shows.
 <!-- planned: AC-7, AC-8, STD-1 -->
 
 These are planned but not decided, so no policy expresses them yet:
-- access that expires with the agreement that grants it (AC-8);
-- blocking new access to a withdrawn participant's data (AC-7);
-- what quarantine holds back when data fails its standard's checks (STD-1).
+- access that expires with the agreement that grants it ([AC-8](../requirements/access-control.md#ac-8));
+- blocking new access to a withdrawn participant's data ([AC-7](../requirements/access-control.md#ac-7));
+- what quarantine holds back when data fails its standard's checks ([STD-1](../requirements/data-standards.md#std-1)).
 
 ## Where this comes from
 
 Each statement here is a requirement in [access control](../requirements/access-control.md)
-(AC-1 to AC-5), checked by `backend/tests/test_access_control.py` against the running portal.
+([AC-1](../requirements/access-control.md#ac-1) to [AC-5](../requirements/access-control.md#ac-5)), checked by `backend/tests/test_access_control.py` against the running portal.
 How the portal decides is in `backend/core/services/policies/rules.py`.
