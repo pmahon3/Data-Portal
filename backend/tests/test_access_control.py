@@ -207,6 +207,28 @@ def test_the_user_who_asked_for_a_bundle_can_fetch_it(make_user, tree):
     assert r.json()["result_url"]
 
 
+def ready_download(owner, bundle_id):
+    for _ in range(60):
+        r = owner.bundle_download(bundle_id)
+        if r.status_code != 202:
+            return r
+        time.sleep(1)
+    return r
+
+
+@pytest.mark.xfail(strict=True, reason="INN-272: a bundle's files aren't re-checked when it's fetched")
+def test_a_bundle_is_refused_once_access_to_a_file_in_it_is_revoked(make_user, tree, portal):
+    """AC-3. A bundle is built from what its owner could read when they asked; if that access is
+    revoked before they fetch it, the archive isn't handed over."""
+    owner = make_user(("read", "study/scan-042.nii"), ("read", "study/scan-043.nii"))
+    r = owner.download_bundle(file_ids=[tree.file("study/scan-042.nii"), tree.file("study/scan-043.nii")])
+    assert r.status_code == 200, r.text
+    bundle_id = r.json()["bundle_id"]
+    assert ready_download(owner, bundle_id).status_code == 200
+    portal.revoke(owner, portal.resource("study/scan-043.nii"), "read")
+    assert owner.bundle_download(bundle_id).status_code == 403
+
+
 # ------------------------------------------------- a grant covers exactly what it names
 
 def test_a_file_grant_does_not_cover_longer_names(make_user, tree):
