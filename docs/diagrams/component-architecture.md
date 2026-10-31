@@ -83,12 +83,14 @@ graph LR
     subgraph "Storage Agents"
         S3Agent[S3 Storage<br/>Agent]
         DummyAgent[Dummy Storage<br/>Agent]
+        PosixAgent[POSIX Storage<br/>Agent]
         AbstractAgent[Abstract Storage<br/>Agent Interface]
     end
 
     subgraph "External Services"
         KeycloakSvc[Keycloak<br/>Service]
         S3Backend[S3<br/>Backend]
+        FileService[POSIX file service<br/>on each machine]
         Mongo[(MongoDB)]
         Relay[Mail relay]
     end
@@ -106,11 +108,13 @@ graph LR
     InstanceMgr --> AbstractAgent
     AbstractAgent --> S3Agent
     AbstractAgent --> DummyAgent
+    AbstractAgent --> PosixAgent
 
     AuthAPI -.->|Validates Tokens| KeycloakSvc
     PolicyMgr -.->|Casbin Rules| PolicyMgr
     UserMgr -.->|CRUD Operations| KeycloakSvc
     S3Agent -.->|Presigned URLs| S3Backend
+    PosixAgent -.->|Signed links| FileService
     Notify -.->|notifications| Mongo
     Notify -.->|email, when SMTP_HOST is set| Relay
     Standards -.->|dataset-checks| Mongo

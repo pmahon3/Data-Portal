@@ -75,6 +75,19 @@ docker compose down
 - If projects are missing or unavailable, confirm that the projects group claim is configured. See the [projects documentation](../docs/diagrams/README.md).
 - If the frontend entrypoint cannot be found or executed, confirm that the entrypoint file uses LF line endings.
 
+## POSIX storage (optional)
+
+To try a POSIX instance locally, start the file service and a backend with link signing beside the
+portal (from the repository root):
+
+```bash
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out backend/data/keys/storage-links.pem
+docker compose -p ams-posix -f local/docker-compose.posix.yaml up -d --build
+```
+
+Then create a `posix` instance with URL `http://posix-gateway.localhost:9100` and namespace
+`inn-posix`.
+
 ## More guides
 
 - [Local development](../local/README.md)

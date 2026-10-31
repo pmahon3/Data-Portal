@@ -75,7 +75,6 @@ services:
       MONGO_INIT_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:-admin}
       MONGO_INIT_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:-1q2w3e4r}
       MONGO_DB: ${MONGO_DB:-inn_mongo}
-      BUNDLER_PROVIDER: java
       JAVA_BUNDLER_URL: http://java-bundler:8888
       RUN_SMOKE_TESTS: "false"
       STORAGE_LINK_SIGNING_KEY_FILE: /app/data/keys/storage-links.pem

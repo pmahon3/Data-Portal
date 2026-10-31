@@ -81,6 +81,7 @@ Main backend route groups:
 - `/api/instances` for storage instance CRUD
 - `/api/tree` for DB-backed file tree endpoints
 - `/api/notifications` for the current user's notifications
+- `/api/storage-links` for POSIX file services: the public keys links are signed with
 - `/api/health` for health and environment validation
 
 The system currently has two overlapping ways to reason about storage trees:
@@ -124,8 +125,8 @@ Storage instances are managed through the backend `InstanceManager`.
 - Instance definitions are loaded from MongoDB at startup.
 - A storage agent is created in memory for each configured instance.
 - The instance UUID is stable and derived from the instance name.
-- The backend currently supports `s3` and `dummy` flavours in code.
-- The admin UI currently exposes only `s3` creation.
+- The backend supports `s3`, `posix` and `dummy` flavours in code.
+- The admin UI creates `s3` and `posix` instances.
 
 Important behavior:
 
@@ -263,7 +264,7 @@ Current flow:
 - `/bundles/{bundleId}/download` returns a presigned URL for the completed archive in object storage; the backend passes that URL to the frontend.
 - Bundler should not be treated as the authorization authority. It assumes the backend has already checked access before submitting URLs.
 - A bundle belongs to the user who created it: the backend records the owner and the bundle's files, and refuses anyone else. When the bundle is fetched, every file in it is checked again, so revoked access or a deleted file stops the download (INN-272). Owner records expire after `BUNDLE_OWNER_RETENTION_HOURS` (192, a day past the bundler's 7-day retention).
-- Current implementation is URL-based and S3-oriented from the backend side; POSIX support should be added explicitly rather than assumed.
+- The bundler serves object storage only; several files from a POSIX instance can't yet be downloaded as one ZIP (refused).
 
 ## Notifications
 
@@ -282,6 +283,16 @@ contents). A failure puts the dataset in quarantine (MongoDB `dataset-checks`) a
 lists the problems in `checks`. Quarantine is recorded only, until what it holds back is decided.
 Standards plug in as validators; `DATA_STANDARDS` chooses them (default `bids`). See
 `docs/diagrams/data-standards.md` and `docs/requirements/data-standards.md`.
+
+## POSIX Storage
+
+A `posix` instance points at a small file service (`storage-gateway/`) on a POSIX machine, by URL and
+namespace (used like a bucket name). The backend checks access as for object storage and signs
+short-lived links (public keys at `/api/storage-links/jwks.json`); the file service checks each link
+and serves the file, so file contents never pass through the backend. The file service runs as one
+ordinary account that can read and write the data; it never follows symbolic links. Requirements are
+in `docs/requirements/posix-storage.md` (PX-n); `storage-gateway/contract/` holds the link format both
+sides test against, and `local/docker-compose.posix.yaml` runs it locally.
 
 ## Known Transitional Areas
 
@@ -316,6 +327,9 @@ Backend tests are in `backend/tests/`; frontend tests sit next to the components
 | smoke and CRUD tests (`test_*_smoke.py`, `test_policy_crud.py`) | Authentication, policies, users | Against the running backend |
 | `test_policy_guide.py` | The policy guide's "Does this policy allow it?" table, row by row, against the decision layer | From a checkout (it reads `docs/`): `pytest tests/test_policy_guide.py`; it skips in the container |
 | frontend | Components | From `frontend/`: `CI=true npm test` |
+| `storage-gateway/tests/` | The POSIX file service: links, ranges, uploads, adversarial and property tests | From `storage-gateway/`: `pytest tests` |
+| `storage-gateway/e2e/` | The portal and a POSIX file service end to end, and S3/POSIX parity | Needs the local stack and `local/docker-compose.posix.yaml` up; `pytest e2e` |
+| `backend/tests/test_posix_*.py` | The backend's POSIX connector and its link contract with the file service | `pytest tests/test_posix_agent.py tests/test_posix_contract.py` |
 
 ## Requirements and Tests
 
