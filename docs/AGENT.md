@@ -360,7 +360,10 @@ it serves, and whether it's settled, proposed or open.
   The system overview (`docs/diagrams/component-architecture.md`) shows only what's merged; an MR
   adds itself there once the MRs it would clash with are merged.
 - Stacked MRs (one built on another) say what they're based on, and merge in that order.
-- User-facing docs (`docs/user-guide/`) mark what each section states with hidden comments:
+- User-facing docs (`docs/user-guide/`, published as the wiki) follow
+  [Writing the user guide](writing-the-user-guide.md): task pages in one shape, exact UI labels,
+  screenshots from `docs/images/capture.py`. A change users can see updates the guide in the same MR.
+  They mark what each section states with hidden comments:
   `<!-- claim: AC-5; tests: test_... -->`, or `<!-- planned: AC-7 -->` for what isn't settled. A table
   marked `<!-- check: ... -->` is executed by the test it names, so change the table and the rules together.
 

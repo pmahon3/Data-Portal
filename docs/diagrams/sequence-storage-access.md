@@ -236,7 +236,7 @@ Every storage agent (`backend/core/storage_agents/`) provides these; the S3 agen
 ## Access Control Patterns
 
 Policy paths are literal: a file, a folder and everything in it (`folder/*`), or `*` for the whole
-instance. The full guide, with what each policy allows: [Policies](../user-guide/policies.md).
+instance. What each policy allows, with examples: [How access works](../user-guide/how-access-works.md).
 
 | Policy (path, action) | Allows |
 |---|---|

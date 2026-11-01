@@ -26,7 +26,7 @@ been given that kind of access there.
 **My Policies** lists each permission you hold: the instance, the path, and the action. A path
 ending in `/*` covers that folder and everything in it, including files added later; any other
 path is one file. You can't change your own access here: ask your administrator or project
-manager.
+manager. What each permission allows: [How access works](how-access-works.md).
 
 ![The My Policies tab: read on study/*, write on study/sub-03/*](../images/researcher-my-policies.png)
 
@@ -38,3 +38,8 @@ researcher's **My Assets**.
 ![The admin panel: User, Project, Policy, Asset and Connection Management](../images/admin-home.png)
 
 The bell at the top shows [notifications](notifications.md).
+
+## Related
+
+- [Finding and downloading files](downloading.md)
+- [Uploading files and folders](uploading.md)
