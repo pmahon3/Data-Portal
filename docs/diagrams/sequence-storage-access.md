@@ -43,6 +43,7 @@ flowchart TD
     G --> H["Browser uploads file bytes<br/>directly to S3 storage"]
     H --> I["Frontend confirms upload<br/>POST /api/tree/files/upload/complete"]
     I --> J["Backend checks S3 object with HEAD<br/>and marks file complete"]
+    J --> T
 
     B -->|Folder| K["Frontend builds folder manifest"]
     K --> L["Frontend initializes folder upload once<br/>POST /api/tree/folders/upload/init"]
@@ -53,11 +54,68 @@ flowchart TD
     P --> Q["Frontend completes folder upload once<br/>POST /api/tree/folders/upload/complete"]
     Q --> R["Backend checks permissions<br/>and batch-updates DB rows"]
     R --> S["Mark uploaded folders complete"]
+    S --> T["Check declared datasets<br/>and notify the uploader once"]
 ```
+
+## Folder Upload
+
+One request prepares the whole folder, the browser sends the bytes straight to object storage,
+and one request completes it. Write access is checked on the chosen folder and on every file it
+will create, before anything is created ([AC-3](../requirements/access-control.md#ac-3)).
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant Frontend
+    participant Backend
+    participant Casbin
+    participant Postgres as PostgreSQL (file tree)
+    participant S3 as Object storage
+    participant Mongo as MongoDB (notifications)
+
+    User->>Frontend: Choose a folder in the Upload tab
+    Frontend->>Frontend: Manifest: relative path, type, size per file<br/>(skips files like .DS_Store)
+    Frontend->>Backend: POST /api/tree/folders/upload/init<br/>{instance_name, bucket, parent_id, on_conflict: "error", files}
+    Backend->>Casbin: write on the chosen folder?
+    Backend->>Casbin: write on every file key it will create?
+    alt Any refused
+        Backend-->>Frontend: 403
+    else Allowed
+        Backend->>Postgres: Existing complete files at those keys?
+        alt Conflicts and on_conflict = "error"
+            Backend-->>Frontend: 409 {conflicts}
+        else No conflicts
+            Backend->>Postgres: Create missing folders and pending file rows
+            Backend->>Backend: Sign one PUT URL per file<br/>(locally, no S3 call)<br/>valid FOLDER_UPLOAD_PUT_EXPIRATION_SECONDS (2 h)
+            Backend-->>Frontend: {files: [{file_id, relative_path, key, url}], folders_to_create}
+        end
+    end
+
+    par Six at a time
+        Frontend->>S3: PUT file bytes to its signed URL
+    end
+
+    Frontend->>Backend: POST /api/tree/folders/upload/complete<br/>{instance_name, file_ids}
+    loop Each file
+        Backend->>Casbin: still allowed to write this key?
+        Backend->>S3: HEAD object (size, ETag)<br/>(skipped when FOLDER_UPLOAD_SKIP_HEAD_CHECK)
+    end
+    Backend->>Postgres: Mark files complete, then their folders,<br/>so they appear in the tree
+    Backend->>Backend: Check declared datasets (STD-1)
+    Backend->>Mongo: One notification: stored, or stored with failures (NT-1)
+    Backend-->>Frontend: {completed, failed, checks}
+    Frontend->>User: Done, or how many files failed
+```
+
+Completing the same upload again changes nothing and doesn't notify twice. See also
+[Notifications](notifications.md) and [Data standards](data-standards.md).
 
 ## File Tree Loading
 
-Loading directory structure from storage backend.
+The tree comes from the file tree in PostgreSQL, not from listing object storage. Each tab
+(Download, Upload, Delete) asks for the tree for its own action, so it shows what the user may do
+that to ([AC-1](../requirements/access-control.md#ac-1), [AC-2](../requirements/access-control.md#ac-2)).
+Browsing loads one folder at a time; searching loads the whole tree once and filters it in the browser.
 
 ```mermaid
 sequenceDiagram
@@ -65,192 +123,81 @@ sequenceDiagram
     participant Frontend
     participant Backend
     participant Casbin
-    participant S3Agent
-    participant S3Storage
+    participant Postgres as PostgreSQL (file tree)
 
-    User->>Frontend: Navigate to Storage Instance
-    Frontend->>Backend: GET /api/asset/user-assets-data<br/>Bearer {token}
-
-    Backend->>Backend: Validate JWT Token
-    Backend->>Casbin: enforce(user_id, instance_uuid, list)
-
-    alt List Allowed
-        Casbin->>Backend: true (ALLOW)
-
-        Backend->>S3Agent: load_file_tree()<br/>(instance_uuid)
-
-        S3Agent->>S3Agent: Get Instance Config<br/>(bucket, prefix)
-
-        loop Paginated Listing
-            S3Agent->>S3Storage: list_objects_v2()<br/>Bucket={bucket}<br/>Prefix={prefix}<br/>MaxKeys=1000
-
-            S3Storage->>S3Agent: Object List<br/>{objects[], is_truncated}
-
-            S3Agent->>S3Agent: Build File Tree<br/>(parse keys, create hierarchy)
-
-            alt More Objects
-                S3Agent->>S3Agent: Store ContinuationToken
-            end
-        end
-
-        S3Agent->>S3Agent: Apply Resource Filters<br/>(Casbin resource patterns)
-
-        S3Agent->>Backend: FileTree<br/>{folders[], files[]}
-
-        Backend->>Frontend: 200 OK<br/>{file_tree, metadata}
-
-        Frontend->>Frontend: Render Tree View
-        Frontend->>User: Display Files/Folders
-
-    else List Denied
-        Casbin->>Backend: false (DENY)
-        Backend->>Frontend: 403 Forbidden
-        Frontend->>User: Access Denied
-    end
-```
-
-## Folder Download (ZIP)
-
-Downloading an entire folder as a ZIP archive.
-
-```mermaid
-sequenceDiagram
-    actor User
-    participant Frontend
-    participant Backend
-    participant Casbin
-    participant S3Agent
-    participant S3Storage
-
-    User->>Frontend: Click Download Folder
-    Frontend->>Backend: GET /api/asset/download-folder<br/>Bearer {token}<br/>instance_name={name}&resource=data/reports/
-
-    Backend->>Backend: Validate JWT Token
-    Backend->>Casbin: enforce(user_id, instance_uuid, read)
-
-    alt Access Allowed
-        Casbin->>Backend: true (ALLOW)
-
-        Backend->>S3Agent: list_folder_contents()<br/>(instance_uuid, path)
-
-        S3Agent->>S3Storage: list_objects_v2()<br/>Prefix=data/reports/
-
-        S3Storage->>S3Agent: Object Keys[]
-
-        S3Agent->>S3Agent: Filter Accessible Files<br/>(apply resource patterns)
-
-        S3Agent->>Backend: File List[]
-
-        loop For Each File
-            Backend->>S3Agent: generate_access_link()<br/>(file_path)
-            S3Agent->>Backend: Presigned URL
-        end
-
-        Backend->>Frontend: 200 OK<br/>{files: [{path, url}]}
-
-        Frontend->>Frontend: Initialize ZIP Stream<br/>(JSZip library)
-
-        loop For Each File URL
-            Frontend->>S3Storage: GET {presigned_url}
-            S3Storage->>Frontend: File Data Stream
-            Frontend->>Frontend: Add to ZIP Archive
-        end
-
-        Frontend->>Frontend: Finalize ZIP
-        Frontend->>User: Download folder.zip
-    end
+    User->>Frontend: Open an instance's card
+    Frontend->>Backend: GET /api/tree/dashboard/{instance_uuid}/children?access=read
+    Backend->>Casbin: Load the user's rules for this instance once
+    Backend->>Postgres: Root folder of each bucket
+    Backend->>Backend: Keep a bucket when the user may act on it<br/>or on something inside it
+    Backend-->>Frontend: {access, assets: [nodes]}
+    User->>Frontend: Expand a folder
+    Frontend->>Backend: GET .../children?access=read&parent_id={id}
+    Backend->>Postgres: Its folders and files
+    Backend->>Backend: Folders on the way to something allowed,<br/>and files the user may act on
+    Backend-->>Frontend: {access, assets}
+    User->>Frontend: Search, e.g. *.nii
+    Frontend->>Backend: GET /api/tree/dashboard/{instance_uuid}?access=read
+    Backend-->>Frontend: The whole allowed tree
+    Frontend->>Frontend: Filter in the browser
 ```
 
 ## Storage Instance Creation
 
-Admin creating a new storage instance.
+An administrator or project manager adds an instance. Its creator is granted the whole instance.
 
 ```mermaid
 sequenceDiagram
-    actor Admin
+    actor Admin as Administrator or project manager
     participant Frontend
     participant Backend
+    participant InstanceMgr as Instance manager
+    participant S3 as Object storage
+    participant Mongo as MongoDB (instances)
     participant Casbin
-    participant InstanceMgr
-    participant S3Agent
-    participant PolicyMgr
 
-    Admin->>Frontend: Fill Instance Form<br/>(name, bucket, credentials)
-    Frontend->>Backend: POST /api/admin/instances/<br/>Bearer {token}<br/>{flavour: "s3", config: {...}}
-
-    Backend->>Backend: Validate Admin Token
-    Backend->>Casbin: enforce(admin_id, admin, create_instance)
-    Casbin->>Backend: true (ALLOW)
-
-    Backend->>Backend: Generate instance_uuid<br/>uuid5(NAMESPACE_DNS, name)
-
-    Backend->>S3Agent: Validate Configuration<br/>(test connection)
-
-    S3Agent->>S3Storage: list_buckets()<br/>(test credentials)
-
-    alt Connection Valid
-        S3Storage->>S3Agent: Bucket List
-        S3Agent->>Backend: Configuration Valid
-
-        Backend->>InstanceMgr: create_instance()<br/>(uuid, name, config, agent)
-
-        InstanceMgr->>InstanceMgr: Add to Instances List
-        InstanceMgr->>InstanceMgr: Save Config JSON<br/>(configs/{uuid}.json)
-
-        Backend->>PolicyMgr: add_policy()<br/>(admin_id, instance_uuid, .*, admin)
-
-        PolicyMgr->>Casbin: Add Policy Rule
-        Casbin->>PolicyMgr: Policy Added
-
-        Backend->>Frontend: 201 Created<br/>{instance_uuid, name}
-        Frontend->>Admin: Instance Created
-
-    else Connection Invalid
-        S3Storage->>S3Agent: 403 Forbidden
-        S3Agent->>Backend: Invalid Credentials
-        Backend->>Frontend: 400 Bad Request<br/>Invalid S3 configuration
-        Frontend->>Admin: Error Message
+    Admin->>Frontend: Fill in the instance form<br/>(name, endpoint, credentials, projects)
+    Frontend->>Backend: POST /api/instances/<br/>Bearer {token}
+    Backend->>Backend: Administrator, or manager of the named projects?
+    Backend->>InstanceMgr: save_instance(config)
+    InstanceMgr->>S3: Connect and list buckets
+    InstanceMgr->>InstanceMgr: No bucket already tracked by another instance
+    InstanceMgr->>Mongo: Save the config, secrets encrypted
+    alt Invalid, duplicate or unreachable
+        Backend-->>Frontend: 409, 422 or 502
+    else Saved
+        Backend->>Casbin: Grant the creator admin on "*" (the whole instance)
+        alt Grant fails
+            Backend->>InstanceMgr: Delete the instance again
+            Backend-->>Frontend: 500
+        else Granted
+            Backend->>Backend: Link the instance to its projects
+            Backend-->>Frontend: Created {uuid, name}
+        end
     end
 ```
 
 ## Storage Instance Deletion
 
-Admin deleting a storage instance and associated policies.
+Only an administrator can delete an instance. The files in object storage are left alone.
 
 ```mermaid
 sequenceDiagram
-    actor Admin
+    actor Admin as Administrator
     participant Frontend
     participant Backend
+    participant Postgres as PostgreSQL (file tree)
+    participant Mongo as MongoDB (instances, projects)
     participant Casbin
-    participant InstanceMgr
-    participant PolicyMgr
 
-    Admin->>Frontend: Click Delete Instance
-    Frontend->>Backend: DELETE /api/admin/instances/{uuid}<br/>Bearer {token}
-
-    Backend->>Backend: Validate Admin Token
-    Backend->>Casbin: enforce(admin_id, admin, delete_instance)
-    Casbin->>Backend: true (ALLOW)
-
-    Backend->>InstanceMgr: get_instance_by_uuid(uuid)
-    InstanceMgr->>Backend: Instance Details
-
-    Backend->>PolicyMgr: get_instance_policies(uuid)
-    PolicyMgr->>Backend: Policy List[]
-
-    Note over Backend: Confirm policies will be removed
-
-    Backend->>InstanceMgr: delete_instance(instance)
-    InstanceMgr->>InstanceMgr: Remove from Instances List
-    InstanceMgr->>InstanceMgr: Delete Config File<br/>(configs/{uuid}.json)
-
-    Backend->>PolicyMgr: remove_policies(policy_list)
-    PolicyMgr->>Casbin: Remove Policy Rules
-    Casbin->>PolicyMgr: Policies Removed
-
-    Backend->>Frontend: 200 OK<br/>Instance deleted
-    Frontend->>Admin: Success Message
+    Admin->>Frontend: Delete the instance
+    Frontend->>Backend: DELETE /api/instances/{uuid}<br/>Bearer {token}
+    Backend->>Backend: Administrator?
+    Backend->>Postgres: Delete the file tree of its buckets
+    Backend->>Mongo: Delete the instance
+    Backend->>Mongo: Remove it from every project
+    Backend->>Casbin: Remove every policy on the instance
+    Backend-->>Frontend: Removed
 ```
 
 ---
@@ -259,12 +206,15 @@ sequenceDiagram
 
 ### Supported Operations
 
-| Operation | S3 Agent | Dummy Agent | Description |
-|-----------|----------|-------------|-------------|
-| `generate_access_link()` | ✅ Presigned GET URL | ✅ Mock URL | Get download URL |
-| `generate_upload_link()` | ✅ Presigned PUT URL | ✅ Mock URL | Get upload URL |
-| `load_file_tree()` | ✅ S3 list_objects | ✅ Mock tree | List files/folders |
-| `validate_config()` | ✅ Test credentials | ✅ Always valid | Check connection |
+Every storage agent (`backend/core/storage_agents/`) provides these; the S3 agent is the one in use.
+
+| Operation | Does |
+|-----------|------|
+| `generate_access_link(resource, method, ttl)` | A short-lived signed URL to read (`read`) or upload (`write`) one object |
+| `get_object_metadata(resource)` | Size, ETag, type and date of an object (HEAD), to confirm an upload |
+| `delete_object(resource)`, `delete_objects(resources)` | Delete one object, or many |
+| `fetch_all_buckets()` | The instance's buckets, for the tree and for bucket uniqueness |
+| `connect()`, `close()` | Open and close the connection; connecting checks the credentials |
 
 ### Presigned URL Security
 
@@ -285,31 +235,16 @@ sequenceDiagram
 
 ## Access Control Patterns
 
-### Pattern 1: User-Level Access
-```
-p, user_uuid, instance_uuid, .*, read
-```
-User can read all files in the instance.
+Policy paths are literal: a file, a folder and everything in it (`folder/*`), or `*` for the whole
+instance. The full guide, with what each policy allows: [Policies](../user-guide/policies.md).
 
-### Pattern 2: Resource-Level Access
-```
-p, user_uuid, instance_uuid, data/project1/.*, read
-```
-User can only read files in `data/project1/` folder.
-
-### Pattern 3: Operation-Level Access
-```
-p, user_uuid, instance_uuid, data/shared/.*, read
-p, user_uuid, instance_uuid, data/uploads/.*, write
-```
-User can read from `shared` but only write to `uploads`.
-
-### Pattern 4: Admin Access
-```
-p, admin_uuid, instance_uuid, .*, admin
-```
-Admin has full control (read, write, delete, manage).
+| Policy (path, action) | Allows |
+|---|---|
+| `*`, `read` | Reading every file in the instance |
+| `study/project1/*`, `read` | Reading everything in `study/project1/`, including files added later |
+| `study/shared/*`, `read` and `study/uploads/*`, `write` | Reading from `shared`, uploading to `uploads` |
+| `*`, `admin` | Everything, on the whole instance (what an instance's creator gets) |
 
 ---
 
-**Last Updated:** 2025-10-23
+**Last Updated:** 2026-10-31
