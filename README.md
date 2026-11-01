@@ -63,6 +63,7 @@ The React frontend calls the FastAPI backend using Keycloak-issued bearer tokens
 - `deployment/` - Docker Compose and Nomad production configurations
 - `tools/object-storage-notifications/` - Ceph/S3 notification setup and test tools
 - `docs/diagrams/` - Mermaid architecture diagrams
+- `docs/images/` - Screenshots of the UI used in the docs, and `capture.py`, which retakes them from the local stack
 
 For detailed system architecture, see [Architecture Diagrams](./docs/diagrams/).
 

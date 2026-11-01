@@ -10,7 +10,7 @@ resource. What a policy does, and how to write one, for the people who use this 
 | --- | --- |
 | Username | User receiving the permission. |
 | Instance | Storage instance containing the resource. |
-| Resource | One file (`bucket/path/file.ext`), a folder and everything in it (`bucket/folder/*`), or everything on the instance (`*`). |
+| Resource | One file (`bucket/path/file.ext`), a folder and everything in it (`bucket/folder/*`), or everything on the instance (`*`). Typed, or chosen from the instance's file tree. |
 | Action | `read`, `write`, `delete`, or `admin`. |
 
 Resource paths are literal, not patterns: `bucket/folder/*` covers that folder and
@@ -24,8 +24,22 @@ own or at the end of a folder path. Decisions are made in
 
 1. Load the storage instances available to the current user.
 2. Load the policies the current user is allowed to manage.
-3. Create a policy from a username, instance, resource, and action.
+3. Create a policy from a username, instance, resource, and action. The resource is typed, or
+   chosen from the file tree (below).
 4. Refresh the policy table after a successful change.
+
+## Choosing from the file tree
+
+**Choose from the tree** loads the chosen instance's tree for the signed-in user (the same
+`/api/tree/dashboard/{instance_uuid}` requests as asset management, `access=read`) and turns the
+ticks into rules: a folder ticked with no filter active is `folder/*`; ticked files are one rule
+each, never collapsed into their folder; under a filter, one rule per file the filter shows. The
+tree doesn't select a folder because all its files are ticked here (`promoteSelection={false}`),
+so the two can be told apart. The rules are listed in plain words before saving, and each is sent
+as its own `POST /api/policies/`; any refused are named. Behaviour is specified in
+`policy_management/features/policy-from-selection.feature`.
+
+![The policy form with "Choose from the tree": a folder and a file ticked, and the rules they make](../../../images/policy-from-tree.png)
 
 Deleting a policy requires confirmation.
 
@@ -53,8 +67,10 @@ Keycloak roles and Casbin policies have different purposes:
 - Keycloak controls identity and coarse interface access.
 - Casbin controls resource-level permissions.
 
-## Main source file
+## Main source files
 
 | Purpose | File |
 | --- | --- |
 | Page, form, table, and API calls | `frontend/src/components/admin_page/policy_management/index.js` |
+| Choosing from the tree, and the preview | `frontend/src/components/admin_page/policy_management/TreePicker.js` |
+| Turning ticks into rules | `frontend/src/components/admin_page/policy_management/treeRules.js` |
