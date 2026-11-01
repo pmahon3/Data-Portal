@@ -103,7 +103,8 @@ shared:
 
 Branch from `development` and open a merge request back into `development`, one change per
 request. Changes come with tests, and with documentation in the same branch: the user guide for
-anything users see, `docs/` for anything developers need. Requirements are in `docs/requirements/`;
+anything users see (see [Writing the user guide](docs/writing-the-user-guide.md)), `docs/` for
+anything developers need. Requirements are in `docs/requirements/`;
 cite the one a change implements.
 
 Please report security issues privately to the maintainers rather than in a public issue.

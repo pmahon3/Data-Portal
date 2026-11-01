@@ -14,3 +14,7 @@ notifications are new; open it to see them, newest first.
 
 If the portal has email set up, you're also sent an email. It never names your files, since file
 names can identify participants; it says how many were stored and links to the portal.
+
+## Related
+
+- [Uploading files and folders](uploading.md)

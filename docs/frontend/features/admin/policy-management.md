@@ -2,7 +2,7 @@
 
 Policy management controls which user can perform an action on a storage
 resource. What a policy does, and how to write one, for the people who use this page:
-[Policies: what they do and how to write them](../../../user-guide/policies.md).
+[Giving people access](../../../user-guide/policies.md) and [How access works](../../../user-guide/how-access-works.md).
 
 ## Policy fields
 

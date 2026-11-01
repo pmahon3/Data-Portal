@@ -1,14 +1,35 @@
 # Storage, projects and users
 
-For administrators and project managers. Giving people access to data is on its own page:
-[Giving people access](policies.md).
+Connect storage, set up projects and create accounts. For administrators and project managers;
+giving people access to data is on its own page, [Giving people access](policies.md).
 
-## Storage connections
+## Before you start
+
+You need to be an administrator or a project manager. Project managers see the same admin panel, but
+can act only on the projects they manage, and some actions are for administrators only (see the
+tables below).
+
+## Connect storage
 <!-- claim: AC-5; tests: test_a_new_instance_grants_its_creator_a_rule_the_portal_accepts -->
 
-**Connection Management** lists the storage the portal reads from, one card per instance.
+1. In the admin panel, open **Connection Management**.
+2. Under **Create Instance**, enter an **Instance Name** and, optionally, the **Projects** it belongs
+   to.
+3. Choose the **Flavour**: `s3` for S3-compatible object storage.
+4. Enter the **S3 Endpoint URL**, **Access Key** and **Secret Key** (and **Region Name** if the
+   storage needs one), then choose **Create**.
+
+The portal checks it can connect before saving. The instance then appears as a card, and you are
+given full access to it. Secret keys are masked whenever an instance's settings are shown.
 
 ![The storage instances page: the create form and one instance's card](../images/storage-management.png)
+
+On an instance's card:
+
+- **Sync** reads what's in storage, so files added outside the portal appear in it. It can take a
+  while on a large store.
+- **Delete** removes the instance, its file list and every policy on it from the portal. The files
+  in storage are left alone.
 
 | Action | Administrator | Project manager |
 |---|---|---|
@@ -17,19 +38,11 @@ For administrators and project managers. Giving people access to data is on its 
 | Rename it | Yes | No |
 | Delete it | Yes | No |
 
-- **Adding an instance** needs a name, the storage address and its access and secret keys. The
-  portal checks it can connect before saving. Whoever adds it is given full access to it.
-- **Sync** reads what's in storage, so files added outside the portal appear in it. It can take a
-  while on a large store.
-- **Deleting an instance** removes it, its file list and every policy on it from the portal. The
-  files in storage are left alone.
+## Set up a project
 
-Secret keys are masked whenever an instance's settings are shown.
-
-## Projects
-
-**Project Management** groups people and storage under a project. Each project has users,
-managers, and the storage instances assigned to it.
+1. Open **Project Management** and choose **Create Project**. Give it a name.
+2. Open the project's card. In **Manage Project**, add people under **Users** and **Managers**, and
+   storage under **Storage Instances**.
 
 | Action | Administrator | Project manager |
 |---|---|---|
@@ -38,12 +51,16 @@ managers, and the storage instances assigned to it.
 | Add or remove managers | Yes | No |
 | Assign storage to a project | Yes | No |
 
-Project managers see the same admin panel, but can act only on the projects they manage.
+## Create an account
 
-## Users
+1. Open **User Management**.
+2. Under **Create / Update User**, enter the username, password, full name, email and roles, then
+   choose **Create User**.
 
-**User Management** lists portal accounts and creates new ones (username, password, name, email
-and roles). Project managers can't create administrators; only administrators can delete
-accounts.
+Project managers can't create administrators; only administrators can delete accounts. A new
+account can't see any data until it's given access: see [Giving people access](policies.md).
 
-A new account can't see any data until it's given access: see [Giving people access](policies.md).
+## Related
+
+- [Giving people access](policies.md)
+- [How access works](how-access-works.md)
