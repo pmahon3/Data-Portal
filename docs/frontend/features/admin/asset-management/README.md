@@ -13,6 +13,8 @@ interfaces.
 | Glob, regular-expression, and selected-item filters | [Searching](./searching.md) |
 | Backend authorization, metadata, storage, and bundling | [Backend](./backend.md) |
 
+![An instance's card in asset management: the Download tab with the "study" bucket open](../../../../images/asset-download.png)
+
 ## Page flow
 
 1. Load the storage instances available to the signed-in user.

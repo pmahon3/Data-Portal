@@ -61,6 +61,8 @@ delete then act only on the files the user picked, never on files the filter hid
 (requirement [AC-4](../../../../requirements/access-control.md#ac-4) in `docs/requirements/access-control.md`; INN-295). Without a
 filter, selecting a folder selects everything in it, as before.
 
+![Filtered for *T1w.nii.gz, ticking sub-01 selects only the scan the filter shows](../../../../images/asset-filtered-selection.png)
+
 ## Clearing search
 
 Clearing a path search:

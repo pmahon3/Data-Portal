@@ -5,6 +5,8 @@ the portal.
 
 The current frontend creation form supports S3-compatible storage.
 
+![The storage instances page: the create form and one instance's card](../../../images/storage-management.png)
+
 ## Available actions
 
 | Action | Administrator | Project manager |

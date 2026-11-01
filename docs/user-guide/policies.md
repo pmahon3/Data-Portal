@@ -112,6 +112,8 @@ hidden. "Refused" means the portal won't save the policy.
 Instead of typing a path, choose **Choose from the tree** on the policy form, pick the instance, and
 tick what to grant. The ticks become the same policies you could type:
 
+![The policy form with "Choose from the tree": a folder and a file ticked, and the two rules they make listed below the tree](../images/policy-from-tree.png)
+
 | You tick | Policies created |
 |---|---|
 | A folder | One: the folder and everything in it, including files added later (`study/patient-7/*`) |

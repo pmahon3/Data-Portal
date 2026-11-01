@@ -38,6 +38,8 @@ graph LR
     style Mongo fill:#47A248
 ```
 
+![The navbar bell opened: each upload that was stored, newest first](../images/notifications.png)
+
 Completing the same upload twice notifies once. A channel that fails is logged and never fails the
 upload. What's been seen is kept in the browser.
 
