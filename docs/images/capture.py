@@ -7,11 +7,13 @@ Retake the screenshots in docs/images/ from the local stack (local/), with made-
 
 It puts an example study (bucket "study", file names only, no real data) on the test instance,
 uploads one folder through the portal so the admin has a notification, then signs in to the UI
-as the portal admin and captures each page. Settings as in backend/tests/portal_stack.py, plus
+as the portal admin, and as a throwaway researcher (read on study/*, write on study/sub-03/*;
+removed afterwards), and captures each page. Settings as in backend/tests/portal_stack.py, plus
 FRONTEND_URL (http://localhost:3000). Run it after a UI change and commit the images it rewrites.
 """
 import re
 import sys
+import uuid
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -20,7 +22,7 @@ from playwright.sync_api import sync_playwright
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parents[1] / "backend" / "tests"))
-from portal_stack import Portal, setting  # noqa: E402
+from portal_stack import TIMEOUT, Portal, User, setting  # noqa: E402
 
 FRONTEND = setting("FRONTEND_URL", "http://localhost:3000").rstrip("/")
 BUCKET = "study"
@@ -71,17 +73,70 @@ def expand(page, text):
     page.wait_for_timeout(500)
 
 
+def sign_in(browser, user: str, password: str):
+    page = browser.new_page(viewport={"width": 1280, "height": 900}, device_scale_factor=2)
+    page.goto(FRONTEND)
+    page.locator(".navbar-button").click()
+    page.fill("#username", user)
+    page.fill("#password", password)
+    page.click("#kc-login")
+    page.wait_for_url(f"{FRONTEND}/app**")
+    page.wait_for_timeout(1000)
+    return page
+
+
+def researcher(portal: Portal) -> User:
+    """A Keycloak user named "researcher" with the ordinary user role (replacing any left over)."""
+    base = f"{portal.keycloak}/admin/realms/{portal.realm}"
+    for old in requests.get(f"{base}/users", params={"username": "researcher", "exact": "true"},
+                            headers=portal._kc_headers(), timeout=TIMEOUT).json():
+        requests.delete(f"{base}/users/{old['id']}", headers=portal._kc_headers(), timeout=TIMEOUT)
+    password = uuid.uuid4().hex
+    r = requests.post(f"{base}/users", headers=portal._kc_headers(), timeout=TIMEOUT, json={
+        "username": "researcher", "enabled": True, "emailVerified": True,
+        "email": "researcher@example.test", "firstName": "Example", "lastName": "Researcher",
+        "credentials": [{"type": "password", "value": password, "temporary": False}],
+    })
+    r.raise_for_status()
+    user_id = r.headers["Location"].rsplit("/", 1)[1]
+    role = requests.get(f"{base}/roles/user", headers=portal._kc_headers(), timeout=TIMEOUT).json()
+    requests.post(f"{base}/users/{user_id}/role-mappings/realm", headers=portal._kc_headers(),
+                  timeout=TIMEOUT, json=[role]).raise_for_status()
+    return User(portal, "researcher", password, user_id)
+
+
+def capture_researcher(portal: Portal, browser) -> None:
+    user = researcher(portal)
+    try:
+        portal.grant(user, f"{BUCKET}/*", "read")
+        portal.grant(user, f"{BUCKET}/sub-03/*", "write")
+        page = sign_in(browser, user.username, user.password)
+        card = page.locator(".ec-card", has_text=portal.instance)
+        card.locator(".ec-header").click()
+        page.wait_for_timeout(1500)
+        expand(page, BUCKET)
+        page.screenshot(path=HERE / "researcher-my-assets.png", clip={"x": 0, "y": 0, "width": 1280, "height": 600})
+
+        # Upload: only folders the researcher may write to are shown; one is ticked as the destination.
+        card.get_by_role("tab", name="Upload").click()
+        page.wait_for_timeout(1500)
+        expand(page, BUCKET)
+        row(page, "sub-03").click()
+        card.screenshot(path=HERE / "researcher-upload.png")
+
+        page.get_by_role("tab", name="My Policies").click()
+        page.wait_for_timeout(1500)
+        page.screenshot(path=HERE / "researcher-my-policies.png", clip={"x": 0, "y": 0, "width": 1280, "height": 430})
+    finally:
+        portal.delete_user(user)
+
+
 def capture(portal: Portal) -> None:
     user, password = portal.portal_admin
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
-        page = browser.new_page(viewport={"width": 1280, "height": 900}, device_scale_factor=2)
-        page.goto(FRONTEND)
-        page.locator(".navbar-button").click()
-        page.fill("#username", user)
-        page.fill("#password", password)
-        page.click("#kc-login")
-        page.wait_for_url(f"{FRONTEND}/app**")
+        page = sign_in(browser, user, password)
+        page.screenshot(path=HERE / "admin-home.png", clip={"x": 0, "y": 0, "width": 1280, "height": 500})
 
         # Notifications: the bell and its list.
         page.get_by_role("button", name=re.compile(r"^notifications")).click()
@@ -129,6 +184,9 @@ def capture(portal: Portal) -> None:
         page.add_style_tag(content=hide_navbar)
         page.wait_for_timeout(1500)
         page.locator(".admin-content, main").first.screenshot(path=HERE / "storage-management.png")
+        page.close()
+
+        capture_researcher(portal, browser)
         browser.close()
 
 
