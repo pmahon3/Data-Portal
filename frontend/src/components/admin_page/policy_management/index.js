@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import { useKeycloak } from "@react-keycloak/web";
 import { CircularProgress } from '@mui/material';
@@ -6,6 +6,8 @@ import { DataGrid } from "@mui/x-data-grid";
 import "./PolicyManagement.css";
 import { formatError } from "../../../utils/errorUtils";
 import { getAuthHeaders } from '../../../utils/authUtils';
+import useEndpointAssetTree from "../asset_management/useEndpointAssetTree.js";
+import TreePicker from "./TreePicker.js";
 // Constants and the component states
 // const http = axios.create({ baseURL: "http://localhost:8000" });
 const http = axios.create({ baseURL: "/api" });    
@@ -25,6 +27,36 @@ export default function PolicyManagement() {
   const [instanceName, setInstanceName] = useState("");
   const [resource, setResource] = useState("");
   const [action, setAction] = useState("read");
+  // "path": type the resource; "tree": choose it from the instance's file tree (DS-policy-from-selection)
+  const [resourceMode, setResourceMode] = useState("path");
+  const [treeSelection, setTreeSelection] = useState(new Set());
+  const [treeRules, setTreeRules] = useState([]);
+
+  const instanceUuid = instances.find(i => i?.name === instanceName)?.uuid || "";
+  const {
+    treesByAccess,
+    loadingNodeIdsByAccess,
+    loadingAssets,
+    assetError,
+    fetchBrowseRoots,
+    fetchSearchAssets,
+    fetchChildAssets,
+  } = useEndpointAssetTree({
+    endpointName: instanceName,
+    endpointUuid: instanceUuid,
+    activeAccess: "read",
+    selectedByAccess: { read: treeSelection },
+    onSelectedChange: (_access, next) => setTreeSelection(new Set(next)),
+    http,
+  });
+  const onRulesChange = useCallback(rules => setTreeRules(rules), []);
+
+  // Load the chosen instance's tree when choosing from it; a new instance starts a new selection.
+  useEffect(() => {
+    setTreeSelection(new Set());
+    if (resourceMode === "tree" && instanceUuid) fetchBrowseRoots("read", true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resourceMode, instanceUuid]);
 
   /////////////////////////////////////////////
 
@@ -68,23 +100,39 @@ export default function PolicyManagement() {
     const i = instanceName.trim();
     const r = resource.trim();
     const a = action.trim();
+    const fromTree = resourceMode === "tree";
 
     if (!u) { setCreating(false); return setErr("Username is required."); }
     if (!i) { setCreating(false); return setErr("Instance name is required."); }
-    if (!r) { setCreating(false); return setErr("Resource is required."); }
+    if (!fromTree && !r) { setCreating(false); return setErr("Resource is required."); }
+    if (fromTree && treeRules.length === 0) { setCreating(false); return setErr("Tick files or folders to grant."); }
     if (!a) { setCreating(false); return setErr("Action is required."); }
 
+    // From the tree, one policy per rule, each through the same API as a typed one.
+    const resources = fromTree ? treeRules : [r];
+    const failed = [];
     try {
       const headers = await getAuthHeaders();
-      await http.post(
-        `${POLICIES_BASE}/`,
-        { username: u, instance_name: i, resource: r, action: a },
-        { headers }
-      );
+      for (const res of resources) {
+        try {
+          await http.post(
+            `${POLICIES_BASE}/`,
+            { username: u, instance_name: i, resource: res, action: a },
+            { headers }
+          );
+        } catch (e2) {
+          failed.push(`${res}: ${formatError(e2)}`);
+        }
+      }
       await loadPolicies();
-      setResource("");
-      setAction("read");
-      alert("Policy created.");
+      if (failed.length > 0) {
+        setErr(`Not created: ${failed.join("; ")}`);
+      } else {
+        setResource("");
+        setTreeSelection(new Set());
+        setAction("read");
+        alert(resources.length === 1 ? "Policy created." : `${resources.length} policies created.`);
+      }
     } catch (e2) {
       setErr(formatError(e2));
     } finally {
@@ -181,6 +229,44 @@ export default function PolicyManagement() {
             </label>
           </div>
 
+          <div className="pm-mode" role="group" aria-label="How to choose the resource">
+            <button type="button" className="pm-btn" aria-pressed={resourceMode === "path"} onClick={() => setResourceMode("path")}>
+              Type a path
+            </button>
+            <button type="button" className="pm-btn" aria-pressed={resourceMode === "tree"} onClick={() => setResourceMode("tree")}>
+              Choose from the tree
+            </button>
+          </div>
+
+          {resourceMode === "tree" ? (
+            <div className="pm-field">
+              <span>Resource *</span>
+              {!instanceUuid ? (
+                <small className="pm-muted">Select an instance to see its files.</small>
+              ) : loadingAssets ? (
+                <CircularProgress size={20} />
+              ) : assetError ? (
+                <div className="pm-error">{assetError}</div>
+              ) : (
+                <TreePicker
+                  nodes={treesByAccess.read || []}
+                  selected={treeSelection}
+                  onSelectedChange={setTreeSelection}
+                  username={username.trim()}
+                  action={action}
+                  onRulesChange={onRulesChange}
+                  onSearch={() => { setTreeSelection(new Set()); return fetchSearchAssets("read", false, false); }}
+                  onClearSearch={() => { setTreeSelection(new Set()); return fetchBrowseRoots("read", false); }}
+                  onLoadChildren={(node) => fetchChildAssets("read", node)}
+                  loadingNodeIds={loadingNodeIdsByAccess.read || new Set()}
+                />
+              )}
+              <small className="pm-muted">
+                A ticked folder covers everything in it, including files added later. Ticked files are
+                granted one by one, and under a filter only the files it shows are granted.
+              </small>
+            </div>
+          ) : (
           <label className="pm-field">
             <span>Resource *</span>
             <input
@@ -196,6 +282,7 @@ export default function PolicyManagement() {
               are refused.
             </small>
           </label>
+          )}
 
           <label className="pm-field">
             <span>Action *</span>
@@ -209,7 +296,8 @@ export default function PolicyManagement() {
 
           <div className="pm-actions">
             <button className="pm-btn pm-btn-primary" type="submit" disabled={creating}>
-              {creating ? <CircularProgress size={20} color="inherit" /> : "Create Policy"}
+              {creating ? <CircularProgress size={20} color="inherit" />
+                : resourceMode === "tree" && treeRules.length > 1 ? `Create ${treeRules.length} Policies` : "Create Policy"}
             </button>
             {/* {err && <div className="pm-error">{err}</div>} */}
           </div>

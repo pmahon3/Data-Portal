@@ -45,6 +45,7 @@ const NODE_ICON_BY_TYPE = {
  *   - onToggleExpand: Called with node id when chevron is clicked.
  *   - filterMatch: While a path filter is active, a function telling whether a node's
  *     own path matches it; otherwise null.
+ *   - promoteSelection: If false, selecting every child doesn't select the folder.
  */
 export default function TreeNode({
   node,
@@ -59,6 +60,7 @@ export default function TreeNode({
   isLoading = false,
   hasSelectedDescendant = false,
   filterMatch = null,
+  promoteSelection = true,
 }) {
   const id = String(node.id);
   const hasChildren = Array.isArray(node.children) && node.children.length > 0;
@@ -115,7 +117,7 @@ export default function TreeNode({
       // Checking adds the full subtree first, then walks upward so parents
       // become selected only when all of their children are selected.
       selectSubtree(next, node);
-      checkAncestors(next, node);
+      if (promoteSelection) checkAncestors(next, node);
     }
 
     onChange(next);

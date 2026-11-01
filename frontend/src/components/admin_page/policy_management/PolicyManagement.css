@@ -31,3 +31,10 @@
   text-overflow: ellipsis;
 }
 .pm-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+/* Choosing the resource by typing or from the file tree */
+.pm-mode { display: flex; gap: 8px; margin: 4px 0 8px; }
+.pm-mode .pm-btn[aria-pressed="true"] { border-color: #5560ff; color: #5560ff; font-weight: 600; }
+.pm-tree-picker { display: grid; gap: 8px; }
+.pm-rule-preview { border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px 12px; background: #f9fafb; }
+.pm-rule-preview ul { margin: 4px 0; padding-left: 20px; }
