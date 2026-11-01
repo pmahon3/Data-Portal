@@ -228,7 +228,7 @@ The frontend is a React app using `@react-keycloak/web`.
 Current admin pages:
 
 - `user_management` for Keycloak user CRUD
-- `policy_management` for Casbin policy CRUD
+- `policy_management` for Casbin policy CRUD; a policy's resource can be typed or chosen from the instance's file tree (`TreePicker.js`, rules in `treeRules.js`)
 - `asset_management` for per-instance tree and asset actions
 - `storage_management` for instance CRUD
 

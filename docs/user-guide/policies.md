@@ -106,6 +106,24 @@ hidden. "Refused" means the portal won't save the policy.
 | Someone to tidy a folder | `folder/*`, `delete`. Browsing to delete shows them what they may delete; add `read` if they should also download. |
 | To remove access | Delete the policy that gives it. Access stops at once for anything new. |
 
+## Choosing from the file tree
+<!-- claim: AC-4, AC-5; tests: A ticked folder grants everything in it including files added later, Ticked files are granted one by one, Ticking every file in a folder still grants only those files, A partly ticked folder grants the ticked files, The bucket itself grants everything in it, Under a filter a folder grants only the files the filter shows, Under a filter a folder matching it is granted file by file -->
+
+Instead of typing a path, choose **Choose from the tree** on the policy form, pick the instance, and
+tick what to grant. The ticks become the same policies you could type:
+
+| You tick | Policies created |
+|---|---|
+| A folder | One: the folder and everything in it, including files added later (`study/patient-7/*`) |
+| The bucket at the top | One: everything in it (`study/*`) |
+| Some files | One per file. Ticking every file in a folder still gives one policy per file, so files added to that folder later stay hidden. |
+| A folder, then unticking a file inside it | One per file still ticked |
+| A folder while a filter is on | One per file the filter shows, even when the folder's own name matches the filter |
+
+Before saving, the form lists the policies in plain words ("alice can read: everything in
+`study/patient-7/`, including files added later. 1 rule."). Each is saved separately; if one is
+refused, the form names it and the others are still created.
+
 ## Things that surprise people
 <!-- claim: AC-2, AC-3, AC-4, AC-5; tests: test_uploading_a_file_never_replaces_an_existing_one, test_a_download_refuses_a_selected_file_the_user_may_not_read, test_a_folder_download_holds_only_files_the_user_may_read, test_another_users_bundle_cant_be_checked_or_fetched, test_a_bundle_is_refused_once_access_to_a_file_in_it_is_revoked, test_a_grant_written_with_a_leading_slash_gives_access -->
 

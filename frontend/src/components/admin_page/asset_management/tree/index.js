@@ -26,6 +26,9 @@ import "./Tree.css";
  *   - disableFileSelection: If true, disables checkboxes for file nodes.
  *   - disableFolderSelection: If true, disables checkboxes for folder nodes.
  *   - disableCascade: If true, no cascading between parents and children.
+ *   - promoteSelection: If false, a folder is never selected because all its children are;
+ *     only clicking it selects it (the policy picker tells the two apart).
+ *   - onFilterChange: Optional callback receiving whether a filter is active.
  *   - enableSearch: If true, shows the search/filter UI.
  *   - onSearch: Optional async callback before applying a search.
  *   - onClearSearch: Optional async callback before clearing a search.
@@ -40,6 +43,8 @@ export default function Tree({
   disableFileSelection = false,
   disableFolderSelection = false,
   disableCascade = false,
+  promoteSelection = true,
+  onFilterChange = null,
   enableSearch = false,
   onSearch = null,
   onClearSearch = null,
@@ -116,6 +121,10 @@ export default function Tree({
     isPatternValid,
   ]);
 
+
+  useEffect(() => {
+    if (onFilterChange) onFilterChange(filterState.hasActiveFilter);
+  }, [filterState.hasActiveFilter, onFilterChange]);
 
   const applyFilter = async () => {
     if (!isPatternValid) return;
@@ -274,6 +283,7 @@ export default function Tree({
                     disableFileSelection={disableFileSelection}
                     disableFolderSelection={disableFolderSelection}
                     disableCascade={disableCascade}
+                    promoteSelection={promoteSelection}
                     onToggleExpand={toggleExpand}
                     isLoading={loadingNodeIds.has(String(node.id))}
                     hasSelectedDescendant={selectedAncestorIds.has(
