@@ -1,150 +1,113 @@
-# AMS Data Portal
+# INN Data Portal
 
-**Policy-Driven Data Access Management Platform for Decentralized and Heterogeneous Storage Instances**
+A web portal for governing access to research data that stays on its owners' storage.
 
-A modular platform that enables secure, policy-driven collaboration across institutional boundaries while preserving data sovereignty. Designed to support the full research lifecycle - from data collection and analysis to collaboration and external sharing - the system accommodates diverse organizational needs through flexible deployment models: institutions can participate in a shared governance instance for collaborative convenience, or self-host their own instance for complete control over authentication, authorization, and policy infrastructure.
+The INN Data Portal gives research teams one place to find, share and move data held across
+institutional storage. The data stays where it is: the portal holds the access rules, the file
+index and the identities, and grants short-lived, signed access to the storage itself. Each data
+owner decides who may read, upload or delete what, down to a single file.
 
-Data never leaves the owner's storage infrastructure; the platform provides only the access control layer while data remains on owner-controlled systems. This separation of governance from storage enables multi-institutional research collaboration across heterogeneous storage backends, bridging diverse systems into a unified governance layer without requiring data migration or storage consolidation. Each data owner defines and enforces their own access policies through administrative tools, enabling controlled sharing and external system integration while maintaining compliance with institutional requirements for sensitive datasets. The architecture respects data sovereignty at both the deployment level (who operates the governance platform) and the data level (who controls access policies for their assets).
-
-## Developed By
-
-**Institute for Neuroscience and Neurotechnology (INN) & Research Computing Group (RCG)**
-
-For detailed information, see the [project wiki](https://github.com/INN-SFU/Data-Portal/wiki).
-
-## Documentation
-
-- [Quickstart](./docs/quickstart.md) - Local setup and development
-- [User guide](./docs/user-guide/README.md) - Using the portal, for researchers and administrators (published as the [wiki](https://github.com/pmahon3/Data-Portal/wiki))
-- [API Reference](./docs/api-reference.md) - Backend endpoint reference
-- [File Tree Loading](./docs/frontend/file-tree-loading/) - PostgreSQL tree model, browse/search modes, and lazy loading
-- [Java Bundler](./java-bundler/README.md) - ZIP bundle service configuration
-
-**Architecture diagrams:**
-
-- [Component Architecture](./docs/diagrams/component-architecture.md) - System structure and relationships
-- [Authentication Sequences](./docs/diagrams/sequence-authentication.md) - Login, token validation, admin operations
-- [Storage Access Sequences](./docs/diagrams/sequence-storage-access.md) - File operations and access control
-- [All Diagrams](./docs/diagrams/) - Complete visual documentation
+Developed by the Institute for Neuroscience and Neurotechnology (INN) and the Research Computing
+Group (RCG) at Simon Fraser University.
 
 ## Features
 
-**Governance & Access Control:**
-- **Policy-Based Authorization**: Fine-grained access control enabling data owners to define and enforce custom access policies for their assets, supporting delegation and role-based permissions
-- **Heterogeneous Storage Support**: Unified access layer across diverse storage backends (S3-compatible, object storage) without requiring data migration or centralization
-- **Presigned URL Access**: Secure, time-limited direct access to files, enabling controlled external sharing while maintaining audit trails
+- **Access by policy.** A permission names a file, or a folder and everything in it, including
+  files added later, for one action: read, write, delete or administer. Users see only the folders
+  and files they hold, separately for each action, and the backend checks every request.
+- **Data stays on owner storage.** Files move directly between the browser and storage over signed,
+  time-limited links; the portal never stores file contents. S3-compatible object storage is
+  supported; POSIX file servers are in development.
+- **Browse, search and transfer.** A searchable file tree per storage instance; uploads of files and
+  whole folders; downloads of single files, or many files as one ZIP archive.
+- **Projects and delegated administration.** Projects group people and storage. Project managers
+  administer their own projects; administrators manage the whole portal.
+- **Institutional sign-in.** Authentication through Keycloak (OpenID Connect), which can connect to
+  an institution's existing identity provider.
+- **Notifications.** Researchers are told when an upload is stored, in the portal and optionally by
+  email; emails never name files.
+- **Data standards.** Datasets that declare a standard, such as BIDS, are checked against it when
+  files are uploaded.
 
-**Authentication & Identity:**
-- **Institutional Identity Integration**: Standards-based authentication (OIDC/OAuth2) allowing organizations to integrate with existing identity providers and authentication infrastructure
-- **Flexible Deployment Models**: Support for both shared governance instances and self-hosted deployments with complete control over authentication and authorization infrastructure
+## Getting started
 
-**Developer & Operations:**
-- **RESTful API**: Well-documented API with automatic OpenAPI specification, enabling integration with institutional workflows and custom applications
-- **Containerized Architecture**: Production-ready Docker deployment with service orchestration, health monitoring, and automated configuration
+Requirements: Git, and Docker with Compose v2.
 
-## Project Structure
-
-The React frontend calls the FastAPI backend using Keycloak-issued bearer tokens. The backend enforces Casbin policies, accesses S3-compatible storage and POSIX machines through storage agents, stores configuration and policies in MongoDB, and maintains the searchable file tree and event queue in PostgreSQL. Multi-file downloads from object storage are built by the Java bundler, then written to object storage; on a POSIX machine, a small file service serves files to holders of links the portal signs. When an upload completes, the researcher is told in the portal (and by email once a mail relay is set), and any dataset it belongs to that declares a standard such as BIDS is checked against it.
-
-**Main Directories:**
-- `backend/` - Main backend service with FastAPI application
-  - `api/v0_1/endpoints/` - API routes
-  - `core/services/` - Instances, policies, projects, users, file trees, storage events, notifications, and data standards
-  - `core/storage_agents/` - S3-compatible, POSIX and dummy storage adapters
-  - `core/db/` - MongoDB and PostgreSQL integration
-  - `storage_events_worker/` - Asynchronous file-tree event processing and cleanup
-- `frontend/` - React application
-- `java-bundler/` - Spring Boot ZIP bundle service
-- `storage-gateway/` - File service for POSIX machines
-- `local/` - Local Docker Compose stack (Keycloak, MinIO, MongoDB, PostgreSQL, backend, frontend, and bundler)
-- `deployment/` - Docker Compose and Nomad production configurations
-- `tools/object-storage-notifications/` - Ceph/S3 notification setup and test tools
-- `docs/diagrams/` - Mermaid architecture diagrams
-- `docs/images/` - Screenshots of the UI used in the docs, and `capture.py`, which retakes them from the local stack
-
-For detailed system architecture, see [Architecture Diagrams](./docs/diagrams/).
-
-### Authentication Flow
-
-**React Frontend Integration:**
-
-```javascript
-// 1. Authenticate with Keycloak
-const token = await keycloak.getToken();
-
-// 2. Call API with Bearer token
-const response = await fetch('/api/users/', {
-  headers: {
-    'Authorization': `Bearer ${token}`,
-    'Content-Type': 'application/json'
-  }
-});
+```bash
+cp local/.env.example local/.env
+cd local
+docker compose up -d --build
 ```
 
-**Token Claims Available:**
-- `preferred_username` - Username
-- `sub` - User UUID
-- `email` - Email address
-- `realm_access.roles` - User roles
-- `exp`, `iat` - Token expiration
-- `projects` - List of projects
+The [quickstart](docs/quickstart.md) covers the remaining setup (the MinIO host name, a first
+storage instance), the services and their ports, and troubleshooting. The values in `.env.example`
+are for local development only.
+
+## Documentation
+
+| For | Where |
+|---|---|
+| Researchers and administrators using the portal | [User guide](https://github.com/pmahon3/Data-Portal/wiki) (source: [`docs/user-guide/`](docs/user-guide/README.md)) |
+| Running the portal locally | [Quickstart](docs/quickstart.md), [local development](local/README.md) |
+| Developers | [Architecture diagrams](docs/diagrams/README.md), [frontend](docs/frontend/architecture.md), [API reference](docs/api-reference.md) |
+| What the portal must do | [Requirements](docs/requirements/) |
+| AI coding agents | [`AGENTS.md`](AGENTS.md) |
+
+The running backend also serves its OpenAPI description at `/docs`.
+
+## Architecture
+
+```mermaid
+graph LR
+    Browser[React frontend] -->|sign in| KC[Keycloak]
+    Browser -->|bearer token| API[FastAPI backend]
+    API --> Casbin[Casbin policies]
+    API --> PG[(PostgreSQL<br/>file tree, events)]
+    API --> Mongo[(MongoDB<br/>instances, policies,<br/>notifications)]
+    API -->|signed links| S3[(S3-compatible<br/>storage)]
+    API --> Bundler[Java bundler<br/>ZIP archives]
+    Browser -->|file contents| S3
+```
+
+The frontend signs users in with Keycloak and calls the backend with their token. The backend
+decides each request with Casbin policies, keeps the searchable file tree in PostgreSQL, keeps
+configuration, policies and notifications in MongoDB, and reaches storage through storage agents.
+File contents go directly between the browser and storage; multi-file downloads are assembled by the
+bundler. Details: [component architecture](docs/diagrams/component-architecture.md).
+
+## Repository layout
+
+| Path | Contents |
+|---|---|
+| `backend/` | FastAPI application: API routes (`api/`), services, storage agents and database access (`core/`), and the storage-event worker |
+| `frontend/` | React application |
+| `java-bundler/` | Spring Boot service that builds ZIP archives |
+| `storage-gateway/` | File service for POSIX machines |
+| `local/` | Docker Compose stack for local development |
+| `deployment/` | Production Docker Compose and Nomad configuration |
+| `tools/` | Object-storage notification setup and tests |
+| `docs/` | User guide, requirements, diagrams, frontend and API docs; `docs/images/` holds the UI screenshots and the script that retakes them |
 
 ## Deployment
 
-### Production
+Production configuration is in [`deployment/`](deployment/). Before running the portal anywhere
+shared:
 
-See `deployment/` directory for production configurations:
-- `docker-compose.yml` - Production orchestration
-- `docker-compose.prod.yml` - Production overrides
-
-**Production checklist:**
-- [ ] Configure HTTPS/SSL certificates
-- [ ] Set secure passwords (not default `admin123`)
-- [ ] Configure external PostgreSQL for Keycloak
-- [ ] Set up log aggregation
-- [ ] Configure backup strategy for policies and user data
-- [ ] Enable container security scanning
-
-## Troubleshooting
-
-### Common Issues
-
-**Backend won't start**
-```bash
-# Check Keycloak is running
-docker ps | grep keycloak
-
-# View backend logs
-docker logs ams-backend
-
-# Verify network exists
-docker network ls | grep ams-network
-```
-
-**Authentication failing**
-```bash
-# Check Keycloak initialization
-docker logs ams-backend | grep "Keycloak configured"
-
-# Restart backend
-docker restart ams-backend
-```
-
-## Security
-
-- **Secrets Management**: Base64-encoded secrets stored separately
-- **Authentication**: OAuth2/OIDC via Keycloak
-- **Authorization**: RBAC with Casbin policy engine
-- **Presigned URLs**: Time-limited, signature-validated storage access
-- **Container Security**: Non-root users, minimal base images
-- **Network Isolation**: Docker networking for service isolation
+- serve it over HTTPS;
+- replace every default credential from `.env.example`, including the Keycloak administrator's;
+- use a managed PostgreSQL for Keycloak;
+- back up MongoDB (policies, instances) and PostgreSQL (file tree);
+- collect logs centrally.
 
 ## Contributing
 
-1. Create feature branch from `development`
-2. Ensure code follows project conventions
-3. Submit pull request with clear description and target `development` 
+Branch from `development` and open a merge request back into `development`, one change per
+request. Changes come with tests, and with documentation in the same branch: the user guide for
+anything users see, `docs/` for anything developers need. Requirements are in `docs/requirements/`;
+cite the one a change implements.
+
+Please report security issues privately to the maintainers rather than in a public issue.
 
 ## License
 
-Apache 2.0 License - see [LICENSE](LICENSE) file for details.
+[Apache License 2.0](LICENSE).
