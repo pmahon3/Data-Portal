@@ -1,0 +1,9 @@
+# Name interface labels exactly, in bold, without "button" or "click".
+extends: existence
+message: "Name the label in bold and say 'choose', not '%s'."
+level: warning
+ignorecase: true
+tokens:
+  - click on
+  - click the
+  - the \w+ button

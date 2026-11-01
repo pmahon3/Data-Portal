@@ -25,7 +25,7 @@ ask your administrator or project manager.
 
 Type a pattern in the filter box and press Enter. `*` matches any characters and `?` one, so
 `*.nii.gz` finds every compressed scan. The **(.\*)** button switches to regular expressions, and
-the list button shows only what you've already ticked. Starting or clearing a search clears what
+**Find in selection** (the list icon) shows only what you've already ticked. Starting or clearing a search clears what
 you've ticked.
 
 ## What a download holds

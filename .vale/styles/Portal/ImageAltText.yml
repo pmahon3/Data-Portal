@@ -1,0 +1,7 @@
+# Every image says what it shows.
+extends: existence
+message: "Give the image alt text saying what it shows."
+level: error
+scope: raw
+raw:
+  - '!\[\]\('

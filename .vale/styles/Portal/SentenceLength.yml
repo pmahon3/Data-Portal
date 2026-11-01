@@ -1,0 +1,7 @@
+# Short sentences: under about 25 words.
+extends: occurrence
+message: "Try to keep sentences under 30 words."
+level: suggestion
+scope: sentence
+max: 30
+token: \b(\w+)\b

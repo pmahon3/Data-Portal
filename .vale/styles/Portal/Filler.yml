@@ -1,0 +1,9 @@
+# The house style: no "please", "simply" or "just".
+extends: existence
+message: "Leave out '%s'."
+level: error
+ignorecase: true
+tokens:
+  - please
+  - simply
+  - just

@@ -29,7 +29,9 @@ checks and records them. System files such as `.DS_Store` are skipped when you u
 - **"A file with the same name already exists in this folder"**: uploads never replace files. The
   upload stops and nothing in that folder changes. Rename your file, or ask someone who may delete
   the old one.
+<!-- vale Portal.Filler = NO -->
 - **"Please select exactly ONE folder to upload to"**: untick all but one folder.
+<!-- vale Portal.Filler = YES -->
 - **The upload is refused**: every file is checked before anything is stored, and if any one of
   them is refused, nothing is uploaded. Check **My Policies** for `write` access there.
 

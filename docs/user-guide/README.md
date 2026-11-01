@@ -4,23 +4,23 @@ The INN Data Portal is where you find, upload and share research data held on in
 The data stays on that storage; the portal controls who may use it. Start with
 [Getting started](getting-started.md).
 
-**Getting started**
+## Getting started
 
 - [Getting started](getting-started.md): signing in, and what you see
 
-**Researchers**
+## Researchers
 
 - [Finding and downloading files](downloading.md)
 - [Uploading files and folders](uploading.md)
 - [Deleting files](deleting.md)
 - [Notifications](notifications.md)
 
-**Administrators and project managers**
+## Administrators and project managers
 
 - [Giving people access](policies.md)
 - [Storage, projects and users](administering.md)
 
-**Reference**
+## Reference
 
 - [How access works](how-access-works.md): what each policy allows, exactly
 

@@ -116,6 +116,7 @@ hidden. "Refused" means the portal won't save the policy.
 <!-- planned: AC-7, AC-8, STD-1 -->
 
 These are planned but not decided, so no policy expresses them yet:
+
 - access that expires with the agreement that grants it ([AC-8](../requirements/access-control.md#ac-8));
 - blocking new access to a withdrawn participant's data ([AC-7](../requirements/access-control.md#ac-7));
 - what quarantine holds back when data fails its standard's checks ([STD-1](../requirements/data-standards.md#std-1)).
