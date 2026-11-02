@@ -25,20 +25,6 @@ jest.mock("../components/admin_page/AdminPage", () => () => <div>admin</div>);
 jest.mock("../components/normal_user_page/NormalUserPage", () => () => <div>user</div>);
 jest.mock("../components/about/About", () => () => null);
 
-// Jest 27 has no test.failing: this passes only while the check fails, and fails once it passes,
-// so the fix has to replace it with test().
-function knownFailing(name, check) {
-  test(`${name} (known failing)`, () => {
-    let failed = false;
-    try {
-      check();
-    } catch {
-      failed = true;
-    }
-    if (!failed) throw new Error("This now passes: replace knownFailing with test.");
-  });
-}
-
 function consoleOutputWhileSignedIn() {
   const spies = ["log", "info", "debug", "warn", "error"].map((level) =>
     jest.spyOn(console, level).mockImplementation(() => {}),
@@ -53,7 +39,7 @@ function consoleOutputWhileSignedIn() {
   return output;
 }
 
-knownFailing("the access token is never written to the console", () => {
+test("the access token is never written to the console", () => {
   const output = consoleOutputWhileSignedIn();
   expect(output.some((line) => line.includes(TOKEN))).toBe(false);
 });
