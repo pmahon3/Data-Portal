@@ -29,7 +29,8 @@ export default function PolicyManagement() {
   const [resource, setResource] = useState("");
   const [action, setAction] = useState("read");
   const [ends, setEnds] = useState("");
-  const [leaveOut, setLeaveOut] = useState("");  // typed paths a folder policy leaves out, one per line (AC-10)  // the last day the policy applies; "" for no end (AC-8)
+  const [leaveOut, setLeaveOut] = useState("");
+  const [endingsText, setEndingsText] = useState("");  // typed file endings for a folder policy, e.g. ".nii, .nii.gz" (AC-6)  // typed paths a folder policy leaves out, one per line (AC-10)  // the last day the policy applies; "" for no end (AC-8)
   // "path": type the resource; "tree": choose it from the instance's file tree (DS-policy-from-selection)
   const [resourceMode, setResourceMode] = useState("path");
   const [treeSelection, setTreeSelection] = useState(new Set());
@@ -113,16 +114,18 @@ export default function PolicyManagement() {
 
     // From the tree, one policy per rule, each through the same API as a typed one.
     const typedExcluded = leaveOut.split("\n").map(line => line.trim()).filter(Boolean);
-    const resources = fromTree ? treeRules : [{ resource: r, excluded: typedExcluded }];
+    const typedEndings = endingsText.split(/[\s,]+/).map(e => e.trim()).filter(Boolean);
+    const resources = fromTree ? treeRules : [{ resource: r, excluded: typedExcluded, endings: typedEndings }];
     const failed = [];
     try {
       const headers = await getAuthHeaders();
-      for (const { resource: res, excluded } of resources) {
+      for (const { resource: res, excluded, endings = [] } of resources) {
         try {
           await http.post(
             `${POLICIES_BASE}/`,
             { username: u, instance_name: i, resource: res, action: a,
-              ...(excluded.length ? { excluded } : {}), ...(ends ? { ends } : {}) },
+              ...(excluded.length ? { excluded } : {}), ...(endings.length ? { endings } : {}),
+              ...(ends ? { ends } : {}) },
             { headers }
           );
         } catch (e2) {
@@ -138,6 +141,7 @@ export default function PolicyManagement() {
         setAction("read");
         setEnds("");
         setLeaveOut("");
+        setEndingsText("");
         alert(resources.length === 1 ? "Policy created." : `${resources.length} policies created.`);
       }
     } catch (e2) {
@@ -189,6 +193,7 @@ export default function PolicyManagement() {
     { field: "instance_name", headerName: "Instance Name", flex: 1, minWidth: 180, renderCell: params => {String(params.value || "")}},
     { field: "resource", headerName: "Resource", flex: 1.5, minWidth: 220 },
     { field: "action", headerName: "Action", width: 120 },
+    { field: "endings", headerName: "File types", width: 140, valueGetter: (value) => (value || []).join(", ") },
     { field: "excluded", headerName: "Leaves out", flex: 1, minWidth: 180, valueGetter: (value) => (value || []).join(", ") },
     { field: "ends", headerName: "Ends", width: 160, valueGetter: (value) => describeEnds(value) },
     {
@@ -301,6 +306,18 @@ export default function PolicyManagement() {
             <small id="pm-leave-out-help" className="pm-muted">
               Optional, for a folder policy: files or folders inside it to leave out, one per line.
               Another policy can still give them.
+            </small>
+          </label>
+          )}
+
+          {resourceMode === "path" && (
+          <label className="pm-field">
+            <span>Only files ending in</span>
+            <input value={endingsText} onChange={e => setEndingsText(e.target.value)} placeholder=".nii, .nii.gz"
+              aria-describedby="pm-endings-help" />
+            <small id="pm-endings-help" className="pm-muted">
+              Optional, for a folder policy: it then covers only files whose names end in one of these (any
+              case). Folders inside it can still be browsed.
             </small>
           </label>
           )}

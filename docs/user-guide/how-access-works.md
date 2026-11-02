@@ -9,7 +9,8 @@ What a policy gives, exactly. For the steps to give someone access, see
 - **You may do something when at least one of your policies allows it.** A policy allows an action
   on a path when it names that action (or `*`), its path covers that path, and it hasn't ended.
 - **A path is one file, a folder ending in `/*`, or `*`.** A folder path covers everything in the
-  folder, now and later, except what the policy leaves out. `*` covers everything on the instance.
+  folder, now and later, except what the policy leaves out, and only files of its types if it names
+  any. `*` covers everything on the instance.
 - **Policies only add up.** Access goes only when the policy that gives it is removed or ends.
 - **Policies name paths, not files.** Rename a file or folder and the policies on its old name no
   longer reach it.
@@ -98,6 +99,14 @@ isn't shown either. Only something inside the policy's folder can be left out.
 Leaving something out of one policy doesn't hide it from the person if another of their policies
 gives it: with a second policy on `study/sub-03/scan.nii`, that one file is readable again.
 
+## Limiting a policy to file types
+<!-- claim: AC-6; tests: A folder policy limited to file endings covers only those files, Endings and exclusions apply together, Endings are checked when a policy is saved, test_a_folder_policy_limited_to_file_endings_covers_only_those_files, test_only_a_folder_policy_can_be_limited_to_file_endings -->
+
+A folder policy can cover only files whose names end in given endings. `study/*`, for files ending
+in `.nii` and `.nii.gz`, covers the scans in `study/`, now and later, and no other files. Endings
+ignore case: `.nii` covers `SCAN.NII`. The folders inside can still be browsed and uploaded into.
+Only a folder policy, or `*`, can be limited this way, and an ending starts with a dot.
+
 ## What you see
 <!-- claim: AC-1, AC-2; tests: test_listings_above_a_file_show_only_the_path_to_it, test_a_folder_listing_shows_only_files_the_user_may_read, test_a_listing_for_an_action_shows_what_the_user_may_do_it_to, test_a_file_grant_does_not_allow_deleting_the_folder_above -->
 
@@ -179,7 +188,7 @@ own decision code checks every row on each test run.
 
 Decided, but not built yet, so no policy can express them today:
 
-- access by type of file, by name ending or by kind of data ([AC-6](../requirements/access-control.md#ac-6));
+- access by kind of data, such as anatomical scans ([AC-6](../requirements/access-control.md#ac-6)); access by file ending is built;
 - what happens to a participant's data when they withdraw ([AC-7](../requirements/access-control.md#ac-7)).
 
 Still to be decided: what quarantine holds back when data fails its standard's checks

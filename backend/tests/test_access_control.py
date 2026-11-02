@@ -415,3 +415,24 @@ def test_only_paths_inside_a_folder_policy_can_be_left_out(portal, make_user):
     """AC-10. Leaving out something outside the policy's folder is refused."""
     user = make_user()
     assert portal.try_grant(user, portal.resource("study/*"), "read", excluded=[portal.resource("other/*")]) is None
+
+
+# --------------------------------------------------------------------------- file types
+
+def test_a_folder_policy_limited_to_file_endings_covers_only_those_files(portal, make_user, tree):
+    """AC-6. Read on study/ for .nii files: the scans are readable and listed; the CSVs in patient-7/
+    aren't, though the folder can still be browsed."""
+    user = make_user()
+    portal.grant(user, portal.resource("study/*"), "read", endings=[".NII"])
+    assert user.download_url(tree.file("study/scan-042.nii")).status_code == 200
+    assert user.download_url(tree.file("study/patient-7/summary.csv")).status_code == 403
+    r = user.list_folder(tree.folder("study/patient-7/"))
+    assert r.status_code == 200, r.text
+    assert listed(r) == (set(), set())
+    assert [p.get("endings") for p in user.my_policies()] == [[".nii"]]
+
+
+def test_only_a_folder_policy_can_be_limited_to_file_endings(portal, make_user):
+    """AC-6."""
+    user = make_user()
+    assert portal.try_grant(user, portal.resource("study/scan-042.nii"), "read", endings=[".nii"]) is None
