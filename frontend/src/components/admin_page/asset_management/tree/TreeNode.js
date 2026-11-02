@@ -77,7 +77,10 @@ export default function TreeNode({
   // A folder shown only because it contains matches is never selected itself, so
   // show it as checked when everything it contributes is selected.
   const showsDerivedState = filtered && isFolder && !filterMatch(node);
-  const shownSelected = showsDerivedState ? filteredIds.filter((itemId) => selected.has(itemId)).length : 0;
+  let shownSelected = 0;
+  if (showsDerivedState) {
+    shownSelected = filteredIds.filter((itemId) => selected.has(itemId)).length;
+  }
   const checked = showsDerivedState
     ? filteredIds.length > 0 && shownSelected === filteredIds.length
     : selected.has(id);
