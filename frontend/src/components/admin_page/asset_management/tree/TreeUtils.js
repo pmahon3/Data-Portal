@@ -301,7 +301,7 @@ export function unselectSubtree(selection, node) {
 }
 
 /**
- * Returns the IDs a click should select while a path filter is active.
+ * Return the IDs a click should select while a path filter is active.
  *
  * Under a filter the user sees only part of the tree, so a click must select only
  * what they can see. A file, or a folder whose own path matches the filter, is
