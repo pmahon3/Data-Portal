@@ -18,8 +18,6 @@ function AuthenticatedApp({ keycloak }) {
   const isProjectManager = projects.some(path => String(path).replace(/\/$/, "").endsWith("/managers"));
   const token = keycloak.token;
 
-  console.log("This is the token: "+ token)
-
   return roles.includes("admin") || isProjectManager ? <AdminPage token={token} /> : <NormalUserPage />;
 }
 
