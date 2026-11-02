@@ -15,8 +15,9 @@ test('rule paths have the form the policy API accepts', () => {
 });
 
 test('a folder rule is described as covering files added later', () => {
-  expect(describeRule('study/patient-7/*')).toBe('everything in study/patient-7/, including files added later');
-  expect(describeRule('study/patient-7/scan.nii')).toBe('study/patient-7/scan.nii');
+  expect(describeRule({ resource: 'study/patient-7/*', excluded: [] })).toBe('everything in study/patient-7/, including files added later');
+  expect(describeRule({ resource: 'study/patient-7/scan.nii', excluded: [] })).toBe('study/patient-7/scan.nii');
+  expect(describeRule({ resource: 'study/*', excluded: ['study/sub-03/*'] })).toBe('everything in study/ except study/sub-03/, including files added later');
 });
 
 // AC-4: a folder selected under a filter stands only for the files the filter shows.
@@ -26,5 +27,5 @@ test('a folder grant made before the selection was cleared does not come back un
   expect(grants).toEqual(new Set(['2']));
   // A search clears the selection; the folder is then selected again under the filter.
   const after = nextFolderGrants(grants, new Set(), ticked, nodes, true);
-  expect(rulesFromSelection(nodes, ticked, after)).toEqual(['study/patient-7/scan.nii']);
+  expect(rulesFromSelection(nodes, ticked, after)).toEqual([{ resource: 'study/patient-7/scan.nii', excluded: [] }]);
 });

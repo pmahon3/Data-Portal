@@ -26,8 +26,8 @@ Open and proposed entries name the question that settles them in *INN use cases:
 | <a id="ac-7"></a>AC-7 | When a participant withdraws, new access to their data is blocked, and what is removed is what their consent or agreement requires: their original data, data derived from it, log entries that identify them, in any combination (D8). | 5.7 main flow step 4; 4.7 | open |
 | <a id="ac-8"></a>AC-8 | Access can be given with an end date and then ends automatically; administrators are reminded before it does. Access with no end date, such as to an open dataset, is allowed (C6). | 5.8 main flow step 1; 2.4 (agreement-aware sharing) | settled |
 | <a id="ac-9"></a>AC-9 | Every access is logged and attributable to a user. Administrators, and data owners for their own data, can read the records, and any change to them can be detected (C2). Records name files and people as they are; coding participant IDs in file names is the study team's responsibility (D7). | 5.1 non-functional requirements; value Integrity and Ethics | open |
-| <a id="ac-10"></a>AC-10 | A permission on a folder can exclude named files or folders inside it (C5). | 2.4 (tiered access) | open |
+| <a id="ac-10"></a>AC-10 | A permission on a folder can exclude named files or folders inside it (C5). | 2.4 (tiered access) | settled |
 
 [AC-4](#ac-4) and [AC-5](#ac-5) were decided on 31 October 2026 by Patrick, from concrete cases in INN's studies (a study folder gaining sessions, a participant folder under a DAA, picked files, renames, replaced files, a filtered selection). [AC-4](#ac-4)'s filter rule was decided the same day (C3): a selection holds what the filter
 shows, so a download or delete never acts on files the filter hid. [AC-6](#ac-6) to [AC-10](#ac-10) were decided
-on 1 November 2026 by Patrick (C2, C4, C5, C6, D7, D8). They stay open until each is designed and has tests; [AC-8](#ac-8) is built.
+on 1 November 2026 by Patrick (C2, C4, C5, C6, D7, D8). They stay open until each is designed and has tests; [AC-8](#ac-8) and [AC-10](#ac-10) are built.

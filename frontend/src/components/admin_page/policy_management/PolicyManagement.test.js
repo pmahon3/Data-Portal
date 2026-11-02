@@ -99,3 +99,18 @@ test('a typed policy is saved with its end date', async () => {
   expect(mockPost.mock.calls[0][1]).toEqual(
     { username: 'alice', instance_name: 'demo', resource: 'study/*', action: 'read', ends: '2999-12-31' });
 });
+
+// AC-10: a typed folder policy can leave out paths inside it, one per line.
+test('a typed folder policy is saved with what it leaves out', async () => {
+  mockPost.mockResolvedValue({ data: {} });
+  render(<PolicyManagement />);
+  fireEvent.change(screen.getByPlaceholderText('alice'), { target: { value: 'alice' } });
+  await screen.findByRole('option', { name: 'demo' });
+  fireEvent.change(screen.getByRole('combobox', { name: /Instance/ }), { target: { value: 'demo' } });
+  fireEvent.change(screen.getByPlaceholderText('bucket/folder/* or bucket/path/file.ext'), { target: { value: 'study/*' } });
+  fireEvent.change(screen.getByLabelText(/^Leave out/), { target: { value: 'study/sub-03/*\n study/notes.txt \n' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Create Policy' }));
+  await waitFor(() => expect(mockPost).toHaveBeenCalled());
+  expect(mockPost.mock.calls[0][1]).toEqual({ username: 'alice', instance_name: 'demo', resource: 'study/*',
+    action: 'read', excluded: ['study/sub-03/*', 'study/notes.txt'] });
+});

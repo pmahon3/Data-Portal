@@ -18,7 +18,7 @@ from core.services.injectors import get_user_manager, get_policy_manager, get_in
 from core.services.instances import AbstractInstanceManager
 from core.services.policies import CasbinPolicyManager
 from core.services.policies import Policy
-from core.services.policies.rules import normalize_rule_path, today, validate_rule_action
+from core.services.policies.rules import normalize_rule_path, today, validate_excluded, validate_rule_action
 from core.services.projects import AbstractProjectManager
 from core.services.users import AbstractUserManager
 from api.v0_1.common.models import (
@@ -191,6 +191,7 @@ async def create_policy(
     try:
         new_policy.resource = normalize_rule_path(new_policy.resource)
         new_policy.action = validate_rule_action(new_policy.action)
+        new_policy.excluded = list(validate_excluded(new_policy.resource, new_policy.excluded))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     # A policy can end on a date (AC-8), but not one already past: it would allow nothing.
@@ -228,6 +229,7 @@ async def create_policy(
         resource=new_policy.resource,
         action=new_policy.action,
         ends=new_policy.ends,
+        excluded=new_policy.excluded,
     )
 
     # Validate user and instance exist

@@ -4,7 +4,7 @@ Steps for features/access_rules.feature, plus property tests for the decision la
 Every check runs through both the definition (rule_allows, rule_shows_folder) and the indexed
 Checker, so the scenarios also test that the two agree.
 
-Verifies: AC-5, AC-8.
+Verifies: AC-5, AC-8, AC-10.
 """
 import datetime
 from pathlib import Path
@@ -22,6 +22,7 @@ from core.services.policies.rules import (
     rule_allows,
     rule_shows_folder,
     today,
+    validate_excluded,
 )
 
 scenarios("features/access_rules.feature")
@@ -54,6 +55,11 @@ def user_holds_until(rules, action, path, ends):
     rules.append(Rule(path, action, today() if ends == "today" else datetime.date.fromisoformat(ends)))
 
 
+@bdd_given(parsers.parse('the user holds "{action}" on "{path}" leaving out "{excluded}"'))
+def user_holds_leaving_out(rules, action, path, excluded):
+    rules.append(Rule(path, action, None, tuple(e.strip() for e in excluded.split(","))))
+
+
 @then(parsers.re(r'the user (?P<may>may|may not) "(?P<action>[^"]*)" "(?P<path>[^"]*)"'))
 def user_may(rules, may, action, path):
     assert allows(rules, path, action) == (may == "may")
@@ -70,6 +76,19 @@ def save_policy(entered):
         return normalize_rule_path(entered)
     except ValueError as error:
         return error
+
+
+@when(parsers.parse('an administrator saves a policy on "{policy}" leaving out "{excluded}"'), target_fixture="saved")
+def save_policy_leaving_out(policy, excluded):
+    try:
+        return validate_excluded(policy, [excluded])
+    except ValueError as error:
+        return error
+
+
+@then(parsers.parse("it is saved leaving out {expected}"))
+def saved_leaving_out(saved, expected):
+    assert saved == (expected,)
 
 
 @then(parsers.parse('it is saved as "{expected}"'))
@@ -95,15 +114,20 @@ def joined(min_size, max_size):
 
 ENDS = st.one_of(st.none(), st.sampled_from([datetime.date(2000, 1, 1), datetime.date(2999, 12, 31)]))
 
-VALID_RULES = st.lists(
-    st.builds(
-        Rule,
-        st.one_of(st.just("*"), joined(1, 3).map(lambda p: p + "/*"), joined(1, 4)),
-        st.one_of(ACTIONS, st.just("*")),
-        ENDS,
-    ),
-    max_size=6,
-)
+
+@st.composite
+def valid_rule(draw):
+    """Any valid rule: a file, a folder (possibly leaving things out inside it) or everything."""
+    path = draw(st.one_of(st.just("*"), joined(1, 3).map(lambda p: p + "/*"), joined(1, 4)))
+    excluded = ()
+    if path.endswith("*"):
+        inside = path[:-1]
+        excluded = tuple(draw(st.lists(st.one_of(joined(1, 2).map(lambda p: inside + p + "/*"),
+                                                  joined(1, 2).map(lambda p: inside + p)), max_size=2)))
+    return Rule(path, draw(st.one_of(ACTIONS, st.just("*"))), draw(ENDS), excluded)
+
+
+VALID_RULES = st.lists(valid_rule(), max_size=6)
 PATHS = st.tuples(joined(1, 4), st.sampled_from(["", "/"])).map("".join)
 
 
@@ -148,10 +172,12 @@ def test_no_decision_goes_through_casbins_own_matcher():
     assert callers == []
 
 
-def test_stored_policies_read_back_with_and_without_an_end_date():
-    """AC-8. Rows saved before policies had conditions have four fields; newer ones may have five."""
+def test_stored_policies_read_back_with_and_without_conditions():
+    """AC-8, AC-10. Rows saved before policies had conditions have four fields; newer ones may have five."""
     from core.services.policies.casbin.CasbinPolicyManager import policy_from_row
     user, instance = "3ad5aedb-dd63-418a-ae55-a67a455e2e4b", "ded55682-2208-4584-a324-ef15d47c4601"
     assert policy_from_row([user, instance, "b/x", "read"]).ends is None
     ended = policy_from_row([user, instance, "b/y/*", "read", '{"ends": "2027-06-30"}'])
     assert (ended.resource, ended.ends) == ("b/y/*", datetime.date(2027, 6, 30))
+    leaving = policy_from_row([user, instance, "b/y/*", "read", '{"except": ["b/y/z/*"]}'])
+    assert (leaving.ends, leaving.excluded) == (None, ["b/y/z/*"])

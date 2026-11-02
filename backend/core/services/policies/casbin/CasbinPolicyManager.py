@@ -14,8 +14,9 @@ def policy_from_row(row: list[str]) -> Policy:
     """A stored policy row (sub, dom, obj, act, cond as in model.conf) as a Policy. Rows saved
     before policies had conditions have no fifth field."""
     p_user_uuid, p_instance_uuid, res, act, *cond = row
+    rule = rule_from_stored(res, act, cond[0] if cond else "")
     return Policy(user_uuid=UUID(p_user_uuid), instance_uuid=UUID(p_instance_uuid), resource=res, action=act,
-                  ends=rule_from_stored(res, act, cond[0] if cond else "").ends)
+                  ends=rule.ends, excluded=list(rule.excluded))
 
 
 class CasbinPolicyManager:
@@ -114,7 +115,7 @@ class CasbinPolicyManager:
         # One policy per person, instance, path and action, whatever its conditions
         if self.enforcer.get_filtered_policy(0, *filter_):
             raise ValueError("Policy already exists.")
-        conditions = conditions_json(Rule(resource, action, policy.ends))
+        conditions = conditions_json(Rule(resource, action, policy.ends, tuple(policy.excluded)))
         if self.enforcer.add_policy(*filter_, *([conditions] if conditions else [])):
             return True
         raise ValueError("Failed to add policy.")
