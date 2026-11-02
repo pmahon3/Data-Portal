@@ -82,6 +82,7 @@ they manage.
 |---|---|---|
 | `GET` | `/api/policies/me` | List the current user's policies. |
 | `GET` | `/api/policies/` | List or filter policies *(admin or project manager)*. |
+| `GET` | `/api/policies/check` | May a person do an action on a path, and which of their policies allows it? Takes `username`, `instance_name`, `resource` and `action`; returns `allowed`, `because` (the policies) and, for a folder path ending in `/`, `shown` *(admin, or project manager for people in their projects)*. |
 | `POST` | `/api/policies/` | Add a policy *(admin or project manager)*. |
 | `DELETE` | `/api/policies/` | Remove a policy *(admin or project manager)*. |
 | `POST` | `/api/policies/validate` | Test a policy without adding it *(admin)*. |

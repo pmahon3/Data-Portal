@@ -18,6 +18,7 @@ from pytest_bdd import parsers, scenarios, then, when
 from core.services.policies.rules import (
     Checker,
     Rule,
+    covering,
     normalize_rule_path,
     rule_allows,
     rule_shows_folder,
@@ -201,6 +202,12 @@ def test_acting_on_a_folder_implies_it_is_shown(rules, path, action):
     checker = Checker(rules)
     if path.endswith("/") and checker.allows(path, action):
         assert checker.shows_folder(path, action)
+
+
+@given(rules=VALID_RULES, path=PATHS, action=ACTIONS)
+def test_the_rules_covering_a_path_are_exactly_the_reason_it_is_allowed(rules, path, action):
+    """AC-3. What check-access reports: some rule covers the path exactly when the user may act on it."""
+    assert bool(covering(rules, path, action)) == Checker(rules).allows(path, action)
 
 
 @given(entered=st.text(alphabet="ab/*.[", max_size=12))

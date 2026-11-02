@@ -599,3 +599,60 @@ def test_a_policy_on_a_path_with_a_bracket_is_listed_and_removed(make_user, port
     })
     assert r.status_code == 200, r.text
     assert user.my_policies() == []
+
+
+# --------------------------------------------- check access: the answer and the reason
+
+def check(caller_headers, portal, user, key, action):
+    return requests.get(f"{portal.backend}/api/policies/check", headers=caller_headers, timeout=30, params={
+        "username": user.username,
+        "instance_name": portal.instance,
+        "resource": portal.resource(key),
+        "action": action,
+    })
+
+
+def test_check_access_names_the_policy_that_allows_it(make_user, portal):
+    """AC-3. Allowed, because of the folder policy that covers the file."""
+    user = make_user(("read", "study/*"))
+    answer = check(portal.admin_headers(), portal, user, "study/scan-042.nii", "read").json()
+    assert answer["allowed"] is True
+    assert [(p["resource"], p["action"]) for p in answer["because"]] == [(portal.resource("study/*"), "read")]
+
+
+def test_check_access_refuses_with_no_reason(make_user, portal):
+    """AC-3. Refused: none of the person's policies allows it, and nothing else is listed."""
+    user = make_user(("read", "study/*"))
+    answer = check(portal.admin_headers(), portal, user, "other/unrelated.txt", "read").json()
+    assert answer == {"allowed": False, "shown": None, "because": []}
+
+
+def test_check_access_says_a_folder_is_shown_without_being_allowed(make_user, portal):
+    """AC-1. A folder on the way to a file the person holds is shown in their tree, not allowed."""
+    user = make_user(("read", "study/patient-7/summary.csv"))
+    answer = check(portal.admin_headers(), portal, user, "study/", "read").json()
+    assert (answer["allowed"], answer["shown"]) == (False, True)
+
+
+def test_check_access_is_refused_to_an_ordinary_user(make_user, portal):
+    """AC-3. Only administrators and project managers may check someone's access."""
+    user = make_user(("read", "study/*"))
+    asker = make_user()
+    assert check(asker._headers, portal, user, "study/scan-042.nii", "read").status_code == 403
+
+
+def test_a_manager_may_check_only_people_in_their_projects(make_user, portal):
+    """AC-3. A project manager checks people in a project they manage, on its instances, and no one else."""
+    member = make_user(("read", "study/*"))
+    outsider = make_user(("read", "study/*"))
+    manager = make_user()
+    project = f"acl-test-{uuid.uuid4().hex[:8]}"
+    portal.admin("POST", "/api/projects", json={"name": project}).raise_for_status()
+    try:
+        portal.admin("POST", f"/api/projects/{project}/storage-instances", json={"instance_name": portal.instance})
+        portal.admin("POST", f"/api/projects/{project}/users", json={"username": member.username})
+        portal.admin("POST", f"/api/projects/{project}/managers", json={"username": manager.username})
+        assert check(manager._headers, portal, member, "study/scan-042.nii", "read").status_code == 200
+        assert check(manager._headers, portal, outsider, "study/scan-042.nii", "read").status_code == 403
+    finally:
+        portal.admin("DELETE", f"/api/projects/{project}")

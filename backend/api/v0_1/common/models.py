@@ -102,6 +102,15 @@ class GetPolicyResponse(BaseModel):
     details: list[Policy] = Field(..., description="The details of the policies that were retrieved.")
 
 
+class CheckAccessResponse(BaseModel):
+    allowed: bool = Field(..., description="Whether the person may do the action on the path today.")
+    shown: Optional[bool] = Field(
+        default=None,
+        description="For a folder (a path ending in '/'): whether it appears in the person's tree.",
+    )
+    because: list[Policy] = Field(..., description="The person's policies that allow it; empty when refused.")
+
+
 class ProjectResponse(BaseModel):
     name: str = Field(..., description="The project name.")
     users: list[str] = Field(default_factory=list, description="Project users.")
