@@ -20,10 +20,12 @@ removed afterwards. Grants name single files, or folders as "folder/*".
 import datetime
 import time
 import uuid
+from urllib.parse import parse_qs, urlsplit, urlunsplit
 
 import pytest
+import requests
 
-from portal_stack import Portal, StackUnavailable, Tree, browsed, key_in_url, listed
+from portal_stack import Portal, StackUnavailable, Tree, browsed, key_in_url, listed, setting
 
 
 # Every file in the test bucket. Tests that change files work in a folder of their own.
@@ -58,6 +60,10 @@ FILES = [
     "bids/dataset_description.json",
     "bids/sub-01/anat/sub-01_T1w.nii.gz",
     "bids/sub-01/func/sub-01_task-rest_bold.nii.gz",
+    "ren/results/a.txt",
+    "mov/in/x.txt",
+    "mov/out/keep.txt",
+    "link/a.txt",
 ]
 # The browsing user never lists brackets/: on the current code that listing fails (INN-289).
 BROWSABLE = [key for key in FILES if not key.startswith("brackets/") or key == "brackets/ok.txt"]
@@ -454,3 +460,79 @@ def test_kinds_of_data_need_a_dataset_that_declares_a_standard(portal, make_user
     """AC-6. study/ isn't a BIDS dataset, so it has no kinds of data."""
     user = make_user()
     assert portal.try_grant(user, portal.resource("study/*"), "read", kinds=["anat"]) is None
+
+
+# ------------------------------------------------------- access is by name; links run out
+
+def move_in_storage(portal, old, new):
+    """Rename or move a file the way it happens outside the portal: in the object store itself."""
+    portal.s3.copy_object(Bucket=portal.bucket, CopySource={"Bucket": portal.bucket, "Key": old}, Key=new)
+    portal.s3.delete_object(Bucket=portal.bucket, Key=old)
+    synced(portal)
+
+
+def synced(portal):
+    """Have the portal pick up what changed in the object store, as put_files does."""
+    portal.admin("POST", f"/api/instances/{portal.instance_uuid}/sync", timeout=300).raise_for_status()
+
+
+def fetch_link(url):
+    """
+    Fetch a presigned link from the test runner. The link names the storage instance's own address
+    (e.g. minio:9000), which only the stack's containers resolve, so the request goes to the store's
+    local address with the signed Host header kept, and the signature still holds.
+    """
+    signed = urlsplit(url)
+    local = urlsplit(setting("TEST_S3_URL", "http://localhost:9000"))
+    return requests.get(urlunsplit(signed._replace(netloc=local.netloc)), headers={"Host": signed.netloc},
+                        timeout=10)
+
+
+def test_renaming_a_folder_leaves_its_policy_on_the_old_name(make_user, tree, portal):
+    """AC-5. Renaming results/ to results-2025/ leaves a policy on results/* behind, and a new file
+    at the old path is covered by it again."""
+    user = make_user(("read", "ren/results/*"))
+    finder = make_user(("read", "ren/*"))
+    assert user.download_url(tree.file("ren/results/a.txt")).status_code == 200
+
+    move_in_storage(portal, "ren/results/a.txt", "ren/results-2025/a.txt")
+    renamed = Tree(finder).file("ren/results-2025/a.txt")
+    assert user.download_url(renamed).status_code == 403
+    assert portal.resource("ren/results/*") in {p["resource"] for p in user.my_policies()}
+
+    portal.s3.put_object(Bucket=portal.bucket, Key="ren/results/a.txt", Body=b"new\n")
+    synced(portal)
+    again = Tree(finder).file("ren/results/a.txt")
+    assert user.download_url(again).status_code == 200
+
+
+def test_moving_a_file_puts_it_under_the_policies_of_its_new_path(make_user, portal):
+    """AC-5. A moved file leaves the reach of policies on its old path and comes under those on its new one."""
+    before = make_user(("read", "mov/in/*"))
+    after = make_user(("read", "mov/out/*"))
+    finder = make_user(("read", "mov/*"))
+
+    move_in_storage(portal, "mov/in/x.txt", "mov/out/x.txt")
+    moved = Tree(finder).file("mov/out/x.txt")
+    assert before.download_url(moved).status_code == 403
+    assert after.download_url(moved).status_code == 200
+
+
+def test_a_download_link_lasts_at_most_15_minutes(make_user, tree):
+    """AC-3. A link handed out for one file expires within 15 minutes."""
+    user = make_user(("read", "link/a.txt"))
+    url = user.download_url(tree.file("link/a.txt")).json()["url"]
+    expires = parse_qs(urlsplit(url).query)["X-Amz-Expires"]
+    assert 0 < int(expires[0]) <= 15 * 60
+
+
+def test_a_link_handed_out_keeps_working_after_its_policy_is_removed(make_user, tree, portal):
+    """AC-3. Removing a policy stops new links at once; a link given before still works until it expires."""
+    user = make_user(("read", "link/a.txt"))
+    url = user.download_url(tree.file("link/a.txt")).json()["url"]
+    portal.revoke(user, portal.resource("link/a.txt"), "read")
+
+    assert user.download_url(tree.file("link/a.txt")).status_code == 403
+    fetched = fetch_link(url)
+    assert fetched.status_code == 200
+    assert fetched.content == b"link/a.txt\n"
