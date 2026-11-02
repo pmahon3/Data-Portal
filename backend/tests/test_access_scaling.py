@@ -13,8 +13,6 @@ Verifies: AC-11
 """
 import time
 
-import pytest
-
 from core.services.policies.rules import Checker, Rule
 
 SUBJECTS = 500
@@ -46,19 +44,16 @@ def one_folder_user():
                     for i in range(20)])
 
 
-@pytest.mark.xfail(strict=True, reason="CODE-policy-check-scaling: conditioned policies are checked one by one")
 def test_a_100000_file_folder_is_decided_in_under_a_second():
     checker = picker_user()
     assert best_of_three(lambda: checker.split(PATHS, "read")) < 1.0
 
 
-@pytest.mark.xfail(strict=True, reason="CODE-policy-check-scaling: conditioned policies are checked one by one")
 def test_many_policies_on_one_folder_still_decide_100000_files_in_under_a_second():
     checker = one_folder_user()
     assert best_of_three(lambda: checker.split(PATHS, "read")) < 1.0
 
 
-@pytest.mark.xfail(strict=True, reason="CODE-policy-check-scaling: conditioned policies are checked one by one")
 def test_a_10000_entry_listing_is_decided_in_under_200_ms():
     checker = picker_user()
     entries = PATHS[:9_500] + [f"study/sub-{s:03d}/" for s in range(SUBJECTS)]
