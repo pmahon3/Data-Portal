@@ -33,7 +33,8 @@ function Notifications({ load = loadNotifications }) {
   const [anchor, setAnchor] = useState(null);
 
   const refresh = useCallback(() => {
-    load().then(setItems).catch(() => {}); // a failed refresh keeps the last list
+    // a failed refresh keeps the last list
+    load().then(setItems).catch(() => {});
   }, [load]);
 
   useEffect(() => {
@@ -59,8 +60,12 @@ function Notifications({ load = loadNotifications }) {
 
   return (
     <>
-      <IconButton aria-label={unseen ? `notifications, ${unseen} new` : "notifications"} color="inherit"
-                  onClick={open} size="small">
+      <IconButton
+        aria-label={unseen ? `notifications, ${unseen} new` : "notifications"}
+        color="inherit"
+        onClick={open}
+        size="small"
+      >
         <Badge badgeContent={unseen} color="error">
           <NotificationsIcon />
         </Badge>
