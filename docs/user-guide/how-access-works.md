@@ -9,7 +9,7 @@ What a policy gives, exactly. For the steps to give someone access, see
 - **You may do something when at least one of your policies allows it.** A policy allows an action
   on a path when it names that action (or `*`), its path covers that path, and it hasn't ended.
 - **A path is one file, a folder ending in `/*`, or `*`.** A folder path covers everything in the
-  folder, now and later. `*` covers everything on the instance.
+  folder, now and later, except what the policy leaves out. `*` covers everything on the instance.
 - **Policies only add up.** Access goes only when the policy that gives it is removed or ends.
 - **Policies name paths, not files.** Rename a file or folder and the policies on its old name no
   longer reach it.
@@ -85,9 +85,18 @@ Your access is everything your policies give, added together. For example, with 
 
 you can browse and download everything in study A, and upload only into `incoming/`.
 
-There are no "deny" policies, so you can't hide one folder inside a wider policy. To give access to
-all of a study except one folder, give policies on the folders you do want covered instead. (A policy
-that leaves folders out is decided but not built yet: see [below](#not-yet-part-of-a-policy).)
+There are no "deny" policies: one policy never takes away what another gives. To give access to all
+of a study except one folder, use one policy that [leaves it out](#leaving-things-out).
+
+## Leaving things out
+<!-- claim: AC-10; tests: A folder policy leaves out what it excludes, An excluded folder isn't shown unless something else shows it, Another policy can still give what one policy leaves out, Only paths inside a folder policy can be left out, test_a_folder_policy_leaves_out_what_it_excludes, test_only_paths_inside_a_folder_policy_can_be_left_out -->
+
+A folder policy can leave out files or folders inside it. `study/*`, leaving out `study/sub-03/*`,
+covers everything in `study/` except `sub-03/` and everything in it, now and later. What's left out
+isn't shown either. Only something inside the policy's folder can be left out.
+
+Leaving something out of one policy doesn't hide it from the person if another of their policies
+gives it: with a second policy on `study/sub-03/scan.nii`, that one file is readable again.
 
 ## What you see
 <!-- claim: AC-1, AC-2; tests: test_listings_above_a_file_show_only_the_path_to_it, test_a_folder_listing_shows_only_files_the_user_may_read, test_a_listing_for_an_action_shows_what_the_user_may_do_it_to, test_a_file_grant_does_not_allow_deleting_the_folder_above -->
@@ -170,7 +179,6 @@ own decision code checks every row on each test run.
 
 Decided, but not built yet, so no policy can express them today:
 
-- a folder policy that leaves out named files or folders inside it ([AC-10](../requirements/access-control.md#ac-10));
 - access by type of file, by name ending or by kind of data ([AC-6](../requirements/access-control.md#ac-6));
 - what happens to a participant's data when they withdraw ([AC-7](../requirements/access-control.md#ac-7)).
 

@@ -16,6 +16,7 @@ one path and one action. A person's access is everything their policies give, ad
 3. Say what the policy covers, in one of two ways:
    - **Choose from the tree**, then tick folders or files. This is the easier way.
    - **Type a path**, such as `study-a/patient-7/*`. See [Writing the policy you want](#writing-the-policy-you-want).
+     For a folder, anything inside it to leave out goes under **Leave out**, one per line.
 4. Choose the **Action**: `read`, `write` or `delete`.
 5. If the access should stop on a date, choose it under **Ends**. Leave it empty for access with no
    end, such as to an open dataset.
@@ -30,7 +31,7 @@ The policy appears in the **Policies** table, and the person has the access stra
 time they open the instance, they see what it covers.
 
 ## Choosing from the tree
-<!-- claim: AC-4, AC-5; tests: A ticked folder grants everything in it including files added later, Ticked files are granted one by one, Ticking every file in a folder still grants only those files, A partly ticked folder grants the ticked files, The bucket itself grants everything in it, Under a filter a folder grants only the files the filter shows, Under a filter a folder matching it is granted file by file -->
+<!-- claim: AC-4, AC-5, AC-10; tests: A ticked folder grants everything in it including files added later, Ticked files are granted one by one, Ticking every file in a folder still grants only those files, A folder with a file unticked inside it leaves that file out, A folder with a folder unticked inside it leaves that folder out, The bucket itself grants everything in it, Under a filter a folder grants only the files the filter shows, Under a filter a folder matching it is granted file by file -->
 
 The ticks become the same policies you could type:
 
@@ -39,7 +40,7 @@ The ticks become the same policies you could type:
 | A folder | One: the folder and everything in it, including files added later (`study/patient-7/*`) |
 | The bucket at the top | One: everything in it (`study/*`) |
 | Some files | One per file. Ticking every file in a folder still gives one policy per file, so files added to that folder later stay hidden. |
-| A folder, then unticking a file inside it | One per file still ticked |
+| A folder, then unticking something inside it | One: the folder, leaving out what you unticked. Files added to the folder later are covered. |
 | A folder while a search is on | One per file the search shows, even when the folder's own name matches the search |
 
 Each policy is saved separately. If one is refused, the form names it and the others are still
@@ -55,6 +56,7 @@ created.
 | A collaborator to have a few specific files | One `read` policy per file. New files in the folder stay hidden from them. |
 | A technician to upload sessions | `study/incoming/*`, `write`. Add `read` only if they should also download. |
 | Someone to tidy a folder | `folder/*`, `delete`. Add `read` if they should also download. |
+| A researcher to have a whole study except one participant | `study/*`, `read`, with `study/participant/*` under **Leave out**. Participants added later are covered; the one left out stays hidden. |
 
 A path ending in `/*` covers that folder and everything in it; any other path is one file. Paths are
 literal, not patterns. The details, with examples the portal checks: [How access works](how-access-works.md).

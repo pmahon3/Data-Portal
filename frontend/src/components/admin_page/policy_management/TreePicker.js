@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Tree from "../asset_management/tree/index.js";
-import { describeCount, describeRule, describeWho, nextFolderGrants, rulesFromSelection } from "./treeRules.js";
+import { describeCount, describeRule, describeWho, nextFolderGrants, ruleText, rulesFromSelection } from "./treeRules.js";
 
 /**
  * Choosing what a policy covers from the file tree (DS-policy-from-selection; AC-4, AC-5).
@@ -50,7 +50,7 @@ export default function TreePicker({
           <>
             <p>{describeWho(username, action)}</p>
             <ul>
-              {rules.map((rule) => <li key={rule}><code>{describeRule(rule)}</code></li>)}
+              {rules.map((rule) => <li key={ruleText(rule)}><code>{describeRule(rule)}</code></li>)}
             </ul>
             <p className="pm-muted">{describeCount(rules)}</p>
           </>

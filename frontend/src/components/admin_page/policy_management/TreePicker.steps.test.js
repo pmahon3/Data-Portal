@@ -8,6 +8,7 @@ import React, { useState } from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { defineFeature, loadFeature } from "jest-cucumber";
 import TreePicker from "./TreePicker.js";
+import { ruleText } from "./treeRules.js";
 
 // The virtualizer measures the scroll container, which jsdom can't do, so render every row.
 jest.mock("@tanstack/react-virtual", () => ({
@@ -119,7 +120,7 @@ defineFeature(feature, (test) => {
 
   const rulesAre = (step) => {
     step(/^the rules are exactly "(.*)"$/, (expected) => {
-      expect([...rules].sort()).toEqual(expected.split(", ").sort());
+      expect(rules.map(ruleText).sort()).toEqual(expected.split(/, (?=study\/)/).sort());
     });
   };
 
@@ -154,10 +155,18 @@ defineFeature(feature, (test) => {
     rulesAre(then);
   });
 
-  test("A partly ticked folder grants the ticked files", ({ given, and, when, then }) => {
+  test("A folder with a file unticked inside it leaves that file out", ({ given, and, when, then }) => {
     background(given, and);
     ticks(when);
     expands(and);
+    ticks(and);
+    rulesAre(then);
+    previewSays(and);
+  });
+
+  test("A folder with a folder unticked inside it leaves that folder out", ({ given, and, when, then }) => {
+    background(given, and);
+    ticks(when);
     ticks(and);
     rulesAre(then);
   });

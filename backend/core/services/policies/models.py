@@ -13,6 +13,7 @@ class Policy(BaseModel):
     username: Optional[str] = None
     instance_name: Optional[str] = None
     ends: Optional[date] = None  # the last day the policy applies (AC-8); None for no end
+    excluded: list[str] = []     # paths inside a folder policy that it leaves out (AC-10)
 
 
 Policies = list[Policy]

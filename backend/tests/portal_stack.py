@@ -179,18 +179,20 @@ class Portal:
 
     # ---------------------------------------------------------------- policies
 
-    def grant(self, user: "User", resource: str, action: str, ends: str | None = None) -> str:
+    def grant(self, user: "User", resource: str, action: str, ends: str | None = None,
+              excluded: list[str] = ()) -> str:
         """Add a policy through the policy API, as an administrator would, ending on `ends`
-        (an ISO date) if given. Returns the resource as the portal stored it."""
-        stored = self.try_grant(user, resource, action, ends)
+        (an ISO date) and leaving out `excluded` if given. Returns the resource as stored."""
+        stored = self.try_grant(user, resource, action, ends, excluded)
         assert stored is not None, f"the portal refused a grant of {action} on {resource!r}"
         return stored
 
-    def try_grant(self, user: "User", resource: str, action: str, ends: str | None = None) -> str | None:
+    def try_grant(self, user: "User", resource: str, action: str, ends: str | None = None,
+                  excluded: list[str] = ()) -> str | None:
         """Like grant, but returns None if the portal refuses the policy."""
         r = requests.post(f"{self.backend}/api/policies/", headers=self.admin_headers(), timeout=TIMEOUT, json={
-            "username": user.username, "instance_name": self.instance,
-            "resource": resource, "action": action, **({"ends": ends} if ends else {})})
+            "username": user.username, "instance_name": self.instance, "resource": resource, "action": action,
+            **({"ends": ends} if ends else {}), **({"excluded": list(excluded)} if excluded else {})})
         if r.status_code not in (200, 201):
             print(f"policy refused: {action} on {resource!r}: {r.status_code} {r.text}")
             return None

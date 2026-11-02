@@ -91,7 +91,8 @@ they manage.
 everything in it) or `*` (the whole instance). Its `action` is one action (`read`, `write`, `delete`, `admin`) or `*`.
 Other forms are refused (400). An optional `ends` (an ISO date, e.g. `2027-06-30`) is the last day
 the policy applies; from the next day (UTC) it allows nothing. A date already past is refused (400),
-and policies are listed with their `ends`.
+and policies are listed with their `ends`. An optional `excluded` lists paths inside a folder policy
+(or `*`) that it leaves out, written like policy paths; anything outside the folder is refused (400).
 
 ## Notifications
 

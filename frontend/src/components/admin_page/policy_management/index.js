@@ -28,7 +28,8 @@ export default function PolicyManagement() {
   const [instanceName, setInstanceName] = useState("");
   const [resource, setResource] = useState("");
   const [action, setAction] = useState("read");
-  const [ends, setEnds] = useState("");  // the last day the policy applies; "" for no end (AC-8)
+  const [ends, setEnds] = useState("");
+  const [leaveOut, setLeaveOut] = useState("");  // typed paths a folder policy leaves out, one per line (AC-10)  // the last day the policy applies; "" for no end (AC-8)
   // "path": type the resource; "tree": choose it from the instance's file tree (DS-policy-from-selection)
   const [resourceMode, setResourceMode] = useState("path");
   const [treeSelection, setTreeSelection] = useState(new Set());
@@ -111,15 +112,17 @@ export default function PolicyManagement() {
     if (!a) { setCreating(false); return setErr("Action is required."); }
 
     // From the tree, one policy per rule, each through the same API as a typed one.
-    const resources = fromTree ? treeRules : [r];
+    const typedExcluded = leaveOut.split("\n").map(line => line.trim()).filter(Boolean);
+    const resources = fromTree ? treeRules : [{ resource: r, excluded: typedExcluded }];
     const failed = [];
     try {
       const headers = await getAuthHeaders();
-      for (const res of resources) {
+      for (const { resource: res, excluded } of resources) {
         try {
           await http.post(
             `${POLICIES_BASE}/`,
-            { username: u, instance_name: i, resource: res, action: a, ...(ends ? { ends } : {}) },
+            { username: u, instance_name: i, resource: res, action: a,
+              ...(excluded.length ? { excluded } : {}), ...(ends ? { ends } : {}) },
             { headers }
           );
         } catch (e2) {
@@ -134,6 +137,7 @@ export default function PolicyManagement() {
         setTreeSelection(new Set());
         setAction("read");
         setEnds("");
+        setLeaveOut("");
         alert(resources.length === 1 ? "Policy created." : `${resources.length} policies created.`);
       }
     } catch (e2) {
@@ -185,6 +189,7 @@ export default function PolicyManagement() {
     { field: "instance_name", headerName: "Instance Name", flex: 1, minWidth: 180, renderCell: params => {String(params.value || "")}},
     { field: "resource", headerName: "Resource", flex: 1.5, minWidth: 220 },
     { field: "action", headerName: "Action", width: 120 },
+    { field: "excluded", headerName: "Leaves out", flex: 1, minWidth: 180, valueGetter: (value) => (value || []).join(", ") },
     { field: "ends", headerName: "Ends", width: 160, valueGetter: (value) => describeEnds(value) },
     {
       field: "delete",
@@ -284,6 +289,18 @@ export default function PolicyManagement() {
               files added later (<code>bucket/folder/*</code>), or <code>*</code> for the whole
               instance. Paths are literal, not patterns: <code>.*</code> and a <code>*</code> mid-path
               are refused.
+            </small>
+          </label>
+          )}
+
+          {resourceMode === "path" && (
+          <label className="pm-field">
+            <span>Leave out</span>
+            <textarea value={leaveOut} onChange={e => setLeaveOut(e.target.value)} rows={2}
+              placeholder="bucket/folder/sub/*" aria-describedby="pm-leave-out-help" />
+            <small id="pm-leave-out-help" className="pm-muted">
+              Optional, for a folder policy: files or folders inside it to leave out, one per line.
+              Another policy can still give them.
             </small>
           </label>
           )}

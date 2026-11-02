@@ -394,3 +394,24 @@ def test_a_policy_cannot_end_on_a_date_already_past(portal, make_user):
     """AC-8. It would allow nothing, so the portal refuses it."""
     user = make_user()
     assert portal.try_grant(user, portal.resource("study/scan-042.nii"), "read", ends=utc_day(-1)) is None
+
+
+# --------------------------------------------------------------------------- exclusions
+
+def test_a_folder_policy_leaves_out_what_it_excludes(portal, make_user, tree):
+    """AC-10. Read on study/ leaving out patient-7/: the scans are readable and listed; patient-7/
+    and its files aren't."""
+    user = make_user()
+    portal.grant(user, portal.resource("study/*"), "read", excluded=[portal.resource("study/patient-7/*")])
+    assert user.download_url(tree.file("study/scan-042.nii")).status_code == 200
+    assert user.download_url(tree.file("study/patient-7/summary.csv")).status_code == 403
+    r = user.list_folder(tree.folder("study/"))
+    assert r.status_code == 200, r.text
+    assert listed(r) == (set(), {"study/scan-042.nii", "study/scan-043.nii"})
+    assert [p.get("excluded") for p in user.my_policies()] == [[portal.resource("study/patient-7/*")]]
+
+
+def test_only_paths_inside_a_folder_policy_can_be_left_out(portal, make_user):
+    """AC-10. Leaving out something outside the policy's folder is refused."""
+    user = make_user()
+    assert portal.try_grant(user, portal.resource("study/*"), "read", excluded=[portal.resource("other/*")]) is None
