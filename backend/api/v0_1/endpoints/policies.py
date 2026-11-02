@@ -18,7 +18,13 @@ from core.services.injectors import get_user_manager, get_policy_manager, get_in
 from core.services.instances import AbstractInstanceManager
 from core.services.policies import CasbinPolicyManager
 from core.services.policies import Policy
-from core.services.policies.rules import normalize_rule_path, today, validate_endings, validate_excluded, validate_rule_action
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from core.db.postgres.session import get_session
+from core.services import standards
+from core.services.filetree.file_service import FileService
+from core.services.policies.rules import (normalize_rule_path, today, validate_endings, validate_excluded,
+                                          validate_kinds, validate_rule_action)
 from core.services.projects import AbstractProjectManager
 from core.services.users import AbstractUserManager
 from api.v0_1.common.models import (
@@ -155,6 +161,17 @@ async def get_policies(
     return GetPolicyResponse(success=True, details=policies)
 
 
+async def dataset_of(session: AsyncSession, resource: str) -> tuple[str | None, str]:
+    """The root ("bucket/folder/") and standard of the nearest dataset a folder policy is in, if any."""
+    bucket, _, rest = resource.partition("/")
+    folder = rest[:-1] if rest.endswith("*") else rest
+    for validator in standards.VALIDATORS:
+        roots = await standards.declared_roots(FileService(session), bucket, [folder + "_"], validator.marker)
+        if roots:
+            return f"{bucket}/{roots.pop()}", validator.standard
+    return None, ""
+
+
 @policies_router.post(
     "/",
     response_model=AddPolicyResponse,
@@ -169,6 +186,7 @@ async def create_policy(
     project_manager: AbstractProjectManager = Depends(get_project_manager),
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
+    session: AsyncSession = Depends(get_session),
 ) -> AddPolicyResponse:
     """
     Create a new access policy.
@@ -193,6 +211,12 @@ async def create_policy(
         new_policy.action = validate_rule_action(new_policy.action)
         new_policy.excluded = list(validate_excluded(new_policy.resource, new_policy.excluded))
         new_policy.endings = list(validate_endings(new_policy.resource, new_policy.endings))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    # Kinds of data are as the policy's dataset's standard defines them (AC-6)
+    dataset, standard = (await dataset_of(session, new_policy.resource)) if new_policy.kinds else (None, "")
+    try:
+        new_policy.kinds = list(validate_kinds(new_policy.resource, new_policy.kinds, dataset, standard))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     # A policy can end on a date (AC-8), but not one already past: it would allow nothing.
@@ -232,6 +256,9 @@ async def create_policy(
         ends=new_policy.ends,
         excluded=new_policy.excluded,
         endings=new_policy.endings,
+        kinds=new_policy.kinds,
+        dataset=dataset if new_policy.kinds else None,
+        standard=standard if new_policy.kinds else None,
     )
 
     # Validate user and instance exist

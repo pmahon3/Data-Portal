@@ -7,7 +7,9 @@ takes it out, and the researcher is told what failed in the upload's response.
 
 What quarantine holds back is an open question (N-QUARANTINE), so here it's only recorded. Which
 standards the portal checks is another (E-STD): each plugs in a ``Validator`` (``VALIDATORS``).
-Checks read names and layout from the file tree, never file contents.
+Checks read names and layout from the file tree, never file contents. A standard also names the kinds
+of data it defines (BIDS: datatypes such as ``anat``), and a file's kind from its path, so a policy can
+be limited to kinds (AC-6).
 """
 import logging
 import os
@@ -32,8 +34,13 @@ class Validator(Protocol):
     standard: str  # e.g. "BIDS"
     marker: str  # file at a dataset's root that declares the standard
 
+    kinds: frozenset[str]  # the kinds of data it defines
+
     def check(self, paths: list[str]) -> list[Finding]:
         """Every file in the dataset, relative to its root with a leading "/"; returns what fails."""
+
+    def kind_of(self, path: str) -> str | None:
+        """The kind of a file, from its path relative to the dataset's root with a leading "/"."""
 
 
 class Tree(Protocol):
@@ -53,6 +60,17 @@ def _plug_in() -> None:
             continue
         module, cls = available[name].split(":")
         VALIDATORS.append(getattr(__import__(module, fromlist=[cls]), cls)())
+
+
+def standard(name: str) -> Validator | None:
+    """The plugged-in standard with that name (e.g. "BIDS")."""
+    return next((v for v in VALIDATORS if v.standard == name), None)
+
+
+def kind_of(name: str, path: str) -> str | None:
+    """A file's kind as standard `name` defines it; None if it defines none or isn't plugged in."""
+    found = standard(name)
+    return found.kind_of(path) if found else None
 
 
 def ancestors(key: str) -> list[str]:

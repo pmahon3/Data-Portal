@@ -23,6 +23,7 @@ from core.services.policies.rules import (
     rule_shows_folder,
     today,
     validate_endings,
+    validate_kinds,
     validate_excluded,
 )
 
@@ -75,6 +76,11 @@ def user_holds_endings(rules, action, path, endings):
     rules.append(Rule(path, action, None, (), endings_of(endings)))
 
 
+@bdd_given(parsers.re(r'the user holds "(?P<action>[^"]*)" on "(?P<path>[^"]*)" for kinds "(?P<kinds>[^"]*)" of the (?P<standard>\S+) dataset at "(?P<dataset>[^"]*)"$'))
+def user_holds_kinds(rules, action, path, kinds, standard, dataset):
+    rules.append(Rule(path, action, kinds=endings_of(kinds), dataset=dataset, standard=standard))
+
+
 @then(parsers.re(r'the user (?P<may>may|may not) "(?P<action>[^"]*)" "(?P<path>[^"]*)"'))
 def user_may(rules, may, action, path):
     assert allows(rules, path, action) == (may == "may")
@@ -85,7 +91,7 @@ def folder_shown(rules, folder, shown, action):
     assert shows_folder(rules, folder, action) == (shown == "shown")
 
 
-@when(parsers.parse('an administrator saves a policy on "{entered}"'), target_fixture="saved")
+@when(parsers.re(r'an administrator saves a policy on "(?P<entered>[^"]*)"$'), target_fixture="saved")
 def save_policy(entered):
     try:
         return normalize_rule_path(entered)
@@ -93,7 +99,7 @@ def save_policy(entered):
         return error
 
 
-@when(parsers.parse('an administrator saves a policy on "{policy}" leaving out "{excluded}"'), target_fixture="saved")
+@when(parsers.re(r'an administrator saves a policy on "(?P<policy>[^"]*)" leaving out "(?P<excluded>[^"]*)"$'), target_fixture="saved")
 def save_policy_leaving_out(policy, excluded):
     try:
         return validate_excluded(policy, [excluded])
@@ -101,12 +107,25 @@ def save_policy_leaving_out(policy, excluded):
         return error
 
 
-@when(parsers.parse('an administrator saves a policy on "{policy}" for files ending in "{endings}"'), target_fixture="saved")
+@when(parsers.re(r'an administrator saves a policy on "(?P<policy>[^"]*)" for files ending in "(?P<endings>[^"]*)"$'), target_fixture="saved")
 def save_policy_endings(policy, endings):
     try:
         return validate_endings(policy, endings_of(endings))
     except ValueError as error:
         return error
+
+
+@when(parsers.re(r'an administrator saves a policy on "(?P<policy>[^"]*)" for kinds "(?P<kinds>[^"]*)" of the (?P<standard>\S+) dataset at "(?P<dataset>[^"]*)"$'), target_fixture="saved")
+def save_policy_kinds(policy, kinds, standard, dataset):
+    try:
+        return validate_kinds(policy, endings_of(kinds), dataset or None, standard)
+    except ValueError as error:
+        return error
+
+
+@then(parsers.parse("it is saved for kinds {expected}"))
+def saved_for_kinds(saved, expected):
+    assert saved == endings_of(expected)
 
 
 @then(parsers.parse("it is saved for endings {expected}"))
@@ -132,7 +151,7 @@ def refused(saved):
 # Property tests: the indexed Checker gives the same answers as the definition for any valid
 # rules and any path, and saving is stable.
 
-SEGMENTS = st.sampled_from(["a", "b", "study", "p7", "sub-07", "x.nii", "y.csv", "Z.NII", "a[b", "(c)"])
+SEGMENTS = st.sampled_from(["a", "b", "study", "p7", "sub-07", "anat", "x.nii", "y.csv", "Z.NII", "a[b", "(c)"])
 ACTIONS = st.sampled_from(["read", "write", "delete"])
 
 
@@ -153,7 +172,9 @@ def valid_rule(draw):
         excluded = tuple(draw(st.lists(st.one_of(joined(1, 2).map(lambda p: inside + p + "/*"),
                                                   joined(1, 2).map(lambda p: inside + p)), max_size=2)))
     endings = draw(st.sampled_from([(), (".nii",), (".csv", ".nii")])) if path.endswith("*") else ()
-    return Rule(path, draw(st.one_of(ACTIONS, st.just("*"))), draw(ENDS), excluded, endings)
+    kinds = draw(st.sampled_from([(), ("anat",)])) if path.endswith("*") else ()
+    return Rule(path, draw(st.one_of(ACTIONS, st.just("*"))), draw(ENDS), excluded, endings, kinds,
+                path[:-1] if kinds else "", "BIDS" if kinds else "")
 
 
 VALID_RULES = st.lists(valid_rule(), max_size=6)

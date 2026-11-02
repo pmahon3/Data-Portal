@@ -100,12 +100,18 @@ Leaving something out of one policy doesn't hide it from the person if another o
 gives it: with a second policy on `study/sub-03/scan.nii`, that one file is readable again.
 
 ## Limiting a policy to file types
-<!-- claim: AC-6; tests: A folder policy limited to file endings covers only those files, Endings and exclusions apply together, Endings are checked when a policy is saved, test_a_folder_policy_limited_to_file_endings_covers_only_those_files, test_only_a_folder_policy_can_be_limited_to_file_endings -->
+<!-- claim: AC-6; tests: A folder policy limited to file endings covers only those files, Endings and exclusions apply together, Endings are checked when a policy is saved, A folder policy limited to kinds of data covers only those kinds, Kinds are checked when a policy is saved, test_a_files_kind_is_its_datatype_folder, test_a_folder_policy_limited_to_file_endings_covers_only_those_files, test_only_a_folder_policy_can_be_limited_to_file_endings, test_a_folder_policy_limited_to_kinds_of_data_covers_only_those_kinds, test_kinds_of_data_need_a_dataset_that_declares_a_standard -->
 
 A folder policy can cover only files whose names end in given endings. `study/*`, for files ending
 in `.nii` and `.nii.gz`, covers the scans in `study/`, now and later, and no other files. Endings
 ignore case: `.nii` covers `SCAN.NII`. The folders inside can still be browsed and uploaded into.
 Only a folder policy, or `*`, can be limited this way, and an ending starts with a dot.
+
+Inside a dataset that declares a standard, a folder policy can instead, or as well, cover only kinds
+of data as the standard names them. For a BIDS dataset these are its datatypes: `anat` for anatomical
+scans, `func` for functional runs, `dwi`, `fmap` and so on. A file's kind is the folder it sits in
+after `sub-01/` (or `sub-01/ses-1/`), so each scan's sidecar files count with it. Files with no kind,
+such as `participants.tsv`, aren't covered.
 
 ## What you see
 <!-- claim: AC-1, AC-2; tests: test_listings_above_a_file_show_only_the_path_to_it, test_a_folder_listing_shows_only_files_the_user_may_read, test_a_listing_for_an_action_shows_what_the_user_may_do_it_to, test_a_file_grant_does_not_allow_deleting_the_folder_above -->
@@ -188,7 +194,6 @@ own decision code checks every row on each test run.
 
 Decided, but not built yet, so no policy can express them today:
 
-- access by kind of data, such as anatomical scans ([AC-6](../requirements/access-control.md#ac-6)); access by file ending is built;
 - what happens to a participant's data when they withdraw ([AC-7](../requirements/access-control.md#ac-7)).
 
 Still to be decided: what quarantine holds back when data fails its standard's checks

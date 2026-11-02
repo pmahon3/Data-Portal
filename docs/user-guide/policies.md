@@ -17,7 +17,8 @@ one path and one action. A person's access is everything their policies give, ad
    - **Choose from the tree**, then tick folders or files. This is the easier way.
    - **Type a path**, such as `study-a/patient-7/*`. See [Writing the policy you want](#writing-the-policy-you-want).
      For a folder, anything inside it to leave out goes under **Leave out**, one per line, and file
-     endings it should be limited to go under **Only files ending in**.
+     endings it should be limited to go under **Only files ending in**, or kinds of data (for a
+     dataset that declares a standard) under **Only kinds of data**.
 4. Choose the **Action**: `read`, `write` or `delete`.
 5. If the access should stop on a date, choose it under **Ends**. Leave it empty for access with no
    end, such as to an open dataset.
@@ -58,6 +59,7 @@ created.
 | A technician to upload sessions | `study/incoming/*`, `write`. Add `read` only if they should also download. |
 | Someone to tidy a folder | `folder/*`, `delete`. Add `read` if they should also download. |
 | Someone to have only the scans in a study, including later ones | `study/*`, `read`, with `.nii, .nii.gz` under **Only files ending in**. |
+| Someone to have only the anatomical scans of a BIDS study | `study/*`, `read`, with `anat` under **Only kinds of data**. |
 | A researcher to have a whole study except one participant | `study/*`, `read`, with `study/participant/*` under **Leave out**. Participants added later are covered; the one left out stays hidden. |
 
 A path ending in `/*` covers that folder and everything in it; any other path is one file. Paths are

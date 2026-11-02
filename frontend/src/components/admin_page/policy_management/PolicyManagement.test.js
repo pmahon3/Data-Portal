@@ -129,3 +129,18 @@ test('a typed folder policy is saved with its file endings', async () => {
   expect(mockPost.mock.calls[0][1]).toEqual({ username: 'alice', instance_name: 'demo', resource: 'study/*',
     action: 'read', endings: ['.nii', '.nii.gz'] });
 });
+
+// AC-6: a typed folder policy can be limited to kinds of data.
+test('a typed folder policy is saved with its kinds of data', async () => {
+  mockPost.mockResolvedValue({ data: {} });
+  render(<PolicyManagement />);
+  fireEvent.change(screen.getByPlaceholderText('alice'), { target: { value: 'alice' } });
+  await screen.findByRole('option', { name: 'demo' });
+  fireEvent.change(screen.getByRole('combobox', { name: /Instance/ }), { target: { value: 'demo' } });
+  fireEvent.change(screen.getByPlaceholderText('bucket/folder/* or bucket/path/file.ext'), { target: { value: 'study/*' } });
+  fireEvent.change(screen.getByLabelText(/^Only kinds of data/), { target: { value: 'anat, func' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Create Policy' }));
+  await waitFor(() => expect(mockPost).toHaveBeenCalled());
+  expect(mockPost.mock.calls[0][1]).toEqual({ username: 'alice', instance_name: 'demo', resource: 'study/*',
+    action: 'read', kinds: ['anat', 'func'] });
+});

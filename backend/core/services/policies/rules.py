@@ -10,7 +10,8 @@ A policy may also end: from the day after its end date it allows and shows nothi
 policy may leave out files or folders inside it, which it then neither allows nor shows; another
 policy can still give them (AC-10). And a folder policy may be limited to files whose names end in
 given endings, such as ".nii"; it still covers the folders inside, so they can be browsed and
-uploaded into (AC-6). These conditions are stored as JSON in the policy's fifth field
+uploaded into (AC-6), or to kinds of data as its dataset's standard defines them (BIDS: "anat",
+"func"), worked out from each file's path inside the dataset (AC-6). These conditions are stored as JSON in the policy's fifth field
 (model.conf); only this module reads them.
 
 Two questions are asked of a user's policies:
@@ -42,6 +43,9 @@ class Rule(NamedTuple):
     ends: datetime.date | None = None  # the last day it applies; None for no end
     excluded: tuple[str, ...] = ()       # paths inside a folder policy that it leaves out
     endings: tuple[str, ...] = ()        # if any, a folder policy covers only files ending in one (lower case)
+    kinds: tuple[str, ...] = ()          # if any, a folder policy covers only files of these kinds of data,
+    dataset: str = ""                    # as the standard of the dataset rooted here ("bucket/folder/")
+    standard: str = ""                   # defines them (e.g. "BIDS")
 
 
 def today() -> datetime.date:
@@ -63,6 +67,8 @@ def conditions_json(rule: Rule) -> str:
         conditions["except"] = list(rule.excluded)
     if rule.endings:
         conditions["endings"] = list(rule.endings)
+    if rule.kinds:
+        conditions.update(kinds=list(rule.kinds), dataset=rule.dataset, standard=rule.standard)
     return json.dumps(conditions) if conditions else ""
 
 
@@ -71,7 +77,8 @@ def rule_from_stored(path: str, action: str, conditions: str | None = "") -> Rul
     stored = json.loads(conditions) if conditions else {}
     ends = stored.get("ends")
     return Rule(path, action, datetime.date.fromisoformat(ends) if ends else None, tuple(stored.get("except", ())),
-                tuple(stored.get("endings", ())))
+                tuple(stored.get("endings", ())), tuple(stored.get("kinds", ())), stored.get("dataset", ""),
+                stored.get("standard", ""))
 
 
 def leaves_out(rule: Rule, path: str) -> bool:
@@ -80,8 +87,18 @@ def leaves_out(rule: Rule, path: str) -> bool:
 
 
 def of_its_types(rule: Rule, path: str) -> bool:
-    """`path` is a folder, or the rule has no endings, or the file's name ends in one (any case)."""
-    return not rule.endings or path.endswith("/") or path.lower().endswith(rule.endings)
+    """`path` is a folder, or a file whose name ends in one of the rule's endings (any case, if it has
+    any) and whose kind is one of the rule's kinds (if it has any)."""
+    if path.endswith("/"):
+        return True
+    if rule.endings and not path.lower().endswith(rule.endings):
+        return False
+    if rule.kinds:
+        from core.services.standards import kind_of
+
+        if not path.startswith(rule.dataset) or kind_of(rule.standard, "/" + path[len(rule.dataset):]) not in rule.kinds:
+            return False
+    return True
 
 
 def covers(rule: Rule, path: str) -> bool:
@@ -164,6 +181,28 @@ def validate_endings(path: str, endings: Iterable[str]) -> tuple[str, ...]:
     return saved
 
 
+def validate_kinds(path: str, kinds: Iterable[str], dataset: str | None, standard: str) -> tuple[str, ...]:
+    """
+    The saved form of the kinds of data a policy on `path` is limited to. The policy must be a folder
+    policy at or inside `dataset`, the root ("bucket/folder/") of a dataset declaring `standard`, and
+    each kind one that standard defines. Raises ValueError otherwise.
+    """
+    from core.services.standards import standard as find_standard
+
+    saved = tuple(dict.fromkeys(k.strip().lower() for k in kinds if k.strip()))
+    if not saved:
+        return saved
+    if not path.endswith("/" + ALL):
+        raise ValueError("Only a folder policy (ending in '/*') can be limited to kinds of data.")
+    if not dataset or not path[:-1].startswith(dataset):
+        raise ValueError(f"'{path}' isn't inside a dataset that declares a standard, so it has no kinds of data.")
+    defined = find_standard(standard)
+    unknown = [k for k in saved if defined is None or k not in defined.kinds]
+    if unknown:
+        raise ValueError(f"{standard} doesn't define {', '.join(unknown)} as a kind of data.")
+    return saved
+
+
 class Checker:
     """A user's rules on one storage instance that are in force today, indexed by action."""
 
@@ -177,7 +216,7 @@ class Checker:
         for rule in rules:
             if not in_force(rule, on):
                 continue
-            if rule.excluded or rule.endings:
+            if rule.excluded or rule.endings or rule.kinds:
                 self._leaving_out.append(rule)
                 continue
             if rule.path == ALL:
