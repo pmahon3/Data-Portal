@@ -66,7 +66,7 @@ storage, and the browser downloads them from the presigned URL.
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/users/` | List users *(admin or project manager)*. |
+| `GET` | `/api/users/` | List users: every user for an admin; the members and managers of their own projects for a project manager. |
 | `POST` | `/api/users/` | Create a user *(admin or project manager)*. |
 | `GET` | `/api/users/me` | Get the current user's profile. |
 | `GET` | `/api/users/{username}` | Get a user profile *(owner or admin)*. |
