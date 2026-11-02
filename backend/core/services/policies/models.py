@@ -13,11 +13,13 @@ class Policy(BaseModel):
     username: Optional[str] = None
     instance_name: Optional[str] = None
     ends: Optional[date] = None  # the last day the policy applies (AC-8); None for no end
-    excluded: list[str] = []     # paths inside a folder policy that it leaves out (AC-10)
-    endings: list[str] = []      # if any, a folder policy covers only files ending in one (AC-6)
-    kinds: list[str] = []        # if any, only these kinds of data (AC-6), as the standard of the
-    dataset: Optional[str] = None   # dataset rooted here ("bucket/folder/")
-    standard: Optional[str] = None  # defines them (e.g. "BIDS")
+    excluded: list[str] = []  # paths inside a folder policy that it leaves out (AC-10)
+    endings: list[str] = []  # if any, a folder policy covers only files ending in one (AC-6)
+    # if any, only these kinds of data (AC-6), as the standard of the dataset rooted at `dataset`
+    # ("bucket/folder/") defines them
+    kinds: list[str] = []
+    dataset: Optional[str] = None
+    standard: Optional[str] = None  # e.g. "BIDS"
 
 
 Policies = list[Policy]

@@ -11,13 +11,24 @@ from core.services.policies.rules import Checker, Rule, conditions_json, rule_fr
 
 
 def policy_from_row(row: list[str]) -> Policy:
-    """A stored policy row (sub, dom, obj, act, cond as in model.conf) as a Policy. Rows saved
-    before policies had conditions have no fifth field."""
+    """
+    Build a Policy from a stored row (sub, dom, obj, act, cond as in model.conf). Rows saved before
+    policies had conditions have no fifth field.
+    """
     p_user_uuid, p_instance_uuid, res, act, *cond = row
     rule = rule_from_stored(res, act, cond[0] if cond else "")
-    return Policy(user_uuid=UUID(p_user_uuid), instance_uuid=UUID(p_instance_uuid), resource=res, action=act,
-                  ends=rule.ends, excluded=list(rule.excluded), endings=list(rule.endings), kinds=list(rule.kinds),
-                  dataset=rule.dataset or None, standard=rule.standard or None)
+    return Policy(
+        user_uuid=UUID(p_user_uuid),
+        instance_uuid=UUID(p_instance_uuid),
+        resource=res,
+        action=act,
+        ends=rule.ends,
+        excluded=list(rule.excluded),
+        endings=list(rule.endings),
+        kinds=list(rule.kinds),
+        dataset=rule.dataset or None,
+        standard=rule.standard or None,
+    )
 
 
 class CasbinPolicyManager:
@@ -44,7 +55,11 @@ class CasbinPolicyManager:
 
         # Create Casbin MongoDB adapter using an existing client
         database = get_mongo_database()
-        adapter = Adapter(client=database.client, db_name=database.name, collection=POLICY_RULE_COLLECTION)
+        adapter = Adapter(
+            client=database.client,
+            db_name=database.name,
+            collection=POLICY_RULE_COLLECTION,
+        )
         self._rules = database[POLICY_RULE_COLLECTION]
 
         # Pass the adapter to the Enforcer so it owns policy persistence
@@ -57,7 +72,7 @@ class CasbinPolicyManager:
         return self._actions
 
     def get_all_policies(self) -> list[Policy]:
-        """Every stored policy."""
+        """Return every stored policy."""
         return [policy_from_row(row) for row in self.enforcer.get_policy()]
 
     def get_user_policies(self, user_uuid: UUID) -> list[Policy]:
@@ -93,7 +108,10 @@ class CasbinPolicyManager:
             return value.__str__() if value is not None else ""
 
         # Only the fields a stored rule has (p = sub, dom, obj, act in model.conf)
-        filter_ = tuple(map(convert_to_str, (filter_.user_uuid, filter_.instance_uuid, filter_.resource, filter_.action)))
+        filter_ = tuple(map(
+            convert_to_str,
+            (filter_.user_uuid, filter_.instance_uuid, filter_.resource, filter_.action),
+        ))
 
         # Retrieve the policies matching the filter
         policies = self.enforcer.get_filtered_policy(0, *filter_)
@@ -116,9 +134,20 @@ class CasbinPolicyManager:
         # One policy per person, instance, path and action, whatever its conditions
         if self.enforcer.get_filtered_policy(0, *filter_):
             raise ValueError("Policy already exists.")
-        conditions = conditions_json(Rule(resource, action, policy.ends, tuple(policy.excluded), tuple(policy.endings),
-                                          tuple(policy.kinds), policy.dataset or "", policy.standard or ""))
-        if self.enforcer.add_policy(*filter_, *([conditions] if conditions else [])):
+        rule = Rule(
+            resource,
+            action,
+            ends=policy.ends,
+            excluded=tuple(policy.excluded),
+            endings=tuple(policy.endings),
+            kinds=tuple(policy.kinds),
+            dataset=policy.dataset or "",
+            standard=policy.standard or "",
+        )
+        conditions = conditions_json(rule)
+        # a policy without conditions keeps the four fields it always had
+        fields = (*filter_, conditions) if conditions else filter_
+        if self.enforcer.add_policy(*fields):
             return True
         raise ValueError("Failed to add policy.")
         
@@ -174,7 +203,7 @@ class CasbinPolicyManager:
 
     def checker(self, user_uuid: UUID, instance_uuid: UUID) -> Checker:
         """
-        The user's rules on one storage instance, read from MongoDB with one indexed query.
+        Return the user's rules on one storage instance, read from MongoDB with one indexed query.
 
         Decisions are made from these rules (core/services/policies/rules.py), not by Casbin's
         enforcer, so a policy change applies to the next request in every backend process.
@@ -184,11 +213,12 @@ class CasbinPolicyManager:
             {"ptype": "p", "v0": str(user_uuid), "v1": str(instance_uuid)},
             {"_id": 0, "v2": 1, "v3": 1, "v4": 1},
         )
-        return Checker(rule_from_stored(row.get("v2", ""), row.get("v3", ""), row.get("v4", "")) for row in rows)
+        rules = [rule_from_stored(row.get("v2", ""), row.get("v3", ""), row.get("v4", "")) for row in rows]
+        return Checker(rules)
 
     def validate_policy(self, policy: Policy) -> bool:
         """
-        May the policy's user do its action on its resource?
+        Return whether the policy's user may do its action on its resource.
         """
         checker = self.checker(policy.user_uuid, policy.instance_uuid)
         return checker.allows(policy.resource, policy.action)
