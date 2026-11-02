@@ -15,9 +15,10 @@ from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import PyJWKClient
 
-from core.services.injectors import get_policy_manager, get_user_manager
+from core.services.injectors import get_policy_manager, get_project_manager, get_user_manager
 from core.services.policies import CasbinPolicyManager
 from core.services.policies import Policy
+from core.services.projects import AbstractProjectManager
 from core.services.users import AbstractUserManager
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -118,7 +119,8 @@ def require_user_owner_or_admin(username_param: str = "username"):
 
 
 async def require_admin_or_manager(
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    project_manager: AbstractProjectManager = Depends(get_project_manager),
 ) -> dict:
     """
     Requires admin or manager-of-any-project privileges for endpoint access.
@@ -133,8 +135,7 @@ async def require_admin_or_manager(
     if is_user_admin(current_user):
         return current_user
 
-    jwt_projects = current_user.get("projects", [])
-    if any(str(path).rstrip("/").endswith("/managers") for path in jwt_projects):
+    if project_manager.managed_projects(current_user):
         return current_user
 
     raise HTTPException(
@@ -159,7 +160,8 @@ def require_admin_or_project_manager(project_name_param: str = "project_name"):
     """
     async def _require_admin_or_project_manager(
         request: Request,
-        current_user: dict = Depends(get_current_user)
+        current_user: dict = Depends(get_current_user),
+        project_manager: AbstractProjectManager = Depends(get_project_manager),
     ) -> dict:
         """
         Validates specific project manager or admin privileges.
@@ -175,12 +177,7 @@ def require_admin_or_project_manager(project_name_param: str = "project_name"):
                 detail=f"Path parameter '{project_name_param}' is required"
             )
         
-        # Check the JWT directly, instead of querying Keycloak
-        jwt_projects = current_user.get("projects", [])
-
-        target_path = f"/{project_name}/managers"
-        
-        if target_path in jwt_projects:
+        if project_name in project_manager.managed_projects(current_user):
             return current_user
             
         raise HTTPException(

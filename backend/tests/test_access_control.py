@@ -660,10 +660,6 @@ def test_a_manager_may_check_only_people_in_their_projects(make_user, portal):
 
 # ------------------------------------------- administration scope: what a manager may see
 
-MANAGER_SEES_ALL_USERS = pytest.mark.xfail(strict=True, reason="a project manager lists every user")
-
-
-@MANAGER_SEES_ALL_USERS
 def test_a_manager_lists_only_people_in_their_projects(make_user, portal):
     """AC-3. A project manager sees the people in the projects they manage, not everyone's names."""
     member = make_user()
