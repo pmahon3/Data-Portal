@@ -17,7 +17,9 @@ one path and one action. A person's access is everything their policies give, ad
    - **Choose from the tree**, then tick folders or files. This is the easier way.
    - **Type a path**, such as `study-a/patient-7/*`. See [Writing the policy you want](#writing-the-policy-you-want).
 4. Choose the **Action**: `read`, `write` or `delete`.
-5. Check the rules listed under the tree, then choose **Create Policy** (**Create 2 Policies**, and
+5. If the access should stop on a date, choose it under **Ends**. Leave it empty for access with no
+   end, such as to an open dataset.
+6. Check the rules listed under the tree, then choose **Create Policy** (**Create 2 Policies**, and
    so on, when the ticks make several).
 
 ![The policy form with "Choose from the tree": a folder and a file ticked, and the two rules they make listed below the tree](../images/policy-from-tree.png)

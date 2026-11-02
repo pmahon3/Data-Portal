@@ -6,6 +6,8 @@ A policy gives one user one action on one path of a storage instance. The path i
   - "bucket/folder/*"       that folder and everything in it
   - "*"                     everything on the instance
 The action is a single action ("read", "write", "delete") or "*" for every action.
+A policy may also end: from the day after its end date it allows and shows nothing (AC-8). Its
+conditions are stored as JSON in the policy's fifth field (model.conf); only this module reads them.
 
 Two questions are asked of a user's policies:
   - allows(path, action): may the user do `action` on `path`?
@@ -17,8 +19,10 @@ rule_allows and rule_shows_folder define the rule for one policy. Checker applie
 a user's policies at once, indexed so each path costs a few set lookups however many policies
 the user holds; tests check that the two agree.
 
-Requirements AC-1, AC-2, AC-3 and AC-5 in docs/requirements/access-control.md.
+Requirements AC-1, AC-2, AC-3, AC-5 and AC-8 in docs/requirements/access-control.md.
 """
+import datetime
+import json
 from collections import defaultdict
 from collections.abc import Iterable
 from typing import NamedTuple
@@ -31,16 +35,38 @@ ALL = "*"
 class Rule(NamedTuple):
     path: str
     action: str
+    ends: datetime.date | None = None  # the last day it applies; None for no end
+
+
+def today() -> datetime.date:
+    """The day policies are judged by, in UTC, so every backend process agrees."""
+    return datetime.datetime.now(datetime.timezone.utc).date()
+
+
+def in_force(rule: Rule, on: datetime.date | None = None) -> bool:
+    """The rule applies on that day (today by default): it has no end, or its end date is today or later."""
+    return rule.ends is None or rule.ends >= (on or today())
+
+
+def conditions_json(rule: Rule) -> str:
+    """The rule's conditions as stored in the policy's fifth field; "" when it has none."""
+    return json.dumps({"ends": rule.ends.isoformat()}) if rule.ends else ""
+
+
+def rule_from_stored(path: str, action: str, conditions: str | None = "") -> Rule:
+    """A rule from a stored policy row."""
+    ends = json.loads(conditions).get("ends") if conditions else None
+    return Rule(path, action, datetime.date.fromisoformat(ends) if ends else None)
 
 
 def rule_allows(rule: Rule, path: str, action: str) -> bool:
-    """The rule is for `action` and covers `path`: exactly, or as a folder ending in "/*"."""
-    return rule.action in (action, ALL) and key_match(path, rule.path)
+    """The rule is in force, is for `action`, and covers `path`: exactly, or as a folder ending in "/*"."""
+    return in_force(rule) and rule.action in (action, ALL) and key_match(path, rule.path)
 
 
 def rule_shows_folder(rule: Rule, folder: str, action: str) -> bool:
-    """The rule is for `action`, and `folder` is covered by it or lies above what it covers."""
-    if rule.action not in (action, ALL) or not folder.endswith("/"):
+    """The rule is in force and for `action`, and `folder` is covered by it or lies above what it covers."""
+    if not in_force(rule) or rule.action not in (action, ALL) or not folder.endswith("/"):
         return False
     return key_match(folder, rule.path) or rule.path.split(ALL, 1)[0].startswith(folder)
 
@@ -77,14 +103,17 @@ def validate_rule_action(action: str) -> str:
 
 
 class Checker:
-    """A user's rules on one storage instance, indexed by action."""
+    """A user's rules on one storage instance that are in force today, indexed by action."""
 
     def __init__(self, rules: Iterable[Rule]):
         self._everything: set[str] = set()                  # actions held on the whole instance
         self._exact: dict[str, set[str]] = defaultdict(set)    # action -> exact paths
         self._folders: dict[str, set[str]] = defaultdict(set)  # action -> "bucket/folder/"
         self._above: dict[str, set[str]] = defaultdict(set)    # action -> folders above a rule's path
+        on = today()
         for rule in rules:
+            if not in_force(rule, on):
+                continue
             if rule.path == ALL:
                 self._everything.add(rule.action)
                 continue

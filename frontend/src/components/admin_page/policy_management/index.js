@@ -8,6 +8,7 @@ import { formatError } from "../../../utils/errorUtils";
 import { getAuthHeaders } from '../../../utils/authUtils';
 import useEndpointAssetTree from "../asset_management/useEndpointAssetTree.js";
 import TreePicker from "./TreePicker.js";
+import { describeEnds, todayUtc } from "../../../utils/policyEnds";
 // Constants and the component states
 // const http = axios.create({ baseURL: "http://localhost:8000" });
 const http = axios.create({ baseURL: "/api" });    
@@ -27,6 +28,7 @@ export default function PolicyManagement() {
   const [instanceName, setInstanceName] = useState("");
   const [resource, setResource] = useState("");
   const [action, setAction] = useState("read");
+  const [ends, setEnds] = useState("");  // the last day the policy applies; "" for no end (AC-8)
   // "path": type the resource; "tree": choose it from the instance's file tree (DS-policy-from-selection)
   const [resourceMode, setResourceMode] = useState("path");
   const [treeSelection, setTreeSelection] = useState(new Set());
@@ -117,7 +119,7 @@ export default function PolicyManagement() {
         try {
           await http.post(
             `${POLICIES_BASE}/`,
-            { username: u, instance_name: i, resource: res, action: a },
+            { username: u, instance_name: i, resource: res, action: a, ...(ends ? { ends } : {}) },
             { headers }
           );
         } catch (e2) {
@@ -131,6 +133,7 @@ export default function PolicyManagement() {
         setResource("");
         setTreeSelection(new Set());
         setAction("read");
+        setEnds("");
         alert(resources.length === 1 ? "Policy created." : `${resources.length} policies created.`);
       }
     } catch (e2) {
@@ -182,6 +185,7 @@ export default function PolicyManagement() {
     { field: "instance_name", headerName: "Instance Name", flex: 1, minWidth: 180, renderCell: params => {String(params.value || "")}},
     { field: "resource", headerName: "Resource", flex: 1.5, minWidth: 220 },
     { field: "action", headerName: "Action", width: 120 },
+    { field: "ends", headerName: "Ends", width: 160, valueGetter: (value) => describeEnds(value) },
     {
       field: "delete",
       headerName: "",
@@ -292,6 +296,16 @@ export default function PolicyManagement() {
               <option value="delete">delete</option>
               <option value="admin">admin</option>
             </select>
+          </label>
+
+          <label className="pm-field">
+            <span>Ends</span>
+            <input type="date" value={ends} min={todayUtc()} onChange={e => setEnds(e.target.value)}
+              aria-describedby="pm-ends-help" />
+            <small id="pm-ends-help" className="pm-muted">
+              Optional. The policy applies through this day and allows nothing after it. Leave empty
+              for no end.
+            </small>
           </label>
 
           <div className="pm-actions">
