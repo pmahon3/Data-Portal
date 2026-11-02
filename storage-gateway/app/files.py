@@ -1,18 +1,19 @@
 """
-Files under the root, opened without following symlinks; byte ranges and validators.
+Open files under the root without following symlinks; parse byte ranges and build validators.
 
 Every path is walked one component at a time from a handle on the root, refusing symlinks at
 each step, and files are read through the handle that was checked. There's no gap between
 checking a path and opening it, so a symlink swapped in by someone working on the machine can't
 redirect a request outside the root (CWE-59, the race fixed in rsync's CVE-2026-29518).
 """
+from __future__ import annotations
+
 import errno
 import mimetypes
 import os
-from collections.abc import Callable
 import stat as stat_module
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from email.utils import formatdate
 from pathlib import Path
 
@@ -25,8 +26,10 @@ def split_key(namespace: str, resource: str) -> list[str]:
     """
     Split ``namespace/key`` into the key's path components.
 
-    :raises BadPath: If the resource is in another namespace, or has empty, ``.`` or ``..``
-        segments or a NUL byte.
+    Raise ``BadPath`` if the resource is in another namespace, or has empty, ``.`` or ``..`` segments
+    or a NUL byte.
+
+    Example: ``split_key("posix", "posix/study/a.nii")`` -> ``["study", "a.nii"]``
     """
     ns, sep, key = resource.partition("/")
     if not sep or ns != namespace or not key or "\x00" in key:
@@ -63,27 +66,35 @@ class Root:
     """
     The directory this service serves.
 
-    :param path_only: Open folders with ``O_PATH`` (Linux), so walking needs only permission to pass
-        through each folder, not to list it. Used by the opener running as a link's temporary ID.
-    :param on_create: Called with (new folder, parent folder) descriptors when an upload creates a
-        folder, to set its owner and permissions. Used by the helper.
+    ``path_only`` opens folders with ``O_PATH`` (Linux), so walking needs only permission to pass
+    through each folder, not to list it; the opener running as a link's temporary ID uses it.
+    ``on_create`` is called with (new folder, parent folder) descriptors when an upload creates a
+    folder, to set its owner and permissions; the helper uses it.
     """
 
-    def __init__(self, path: Path, path_only: bool = False,
-                 on_create: Callable[[int, int], None] | None = None, dir_mode: int = 0o750):
+    def __init__(
+        self,
+        path: Path,
+        path_only: bool = False,
+        on_create: Callable[[int, int], None] | None = None,
+        dir_mode: int = 0o750,
+    ):
         if path_only and not _O_PATH:
             raise RuntimeError("path_only needs O_PATH (Linux)")
         self.path = path
         self.on_create = on_create
         self.dir_mode = dir_mode
-        self._base = _O_PATH if path_only else os.O_RDONLY
+        if path_only:
+            self._base = _O_PATH
+        else:
+            self._base = os.O_RDONLY
         self._dir_flags = self._base | os.O_DIRECTORY | os.O_NOFOLLOW
 
     def _open_root(self) -> int:
         return os.open(self.path, self._base | os.O_DIRECTORY)
 
     def open_dir(self, parts: list[str], create: bool = False) -> int:
-        """Open the directory ``parts`` under the root, component by component, never following symlinks."""
+        """Open the directory ``parts`` under the root, one component at a time, never following symlinks."""
         fd = self._open_root()
         try:
             for name in parts:
@@ -110,11 +121,11 @@ class Root:
 
     def open_file(self, parts: list[str]) -> tuple[int, os.stat_result]:
         """
-        Open a regular file for reading.
+        Open a regular file for reading and return its descriptor and stat; the caller closes the
+        descriptor.
 
-        :return: The open file descriptor and its stat. The caller closes the descriptor.
-        :raises BadPath: If any component is a symlink.
-        :raises FileNotFoundError: If it doesn't exist or isn't a regular file.
+        Raise ``BadPath`` if any component is a symlink, and ``FileNotFoundError`` if it doesn't exist
+        or isn't a regular file.
         """
         dir_fd = self.open_dir(parts[:-1])
         try:
@@ -135,12 +146,12 @@ class Root:
         os.close(fd)
         return st
 
-    def begin_write(self, parts: list[str]) -> "PendingWrite":
+    def begin_write(self, parts: list[str]) -> PendingWrite:
         """
-        Start writing a file: creates missing parent folders and a temporary file beside the target.
+        Start writing a file: create missing parent folders and a temporary file beside the target.
 
-        :raises BadPath: If any component is a symlink.
-        :raises IsADirectoryError: If a folder exists at the target path.
+        Raise ``BadPath`` if any component is a symlink, and ``IsADirectoryError`` if a folder exists
+        at the target path.
         """
         dir_fd = self.open_dir(parts[:-1], create=True)
         try:
@@ -154,7 +165,12 @@ class Root:
             if existing is not None and stat_module.S_ISDIR(existing.st_mode):
                 raise IsADirectoryError(name)
             tmp_name = f".upload-{uuid.uuid4().hex}"
-            fd = os.open(tmp_name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o640, dir_fd=dir_fd)
+            fd = os.open(
+                tmp_name,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o640,
+                dir_fd=dir_fd,
+            )
         except BaseException:
             os.close(dir_fd)
             raise
@@ -162,8 +178,10 @@ class Root:
 
     def delete_file(self, parts: list[str]) -> None:
         """
-        :raises BadPath: If any component is a symlink.
-        :raises FileNotFoundError: If it doesn't exist or isn't a regular file.
+        Delete a regular file.
+
+        Raise ``BadPath`` if any component is a symlink, and ``FileNotFoundError`` if it doesn't exist
+        or isn't a regular file.
         """
         dir_fd = self.open_dir(parts[:-1])
         try:
@@ -184,7 +202,11 @@ class PendingWrite:
     """A temporary file that becomes the target on commit, or disappears on abort."""
 
     def __init__(self, dir_fd: int, fd: int, tmp_name: str, name: str, existed: bool):
-        self.dir_fd, self.fd, self.tmp_name, self.name, self.existed = dir_fd, fd, tmp_name, name, existed
+        self.dir_fd = dir_fd
+        self.fd = fd
+        self.tmp_name = tmp_name
+        self.name = name
+        self.existed = existed
 
     def write(self, data: bytes) -> None:
         view = memoryview(data)
@@ -213,15 +235,17 @@ class PendingWrite:
 
 def etag(st: os.stat_result) -> str:
     """
-    A validator for If-Range: changes when the file is replaced (inode), written or re-stamped
-    (ctime, which tools like ``rsync -t`` or ``cp -p`` can't set back), or changes size or
+    Return a validator for If-Range: it changes when the file is replaced (inode), written or
+    re-stamped (ctime, which tools like ``rsync -t`` or ``cp -p`` can't set back), or changes size or
     modification time.
+
+    Example: inode 0x1a2b, size 0x400 -> ``"1a2b-<ctime ns>-<mtime ns>-400"`` (hex, quoted)
     """
     return f'"{st.st_ino:x}-{st.st_ctime_ns:x}-{st.st_mtime_ns:x}-{st.st_size:x}"'
 
 
 def file_headers(name: str, st: os.stat_result) -> dict[str, str]:
-    """Headers describing a file, shared by GET and HEAD."""
+    """Return the headers describing a file, shared by GET and HEAD."""
     content_type, _ = mimetypes.guess_type(name)
     return {
         "Content-Length": str(st.st_size),
@@ -236,9 +260,12 @@ def parse_range(header: str | None, size: int) -> tuple[int, int] | None:
     """
     Parse a single ``Range: bytes=…`` header into an inclusive (start, end) pair (RFC 9110 §14).
 
-    :return: None to serve the whole file: no header, a unit other than bytes (which must be
-        ignored), a malformed or invalid range, or several ranges (which may be ignored).
-    :raises ValueError: If the range is well formed but can't be satisfied (answered with 416).
+    Return None to serve the whole file: no header, a unit other than bytes (which must be ignored), a
+    malformed or invalid range, or several ranges (which may be ignored). Raise ``ValueError`` if the
+    range is well formed but can't be satisfied (answered with 416).
+
+    Example: with ``size`` 1000, ``"bytes=0-99"`` -> (0, 99), ``"bytes=-100"`` -> (900, 999),
+    ``"bytes=500-"`` -> (500, 999), ``"bytes=1000-"`` raises ``ValueError``.
     """
     if not header:
         return None
@@ -262,7 +289,10 @@ def parse_range(header: str | None, size: int) -> tuple[int, int] | None:
         return None  # invalid range: last before first
     if start >= size:
         raise ValueError(header)
-    end = min(int(last), size - 1) if last else size - 1
+    if last:
+        end = min(int(last), size - 1)
+    else:
+        end = size - 1
     return start, end
 
 
@@ -273,7 +303,8 @@ def _digits(text: str) -> bool:
 def read_chunks(fd: int, start: int, end: int, chunk_size: int) -> Iterator[bytes]:
     """Yield bytes ``start``..``end`` (inclusive) of an open file, then close it."""
     try:
-        position, remaining = start, end - start + 1
+        position = start
+        remaining = end - start + 1
         while remaining > 0:
             chunk = os.pread(fd, min(chunk_size, remaining), position)
             if not chunk:

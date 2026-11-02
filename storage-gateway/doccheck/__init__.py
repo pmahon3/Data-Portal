@@ -1,7 +1,10 @@
 """
-Reading the Mermaid diagrams in docs/, so tests can check them against the code and the running system.
+Read the Mermaid diagrams in docs/, so tests can check them against the code and the running system.
 What each kind of arrow claims: docs/posix/README.md, "How the diagrams are checked".
 """
+from __future__ import annotations
+
+import ast
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,7 +13,7 @@ DOCS = Path(__file__).resolve().parents[2] / "docs"
 
 
 def block(markdown_file: str, name: str) -> str:
-    """The Mermaid block in ``docs/<markdown_file>`` whose first line is ``%% check: <name>``."""
+    """Return the Mermaid block in ``docs/<markdown_file>`` whose first line is ``%% check: <name>``."""
     text = (DOCS / markdown_file).read_text()
     for body in re.findall(r"```mermaid\n(.*?)```", text, flags=re.S):
         lines = body.strip().splitlines()
@@ -24,7 +27,11 @@ def _clean(line: str) -> str:
 
 
 def flowchart_imports(body: str) -> set[tuple[str, str]]:
-    """Plain solid, unlabelled arrows ``A --> B`` (node ids), the diagram's import claims."""
+    """
+    Return the plain solid, unlabelled arrows ``A --> B`` (node ids), the diagram's import claims.
+
+    Example: ``main[app/main] --> auth[app/auth]`` -> ``{("main", "auth")}``
+    """
     edges = set()
     for line in map(_clean, body.splitlines()):
         m = re.fullmatch(r"(\w+)(?:\[[^\]]*\]|\([^)]*\))?\s*-->\s*(\w+)(?:\[[^\]]*\]|\([^)]*\))?", line)
@@ -34,7 +41,11 @@ def flowchart_imports(body: str) -> set[tuple[str, str]]:
 
 
 def flowchart_nodes(body: str) -> dict[str, str]:
-    """Node id -> label, for nodes declared as ``id[label]`` or ``id(label)``."""
+    """
+    Return node id -> label, for nodes declared as ``id[label]`` or ``id(label)``.
+
+    Example: ``main["app/main<br/>routes"]`` -> ``{"main": "app/main<br/>routes"}``
+    """
     nodes = {}
     for m in re.finditer(r"\b(\w+)(?:\[\"?([^\]\"]*)\"?\]|\(\"?([^)\"]*)\"?\))", body):
         nodes.setdefault(m.group(1), (m.group(2) or m.group(3) or "").strip())
@@ -49,7 +60,12 @@ class Message:
 
 
 def sequence_messages(body: str) -> list[Message]:
-    """Solid arrows ``A->>B: text`` in order (the checked claims)."""
+    """
+    Return the solid arrows ``A->>B: text`` in order (the checked claims).
+
+    Example: ``Browser->>+Gateway: GET /v1/files/{path}`` ->
+    ``Message("Browser", "Gateway", "GET /v1/files/{path}")``
+    """
     messages = []
     for line in map(_clean, body.splitlines()):
         m = re.fullmatch(r"(\w+)\s*->>\s*\+?(\w+)\s*:\s*(.+)", line)
@@ -59,7 +75,7 @@ def sequence_messages(body: str) -> list[Message]:
 
 
 def state_transitions(body: str) -> set[tuple[str, str]]:
-    """``S1 --> S2`` transitions, with ``[*]`` kept as is."""
+    """Return the ``S1 --> S2`` transitions, with ``[*]`` kept as is."""
     transitions = set()
     for line in map(_clean, body.splitlines()):
         m = re.fullmatch(r"(\[\*\]|\w+)\s*-->\s*(\[\*\]|\w+)(?:\s*:.*)?", line)
@@ -71,7 +87,12 @@ def state_transitions(body: str) -> set[tuple[str, str]]:
 # --- the code side ---
 
 def module_path(component_root: Path, label: str) -> Path:
-    """A module diagram's node label starts with the module's path relative to its component."""
+    """
+    Return the module a module diagram's node names: its label starts with the module's path relative
+    to its component.
+
+    Example: ``"app/main<br/>routes"`` -> ``<component_root>/app/main.py`` (or ``app/main/__init__.py``)
+    """
     rel = label.split("<br/>")[0].strip()
     for candidate in (component_root / f"{rel}.py", component_root / rel / "__init__.py"):
         if candidate.exists():
@@ -80,6 +101,11 @@ def module_path(component_root: Path, label: str) -> Path:
 
 
 def _dotted(component_root: Path, path: Path) -> str:
+    """
+    Return a module's dotted name relative to its component.
+
+    Example: ``app/main.py`` -> ``"app.main"``; ``app/__init__.py`` -> ``"app"``
+    """
     rel = path.relative_to(component_root).with_suffix("")
     parts = list(rel.parts)
     if parts[-1] == "__init__":
@@ -88,15 +114,16 @@ def _dotted(component_root: Path, path: Path) -> str:
 
 
 def import_edges(component_root: Path, nodes: dict[str, str]) -> set[tuple[str, str]]:
-    """Imports among the diagram's nodes, read from the source (absolute and relative imports)."""
-    import ast
-
+    """Return the imports among the diagram's nodes, read from the source (absolute and relative imports)."""
     paths = {node: module_path(component_root, label) for node, label in nodes.items()}
     dotted = {node: _dotted(component_root, p) for node, p in paths.items()}
     by_name = {name: node for node, name in dotted.items()}
     edges = set()
     for node, path in paths.items():
-        package = dotted[node] if path.name == "__init__.py" else dotted[node].rpartition(".")[0]
+        if path.name == "__init__.py":
+            package = dotted[node]
+        else:
+            package = dotted[node].rpartition(".")[0]
         for stmt in ast.walk(ast.parse(path.read_text())):
             names: list[str] = []
             if isinstance(stmt, ast.Import):
@@ -104,9 +131,17 @@ def import_edges(component_root: Path, nodes: dict[str, str]) -> set[tuple[str, 
             elif isinstance(stmt, ast.ImportFrom):
                 base = stmt.module or ""
                 if stmt.level:
-                    anchor = package.split(".") if package else []
-                    anchor = anchor[: len(anchor) - (stmt.level - 1)] if stmt.level > 1 else anchor
-                    base = ".".join([*anchor, base] if base else anchor)
+                    # Example: "from ..x import y" in package "app.sub" resolves against "app"
+                    if package:
+                        anchor = package.split(".")
+                    else:
+                        anchor = []
+                    if stmt.level > 1:
+                        anchor = anchor[: len(anchor) - (stmt.level - 1)]
+                    if base:
+                        base = ".".join([*anchor, base])
+                    else:
+                        base = ".".join(anchor)
                 names = [base] + [f"{base}.{a.name}" for a in stmt.names]
             for name in names:
                 target = by_name.get(name)
@@ -119,9 +154,9 @@ def import_edges(component_root: Path, nodes: dict[str, str]) -> set[tuple[str, 
 
 def completion_order(messages: list[Message]) -> list[Message]:
     """
-    The order calls finish in, which is the order components log them (each logs a request when it's
-    done). A message sent by a participant that is itself handling a call is nested in that call and
-    finishes first: ``A->>B``, ``B->>C`` finishes C's call, then B's.
+    Return the order calls finish in, which is the order components log them (each logs a request when
+    it's done). A message sent by a participant that is itself handling a call is nested in that call
+    and finishes first: ``A->>B``, ``B->>C`` finishes C's call, then B's.
     """
     stack: list[Message] = []
     done: list[Message] = []
@@ -136,15 +171,17 @@ def completion_order(messages: list[Message]) -> list[Message]:
 
 def message_pattern(text: str) -> tuple[str, re.Pattern | None, int | None]:
     """
-    Split a checked message into (verb, path pattern, status). ``GET /v1/files/{path} → 206 (Range…)``
-    gives ("GET", /v1/files/.+, 206); an operation name such as ``open`` gives ("open", None, None).
-    Text in parentheses is explanation.
+    Split a checked message into (verb, path pattern, status). Text in parentheses is explanation.
+
+    Example: ``GET /v1/files/{path} → 206 (Range…)`` -> ("GET", /v1/files/.+, 206); an operation name
+    such as ``open`` -> ("open", None, None).
     """
     text = re.sub(r"\s*\(.*\)\s*$", "", text).strip()
     status = None
     m = re.search(r"\s*→\s*(\d{3})$", text)
     if m:
-        status, text = int(m.group(1)), text[: m.start()].strip()
+        status = int(m.group(1))
+        text = text[: m.start()].strip()
     verb, _, path = text.partition(" ")
     if not path:
         return verb, None, status

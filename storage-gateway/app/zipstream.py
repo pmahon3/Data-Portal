@@ -1,20 +1,20 @@
 """
-A ZIP archive built on the fly from files on disk (docs/posix/README.md, "Multi-file downloads").
+Build a ZIP archive on the fly from files on disk (docs/posix/README.md, "Multi-file downloads").
 
-Files are stored, not compressed: imaging data is mostly compressed already, and stored entries
-make every byte's position known before anything is sent. That gives:
-- the exact total size up front (a real progress bar);
-- any byte range on demand, so a broken download resumes where it stopped.
+Files are stored, not compressed: imaging data is mostly compressed already, and stored entries make
+every byte's position known before anything is sent. That gives the exact total size up front (a real
+progress bar) and any byte range on demand, so a broken download resumes where it stopped.
 
-ZIP64 is always used, so single files and whole archives can exceed 4 GB, and the layout is the
-same whatever the sizes. Each file's CRC-32 is written after its data, so the stream can start
-before any checksum is known. Checksums are computed while files are read and can be saved and
-supplied again; a resumed download then jumps straight to its starting point instead of re-reading
-earlier files.
+ZIP64 is always used, so single files and whole archives can exceed 4 GB, and the layout is the same
+whatever the sizes. Each file's CRC-32 is written after its data, so the stream can start before any
+checksum is known. Checksums are computed while files are read and can be saved and supplied again; a
+resumed download then jumps straight to its starting point instead of re-reading earlier files.
 
-The same bytes come out for the same entries every time: names, sizes, modification times and
-order fix the layout, and the contents fix the checksums.
+The same bytes come out for the same entries every time: names, sizes, modification times and order
+fix the layout, and the contents fix the checksums.
 """
+from __future__ import annotations
+
 import struct
 import time
 import zlib
@@ -52,11 +52,12 @@ class FileChanged(RuntimeError):
 @dataclass
 class Entry:
     """
-    :param name: Path inside the archive (``/``-separated).
-    :param size: Size in bytes; the file must still have this size when read.
-    :param mtime: Modification time (seconds since the epoch).
-    :param open: Returns the file opened for binary reading.
-    :param crc32: The file's CRC-32 if already known (from an earlier download).
+    One file in the archive.
+
+    ``name`` is its path inside the archive (``/``-separated); ``size`` its size in bytes, which the
+    file must still have when read; ``mtime`` its modification time (seconds since the epoch). ``open``
+    returns the file opened for binary reading. ``crc32`` is the file's CRC-32 if already known (from
+    an earlier download).
     """
 
     name: str
@@ -67,6 +68,11 @@ class Entry:
 
 
 def _dos_time(mtime: float) -> tuple[int, int]:
+    """
+    Return the MS-DOS (time, date) pair ZIP records hold, in UTC; times before 1980 become 1980.
+
+    Example: 2024-03-05 14:30:10 UTC -> (0x73C5, 0x5865)
+    """
     t = time.gmtime(max(mtime, 315532800))  # ZIP times start in 1980
     dos_time = (t.tm_hour << 11) | (t.tm_min << 5) | (t.tm_sec // 2)
     dos_date = ((t.tm_year - 1980) << 9) | (t.tm_mon << 5) | t.tm_mday
@@ -74,7 +80,12 @@ def _dos_time(mtime: float) -> tuple[int, int]:
 
 
 class ZipStream:
-    """The byte layout of one archive, and its bytes over any range."""
+    """
+    The byte layout of one archive, and its bytes over any range.
+
+    Example: one 5-byte entry "a.txt" is laid out as local header (55 bytes), data (5), descriptor
+    (24), central record (79) and tail (98), so ``size`` is 261.
+    """
 
     def __init__(self, entries: list[Entry], chunk_size: int = 1024 * 1024):
         self.entries = entries
@@ -86,9 +97,12 @@ class ZipStream:
         offset = 0
         for i, entry in enumerate(entries):
             self._local_offsets.append(offset)
-            for length, kind in ((_LOCAL_FIXED + len(self._names[i]) + _LOCAL_EXTRA, "local"),
-                                 (entry.size, "data"),
-                                 (_DESCRIPTOR_LEN, "descriptor")):
+            pieces = (
+                (_LOCAL_FIXED + len(self._names[i]) + _LOCAL_EXTRA, "local"),
+                (entry.size, "data"),
+                (_DESCRIPTOR_LEN, "descriptor"),
+            )
+            for length, kind in pieces:
                 self._segments.append((length, kind, i))
                 offset += length
         self._central_offset = offset
@@ -103,16 +117,18 @@ class ZipStream:
     # --- checksums ---
 
     def checksums(self) -> list[int | None]:
-        """CRC-32s known so far, to save and pass back in on a later request."""
+        """Return the CRC-32s known so far, to save and pass back in on a later request."""
         return [e.crc32 for e in self.entries]
 
     def _crc(self, i: int) -> int:
         entry = self.entries[i]
         if entry.crc32 is None:
-            crc, read = 0, 0
+            crc = 0
+            read = 0
             with entry.open() as f:
                 while chunk := f.read(self.chunk_size):
-                    crc, read = zlib.crc32(chunk, crc), read + len(chunk)
+                    crc = zlib.crc32(chunk, crc)
+                    read += len(chunk)
             if read != entry.size:
                 raise FileChanged(entry.name)
             entry.crc32 = crc
@@ -121,30 +137,83 @@ class ZipStream:
     # --- records ---
 
     def _local(self, i: int) -> bytes:
-        entry, name = self.entries[i], self._names[i]
+        entry = self.entries[i]
+        name = self._names[i]
         tm, dt = _dos_time(entry.mtime)
-        return (struct.pack("<IHHHHHIIIHH", _LOCAL, _VERSION, _FLAGS, _STORED, tm, dt, 0, _MAX32, _MAX32,
-                            len(name), _LOCAL_EXTRA)
-                + name + struct.pack("<HHQQ", 0x0001, 16, 0, 0))
+        header = struct.pack(
+            "<IHHHHHIIIHH",
+            _LOCAL,
+            _VERSION,
+            _FLAGS,
+            _STORED,
+            tm,
+            dt,
+            0,
+            _MAX32,
+            _MAX32,
+            len(name),
+            _LOCAL_EXTRA,
+        )
+        zip64_extra = struct.pack("<HHQQ", 0x0001, 16, 0, 0)
+        return header + name + zip64_extra
 
     def _descriptor(self, i: int) -> bytes:
         size = self.entries[i].size
         return struct.pack("<IIQQ", _DESCRIPTOR, self._crc(i), size, size)
 
     def _central(self, i: int) -> bytes:
-        entry, name = self.entries[i], self._names[i]
+        entry = self.entries[i]
+        name = self._names[i]
         tm, dt = _dos_time(entry.mtime)
-        return (struct.pack("<IHHHHHHIIIHHHHHII", _CENTRAL, _MADE_BY, _VERSION, _FLAGS, _STORED, tm, dt,
-                            self._crc(i), _MAX32, _MAX32, len(name), _CENTRAL_EXTRA, 0, 0, 0, _FILE_ATTRS, _MAX32)
-                + name + struct.pack("<HHQQQ", 0x0001, 24, entry.size, entry.size, self._local_offsets[i]))
+        header = struct.pack(
+            "<IHHHHHHIIIHHHHHII",
+            _CENTRAL,
+            _MADE_BY,
+            _VERSION,
+            _FLAGS,
+            _STORED,
+            tm,
+            dt,
+            self._crc(i),
+            _MAX32,
+            _MAX32,
+            len(name),
+            _CENTRAL_EXTRA,
+            0,
+            0,
+            0,
+            _FILE_ATTRS,
+            _MAX32,
+        )
+        zip64_extra = struct.pack(
+            "<HHQQQ",
+            0x0001,
+            24,
+            entry.size,
+            entry.size,
+            self._local_offsets[i],
+        )
+        return header + name + zip64_extra
 
     def _tail(self) -> bytes:
         count = len(self.entries)
         zip64_end_offset = self._central_offset + self._central_size
-        return (struct.pack("<IQHHIIQQQQ", _ZIP64_END, 44, _MADE_BY, _VERSION, 0, 0, count, count,
-                            self._central_size, self._central_offset)
-                + struct.pack("<IIQI", _ZIP64_LOCATOR, 0, zip64_end_offset, 1)
-                + struct.pack("<IHHHHIIH", _END, 0, 0, _MAX16, _MAX16, _MAX32, _MAX32, 0))
+        zip64_end = struct.pack(
+            "<IQHHIIQQQQ",
+            _ZIP64_END,
+            44,
+            _MADE_BY,
+            _VERSION,
+            0,
+            0,
+            count,
+            count,
+            self._central_size,
+            self._central_offset,
+        )
+        zip64_locator = struct.pack("<IIQI", _ZIP64_LOCATOR, 0, zip64_end_offset, 1)
+        end = struct.pack("<IHHHHIIH", _END, 0, 0, _MAX16, _MAX16, _MAX32, _MAX32, 0)
+        return zip64_end + zip64_locator + end
 
     def _record(self, kind: str, i: int) -> bytes:
         if kind == "local":
@@ -158,7 +227,7 @@ class ZipStream:
     # --- bytes ---
 
     def _data(self, i: int, start: int, end: int) -> Iterator[bytes]:
-        """Bytes ``start``..``end`` (exclusive) of entry ``i``; computes its CRC when reading it whole."""
+        """Yield bytes ``start``..``end`` (exclusive) of entry ``i``; compute its CRC if reading it whole."""
         entry = self.entries[i]
         whole = start == 0 and end == entry.size and entry.crc32 is None
         crc = 0
@@ -179,19 +248,27 @@ class ZipStream:
                 entry.crc32 = crc
 
     def iter_bytes(self, start: int = 0, end: int | None = None) -> Iterator[bytes]:
-        """Yield the archive's bytes from ``start`` to ``end`` (inclusive; default: the end)."""
-        end = self.size - 1 if end is None else end
+        """
+        Yield the archive's bytes from ``start`` to ``end`` (inclusive; default: the end).
+
+        Example: ``iter_bytes(55, 59)`` on the one-entry archive above yields just the file's 5 bytes.
+        """
+        if end is None:
+            end = self.size - 1
         if not 0 <= start <= end < self.size:
             raise ValueError(f"range {start}-{end} outside 0-{self.size - 1}")
         position = 0
         for length, kind, i in self._segments:
-            seg_start, seg_end = position, position + length  # [seg_start, seg_end)
+            # [seg_start, seg_end)
+            seg_start = position
+            seg_end = position + length
             position = seg_end
             if seg_end <= start:
                 continue
             if seg_start > end:
                 return
-            lo, hi = max(start, seg_start) - seg_start, min(end + 1, seg_end) - seg_start
+            lo = max(start, seg_start) - seg_start
+            hi = min(end + 1, seg_end) - seg_start
             if kind == "data":
                 yield from self._data(i, lo, hi)
             else:

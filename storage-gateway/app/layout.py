@@ -4,23 +4,20 @@ Check, and optionally apply, the layout the file service needs in the area a mac
     python -m app.layout --root /srv/posix/data              # report only (default)
     python -m app.layout --root /srv/posix/data --apply      # apply
 
-Owners, groups and administrators' ACL entries are left alone: administrators and project managers
-manage direct access on the machine (A1, 2026-10-31), and researchers' processes keep working on raw
-data and derivatives. The tool only makes sure the portal's grants are the one way in for anyone
-else, and that new files and folders start that way:
-- nothing is open to everyone else ("other" has no access, on files and folders);
-- folders let the pass-through group through (``x``, never ``r``), so a temporary ID reaches a file
-  it was granted and nothing else;
-- folders have default entries with the same two rules, so a file or folder made later (by a
-  pipeline, with any umask) starts closed to everyone else and passable.
-Run as root on the machine, before the file service is first used, and again any time to check.
-
-Changes are made through descriptors from a walk that never follows symlinks. Things the tool won't
-decide are reported for an administrator and left alone: symlinks (the service refuses them),
+Run as root on the machine before the file service is first used, and again any time to check; a
+second run changes nothing. Owners, groups and administrators' ACL entries are left alone
+(administrators and project managers manage direct access on the machine, A1, 2026-10-31, and
+researchers' processes keep working on raw data and derivatives). The tool only makes the portal's
+grants the one way in for anyone else, now and for files and folders made later (by a pipeline, with
+any umask): "other" has no access on files or folders; folders let the pass-through group through
+(``x``, never ``r``), so a temporary ID reaches a file it was granted and nothing else; and folders
+get default entries with the same two rules. Changes go through descriptors from a walk that never
+follows symlinks. Reported for an administrator and left alone: symlinks (the service refuses them),
 special files (FIFOs, devices, sockets), files with more than one hard link (another path could
 reach them), and ACL entries for user IDs in the temporary range (left by a crash or a retired ID).
-Running it twice changes nothing the second time.
 """
+from __future__ import annotations
+
 import argparse
 import json
 import os
@@ -31,17 +28,19 @@ from dataclasses import dataclass, field
 from app import acl
 
 
-
 @dataclass
 class Report:
-    changed: list[dict] = field(default_factory=list)       # would change (or changed, with --apply)
-    for_admin: list[dict] = field(default_factory=list)     # left alone; someone has to decide
+    """Collect what the walk found."""
+
+    changed: list[dict] = field(default_factory=list)  # would change (or changed, with --apply)
+    for_admin: list[dict] = field(default_factory=list)  # left alone; someone has to decide
 
     def as_dict(self) -> dict:
         return {"changed": self.changed, "for_admin": self.for_admin}
 
 
 def _temporary_acl_ids(fd: int, id_start: int, id_count: int) -> list[int]:
+    """Return the temporary-range user IDs with an ACL entry on the file; [] if it can't be read."""
     try:
         entries = acl.read(fd)
     except OSError:
@@ -49,55 +48,95 @@ def _temporary_acl_ids(fd: int, id_start: int, id_count: int) -> list[int]:
     return [i for tag, _, i in entries if tag == acl.USER and id_start <= i < id_start + id_count]
 
 
+def _other(entries: list[acl.Entry]) -> int:
+    """Return the permissions for everyone else; every ACL has that entry."""
+    for tag, perm, _ in entries:
+        if tag == acl.OTHER:
+            return perm
+    raise ValueError("ACL has no entry for everyone else")
+
+
+def _passing(entries: list[acl.Entry], traverse_gid: int) -> int:
+    """Return the pass-through group's permissions; 0 if it has no entry."""
+    for tag, perm, ident in entries:
+        if tag == acl.GROUP and ident == traverse_gid:
+            return perm
+    return 0
+
+
+def _closed(entries: list[acl.Entry]) -> list[acl.Entry]:
+    """Return ``entries`` with no access for everyone else and no mask (``acl.write`` recomputes it)."""
+    closed = []
+    for tag, perm, ident in entries:
+        if tag == acl.MASK:
+            continue
+        if tag == acl.OTHER:
+            perm = 0
+        closed.append((tag, perm, ident))
+    return closed
+
+
+def _closed_and_passable(entries: list[acl.Entry], traverse_gid: int) -> list[acl.Entry]:
+    """Return ``_closed(entries)`` with ``x`` added to the pass-through group's entry (or a new one)."""
+    passing = _passing(entries, traverse_gid)
+    kept = [e for e in _closed(entries) if not (e[0] == acl.GROUP and e[2] == traverse_gid)]
+    return [*kept, (acl.GROUP, passing | acl.EXECUTE, traverse_gid)]
+
+
 def file_changes(fd: int, apply: bool) -> list[str]:
     """Close a file to everyone else; return what differed."""
     entries = acl.read(fd)
-    other = next(p for t, p, _ in entries if t == acl.OTHER)
+    other = _other(entries)
     if not other:
         return []
     if apply:
-        acl.write(fd, [(t, 0 if t == acl.OTHER else p, i) for t, p, i in entries if t != acl.MASK])
+        acl.write(fd, _closed(entries))
     return [f"everyone else: {_rwx(other)} -> ---"]
 
 
 def folder_changes(fd: int, traverse_gid: int, apply: bool) -> list[str]:
-    """Close a folder to everyone else, let the pass-through group through, and set the same rules as
-    defaults for what's made in it later; return what differed."""
+    """
+    Close a folder to everyone else and let the pass-through group through; return what differed.
+
+    The same rules are set as defaults for what's made in the folder later.
+    """
     changes = []
-    entries, defaults = acl.read(fd), acl.read_default(fd)
-    other = next(p for t, p, _ in entries if t == acl.OTHER)
-    passing = next((p for t, p, i in entries if t == acl.GROUP and i == traverse_gid), 0)
+    entries = acl.read(fd)
+    defaults = acl.read_default(fd)
+    other = _other(entries)
+    passing = _passing(entries, traverse_gid)
     if other:
         changes.append(f"everyone else: {_rwx(other)} -> ---")
     if not passing & acl.EXECUTE:
         changes.append("pass-through for the portal's temporary IDs added")
-    if other or not passing & acl.EXECUTE:
-        if apply:
-            acl.write(fd, [(t, 0 if t == acl.OTHER else p, i) for t, p, i in entries
-                           if t != acl.MASK and not (t == acl.GROUP and i == traverse_gid)]
-                      + [(acl.GROUP, passing | acl.EXECUTE, traverse_gid)])
+    if (other or not passing & acl.EXECUTE) and apply:
+        acl.write(fd, _closed_and_passable(entries, traverse_gid))
     if not defaults:
+        # Read again: the owner's and group's permissions as they are after the write above.
         base = {t: p for t, p, _ in acl.read(fd) if t in (acl.USER_OBJ, acl.GROUP_OBJ)}
-        defaults = [(acl.USER_OBJ, base[acl.USER_OBJ], acl.UNDEFINED), (acl.GROUP_OBJ, base[acl.GROUP_OBJ], acl.UNDEFINED),
-                    (acl.OTHER, 0, acl.UNDEFINED)]
+        defaults = [
+            (acl.USER_OBJ, base[acl.USER_OBJ], acl.UNDEFINED),
+            (acl.GROUP_OBJ, base[acl.GROUP_OBJ], acl.UNDEFINED),
+            (acl.OTHER, 0, acl.UNDEFINED),
+        ]
         changes.append("defaults for new files and folders set")
         stale = True
     else:
-        d_other = next(p for t, p, _ in defaults if t == acl.OTHER)
-        d_passing = next((p for t, p, i in defaults if t == acl.GROUP and i == traverse_gid), 0)
-        stale = bool(d_other) or not d_passing & acl.EXECUTE
+        stale = bool(_other(defaults)) or not _passing(defaults, traverse_gid) & acl.EXECUTE
         if stale:
             changes.append("defaults for new files and folders corrected")
     if stale and apply:
-        d_passing = next((p for t, p, i in defaults if t == acl.GROUP and i == traverse_gid), 0)
-        acl.write_default(fd, [(t, 0 if t == acl.OTHER else p, i) for t, p, i in defaults
-                               if t != acl.MASK and not (t == acl.GROUP and i == traverse_gid)]
-                          + [(acl.GROUP, d_passing | acl.EXECUTE, traverse_gid)])
+        acl.write_default(fd, _closed_and_passable(defaults, traverse_gid))
     return changes
 
 
-def check(root: str, traverse_gid: int, apply: bool = False,
-          id_start: int = 2_000_000, id_count: int = 1_000_000) -> Report:
+def check(
+    root: str,
+    traverse_gid: int,
+    apply: bool = False,
+    id_start: int = 2_000_000,
+    id_count: int = 1_000_000,
+) -> Report:
     """Walk ``root`` without following symlinks; report (and with ``apply``, fix) layout differences."""
     report = Report()
 
@@ -114,8 +153,11 @@ def check(root: str, traverse_gid: int, apply: bool = False,
             path = f"{rel}/{entry.name}" if rel else entry.name
             est = os.stat(entry.name, dir_fd=dir_fd, follow_symlinks=False)
             if stat_module.S_ISLNK(est.st_mode):
-                report.for_admin.append({"path": path, "issue": "symlink (the file service refuses it)",
-                                         "target": os.readlink(entry.name, dir_fd=dir_fd)})
+                report.for_admin.append({
+                    "path": path,
+                    "issue": "symlink (the file service refuses it)",
+                    "target": os.readlink(entry.name, dir_fd=dir_fd),
+                })
             elif stat_module.S_ISDIR(est.st_mode):
                 child = os.open(entry.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=dir_fd)
                 try:
@@ -130,8 +172,12 @@ def check(root: str, traverse_gid: int, apply: bool = False,
     def visit_file(dir_fd: int, name: str, path: str) -> None:
         fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)
         try:
-            if os.fstat(fd).st_nlink > 1:
-                report.for_admin.append({"path": path, "issue": f"{os.fstat(fd).st_nlink} hard links (another path can reach it)"})
+            links = os.fstat(fd).st_nlink
+            if links > 1:
+                report.for_admin.append({
+                    "path": path,
+                    "issue": f"{links} hard links (another path can reach it)",
+                })
             note(fd, path, "file", file_changes(fd, apply))
         finally:
             os.close(fd)
@@ -145,6 +191,11 @@ def check(root: str, traverse_gid: int, apply: bool = False,
 
 
 def _rwx(perm: int) -> str:
+    """
+    Return permission bits the way ``ls`` shows them.
+
+    Example: 5 -> "r-x"
+    """
     return "".join(c if perm & bit else "-" for c, bit in (("r", 4), ("w", 2), ("x", 1)))
 
 

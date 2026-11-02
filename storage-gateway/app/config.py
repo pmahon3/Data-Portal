@@ -1,4 +1,6 @@
-"""Settings for the POSIX file service, read from the environment."""
+"""Read the POSIX file service's settings from the environment."""
+from __future__ import annotations
+
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -13,24 +15,27 @@ OPEN_BATCH = 64  # files of a multi-file download opened per request to the help
 @dataclass(frozen=True)
 class Settings:
     """
-    :param root: Directory holding the governed files. Resource ``namespace/key`` maps to ``root/key``.
-    :param namespace: The namespace this service serves; tokens must name it as their audience.
-    :param jwks_url: Where the portal publishes the public key for its signed links.
-    :param bundle_list_url: Where the portal serves approved file lists (``/{grant}`` is appended);
-        by default beside ``jwks_url``.
-    :param issuer: The ``iss`` claim the portal puts in its tokens.
-    :param cors_origins: Browser origins allowed to call the service directly (uploads and downloads).
-    :param chunk_size: Bytes read per chunk when streaming.
-    :param helper_socket: The privileged helper's socket. When set, every file operation goes through
-        the helper and this service can't read the data itself.
-    :param require_isolation: Refuse to start without a helper (set in the deployed container).
-    :param account_mode: Run without administrator access (``GATEWAY_ACCESS=account``): this service is
-        one ordinary account that can read and write the data, and the portal's links alone decide access.
-    :param max_downloads: Multi-file downloads streaming at once; extra ones wait for a slot.
-    :param download_wait_seconds: How long an extra download waits before it's told to retry (503).
-    :param max_bundle_files: The most files one multi-file download may list.
-    :param state_dir: A folder this service can write to, for state kept across restarts (checksums
-        of files already sent); without one, that state is kept in memory.
+    The file service's settings.
+
+    - ``root``: directory holding the governed files. Resource ``namespace/key`` maps to ``root/key``.
+    - ``namespace``: the namespace this service serves; tokens must name it as their audience.
+    - ``jwks_url``: where the portal publishes the public key for its signed links.
+    - ``bundle_list_url``: where the portal serves approved file lists (``/{grant}`` is appended); by
+      default beside ``jwks_url``.
+    - ``issuer``: the ``iss`` claim the portal puts in its tokens.
+    - ``cors_origins``: browser origins allowed to call the service directly (uploads and downloads).
+    - ``chunk_size``: bytes read per chunk when streaming.
+    - ``helper_socket``: the privileged helper's socket. When set, every file operation goes through
+      the helper and this service can't read the data itself.
+    - ``require_isolation``: refuse to start without a helper (set in the deployed container).
+    - ``account_mode``: run without administrator access (``GATEWAY_ACCESS=account``): this service is
+      one ordinary account that can read and write the data, and the portal's links alone decide
+      access.
+    - ``max_downloads``: multi-file downloads streaming at once; extra ones wait for a slot.
+    - ``download_wait_seconds``: how long an extra download waits before it's told to retry (503).
+    - ``max_bundle_files``: the most files one multi-file download may list.
+    - ``state_dir``: a folder this service can write to, for state kept across restarts (checksums of
+      files already sent); without one, that state is kept in memory.
     """
 
     root: Path
@@ -49,21 +54,31 @@ class Settings:
     state_dir: Path | None = None
 
     @classmethod
-    def from_env(cls) -> "Settings":
+    def from_env(cls) -> Settings:
+        """Read the settings from ``GATEWAY_*`` environment variables."""
         origins = os.getenv("GATEWAY_CORS_ORIGINS", "")
+        root = Path(os.environ["GATEWAY_ROOT"]).resolve()
+        namespace = os.environ["GATEWAY_NAMESPACE"]
+        jwks_url = os.environ["GATEWAY_JWKS_URL"]
+        bundle_list_url = os.getenv("GATEWAY_BUNDLE_LIST_URL")
+        if not bundle_list_url:
+            # Example: "https://portal/api/v0.1/storage-links/jwks.json" -> ".../storage-links/bundles"
+            bundle_list_url = jwks_url.rsplit("/", 1)[0] + "/bundles"
+        state_dir = None
+        if os.getenv("GATEWAY_STATE_DIR"):
+            state_dir = Path(os.environ["GATEWAY_STATE_DIR"])
         return cls(
-            root=Path(os.environ["GATEWAY_ROOT"]).resolve(),
-            namespace=os.environ["GATEWAY_NAMESPACE"],
-            jwks_url=os.environ["GATEWAY_JWKS_URL"],
+            root=root,
+            namespace=namespace,
+            jwks_url=jwks_url,
             issuer=os.getenv("GATEWAY_ISSUER", "inn-portal"),
             cors_origins=[o.strip() for o in origins.split(",") if o.strip()],
             helper_socket=os.getenv("GATEWAY_HELPER_SOCKET") or None,
             require_isolation=os.getenv("GATEWAY_REQUIRE_ISOLATION", "").lower() in {"1", "true", "yes"},
             account_mode=os.getenv("GATEWAY_ACCESS", "helper") == "account",
-            bundle_list_url=os.getenv("GATEWAY_BUNDLE_LIST_URL")
-            or os.environ["GATEWAY_JWKS_URL"].rsplit("/", 1)[0] + "/bundles",
+            bundle_list_url=bundle_list_url,
             max_downloads=int(os.getenv("GATEWAY_MAX_DOWNLOADS", "8")),
             download_wait_seconds=int(os.getenv("GATEWAY_DOWNLOAD_WAIT_SECONDS", "300")),
             max_bundle_files=int(os.getenv("GATEWAY_MAX_BUNDLE_FILES", "200000")),
-            state_dir=Path(os.environ["GATEWAY_STATE_DIR"]) if os.getenv("GATEWAY_STATE_DIR") else None,
+            state_dir=state_dir,
         )

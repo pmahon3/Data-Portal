@@ -1,5 +1,5 @@
 """
-How the web service reaches files.
+Give the web service its way to reach files.
 
 - ``HelperAccess`` (deployed): every operation goes through the privileged helper, which checks the
   token itself and opens files as the link's temporary ID. The web service can't read the data on
@@ -10,6 +10,8 @@ How the web service reaches files.
 
 Both raise ``HTTPException`` with the status to return.
 """
+from __future__ import annotations
+
 import json
 import os
 import socket
@@ -21,8 +23,18 @@ from fastapi import HTTPException, status
 from app.config import OPEN_BATCH
 from app.files import BadPath, Root
 
+# What the web service answers for each refusal the helper reports.
+_HELPER_DETAILS = {
+    400: "Bad path",
+    401: "Invalid or expired token",
+    403: "Token doesn't allow this request",
+    404: "Not found",
+    409: "A folder exists at this path",
+}
+
 
 def _refused(error: Exception) -> HTTPException:
+    """Return the ``HTTPException`` for a path the tree refused."""
     if isinstance(error, BadPath):
         return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Bad path")
     if isinstance(error, IsADirectoryError):
@@ -31,6 +43,8 @@ def _refused(error: Exception) -> HTTPException:
 
 
 class DirectAccess:
+    """Read and write the root directly, with the web service's own access (local unit tests only)."""
+
     def __init__(self, root: Root):
         self.root = root
 
@@ -81,10 +95,17 @@ class DirectAccess:
 
 
 class HelperAccess:
+    """Reach files only through the privileged helper's socket."""
+
     def __init__(self, socket_path: str):
         self.socket_path = socket_path
 
     def call(self, request: dict, max_fds: int = 8) -> tuple[dict, list[int]]:
+        """
+        Send one request to the helper; return its reply and the descriptors it handed back.
+
+        A refusal closes any descriptors and raises the ``HTTPException`` for its status.
+        """
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
                 sock.settimeout(60)
@@ -92,15 +113,16 @@ class HelperAccess:
                 sock.sendall(json.dumps(request).encode() + b"\n")
                 message, fds, _, _ = socket.recv_fds(sock, 1 << 16, max_fds)
         except OSError:
-            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="File access unavailable")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="File access unavailable",
+            )
         reply = json.loads(message or b'{"ok": false, "status": 503}')
         if not reply.get("ok"):
             for fd in fds:
                 os.close(fd)
             code = reply.get("status", 500)
-            detail = {400: "Bad path", 401: "Invalid or expired token", 403: "Token doesn't allow this request",
-                      404: "Not found", 409: "A folder exists at this path"}.get(code, "File access failed")
-            raise HTTPException(status_code=code, detail=detail)
+            raise HTTPException(status_code=code, detail=_HELPER_DETAILS.get(code, "File access failed"))
         return reply, fds
 
     def register_bundle(self, token, resource, listing):
@@ -108,6 +130,12 @@ class HelperAccess:
         self.call({"op": "bundle", "token": token, "path": resource, "list": listing})
 
     def _read_request(self, op, token, resource, bundle):
+        """
+        Return the request to read or stat one file, naming its bundle if it has one.
+
+        Example: ``("open", t, "ns/study/a.txt", None)`` ->
+        ``{"op": "open", "token": t, "path": "ns/study/a.txt"}``
+        """
         request = {"op": op, "token": token, "path": resource}
         if bundle:
             request["bundle"] = bundle
@@ -119,25 +147,54 @@ class HelperAccess:
 
     def open_read_many(self, token, resources, bundle):
         """
-        Open several files of a bundle in one request (one process in the helper). Returns, in order,
-        a descriptor or the ``HTTPException`` for each file that couldn't be opened.
+        Open several files of a bundle in one request (one process in the helper).
+
+        Return, in order, a descriptor or the ``HTTPException`` for each file that couldn't be opened.
         """
-        reply, fds = self.call({"op": "open_many", "token": token, "path": bundle, "bundle": bundle,
-                                "paths": list(resources)}, max_fds=OPEN_BATCH)
+        reply, fds = self.call(
+            {
+                "op": "open_many",
+                "token": token,
+                "path": bundle,
+                "bundle": bundle,
+                "paths": list(resources),
+            },
+            max_fds=OPEN_BATCH,
+        )
+        # The helper sends descriptors only for the files it opened, in order.
         given = iter(fds)
-        return [next(given) if result["ok"] else HTTPException(status_code=result["status"], detail="File access failed")
-                for result in reply["results"]]
+        opened = []
+        for result in reply["results"]:
+            if result["ok"]:
+                opened.append(next(given))
+            else:
+                opened.append(HTTPException(status_code=result["status"], detail="File access failed"))
+        return opened
 
     def stat(self, token, resource, parts, bundle=None):
         reply, _ = self.call(self._read_request("stat", token, resource, bundle))
         return SimpleNamespace(**reply["stat"])
 
     def stat_many(self, token, resources, bundle):
-        """Stat (and grant) several files of a bundle in one request; a stat or an ``HTTPException`` each."""
-        reply, _ = self.call({"op": "stat_many", "token": token, "path": bundle, "bundle": bundle,
-                              "paths": list(resources)})
-        return [SimpleNamespace(**r["stat"]) if r["ok"] else HTTPException(status_code=r["status"], detail="File access failed")
-                for r in reply["results"]]
+        """
+        Stat (and grant) several files of a bundle in one request.
+
+        Return, in order, a stat or the ``HTTPException`` for each file.
+        """
+        reply, _ = self.call({
+            "op": "stat_many",
+            "token": token,
+            "path": bundle,
+            "bundle": bundle,
+            "paths": list(resources),
+        })
+        stats = []
+        for result in reply["results"]:
+            if result["ok"]:
+                stats.append(SimpleNamespace(**result["stat"]))
+            else:
+                stats.append(HTTPException(status_code=result["status"], detail="File access failed"))
+        return stats
 
     def begin_write(self, token, resource, parts):
         reply, fds = self.call({"op": "begin_write", "token": token, "path": resource})
@@ -148,10 +205,14 @@ class HelperAccess:
 
 
 class HelperWrite:
-    """An upload into the link's staging file; the helper moves it into place on commit."""
+    """Write an upload into the link's staging file; the helper moves it into place on commit."""
 
     def __init__(self, access: HelperAccess, token: str, resource: str, staging: str, fd: int):
-        self.access, self.token, self.resource, self.staging, self.fd = access, token, resource, staging, fd
+        self.access = access
+        self.token = token
+        self.resource = resource
+        self.staging = staging
+        self.fd = fd
         self.existed = False
 
     def write(self, data: bytes) -> None:
@@ -162,8 +223,12 @@ class HelperWrite:
     def commit(self):
         os.fsync(self.fd)
         os.close(self.fd)
-        reply, _ = self.access.call({"op": "commit", "token": self.token, "path": self.resource,
-                                     "staging": self.staging})
+        reply, _ = self.access.call({
+            "op": "commit",
+            "token": self.token,
+            "path": self.resource,
+            "staging": self.staging,
+        })
         st = dict(reply["stat"])
         self.existed = st.pop("existed")
         return SimpleNamespace(**st)
@@ -174,20 +239,30 @@ class HelperWrite:
         except OSError:
             pass
         try:
-            self.access.call({"op": "abort", "token": self.token, "path": self.resource, "staging": self.staging})
+            self.access.call({
+                "op": "abort",
+                "token": self.token,
+                "path": self.resource,
+                "staging": self.staging,
+            })
         except HTTPException:
             pass  # the sweeper removes staging files when the link expires
 
 
 class BatchOpener:
     """
-    Opens a multi-file download's files a batch at a time, starting from the file the stream reaches,
-    so the helper starts one process per batch rather than one per file. Files opened but never sent
-    (the stream ended or stopped early) are closed on exit.
+    Open a multi-file download's files a batch at a time, starting from the file the stream reaches.
+
+    The helper then starts one process per batch rather than one per file. Files opened but never
+    sent (the stream ended or stopped early) are closed on exit.
     """
 
     def __init__(self, access, token: str, bundle: str, paths: list[str], batch: int = OPEN_BATCH):
-        self.access, self.token, self.bundle, self.paths, self.batch = access, token, bundle, paths, batch
+        self.access = access
+        self.token = token
+        self.bundle = bundle
+        self.paths = paths
+        self.batch = batch
         self._index = {path: i for i, path in enumerate(paths)}
         self._opened: dict[str, int | HTTPException] = {}
 
@@ -195,7 +270,8 @@ class BatchOpener:
         if path not in self._opened:
             start = self._index[path]
             wanted = [p for p in self.paths[start:start + self.batch] if p not in self._opened]
-            self._opened.update(zip(wanted, self.access.open_read_many(self.token, wanted, self.bundle)))
+            results = self.access.open_read_many(self.token, wanted, self.bundle)
+            self._opened.update(zip(wanted, results))
         opened = self._opened.pop(path)
         if isinstance(opened, HTTPException):
             raise opened

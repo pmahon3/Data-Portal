@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 from email.utils import parsedate_to_datetime
 from urllib.parse import quote
@@ -30,8 +32,8 @@ class PosixStorageAgent(AbstractStorageAgent):
 
     def __init__(self, instance_url: str, namespace: str):
         """
-        :param instance_url: Base URL of the file service on the POSIX machine.
-        :param namespace: Name used in resources, policies and the file tree for this instance.
+        Use the file service at ``instance_url`` (its base URL on the POSIX machine). ``namespace`` is
+        the name used in resources, policies and the file tree for this instance.
         """
         super().__init__(instance_url.rstrip("/"))
         namespace = namespace.strip()
@@ -45,10 +47,11 @@ class PosixStorageAgent(AbstractStorageAgent):
         try:
             response = self._http().get(f"{self.instance_url}/v1/health")
         except httpx.HTTPError as e:
-            logger.exception(f"POSIX file service unreachable at {self.instance_url}")
+            logger.exception("POSIX file service unreachable at %s", self.instance_url)
             self.close()
             raise ConnectionError(
-                "Unable to reach the POSIX file service. Please verify that the URL is correct and the service is running."
+                "Unable to reach the POSIX file service. "
+                "Please verify that the URL is correct and the service is running."
             ) from e
         if response.status_code != 200:
             self.close()
@@ -61,13 +64,18 @@ class PosixStorageAgent(AbstractStorageAgent):
         return [self.namespace]
 
     def generate_access_link(
-        self, resource: str, method: str, ttl: int, subject: str | None = None, grant: str | None = None
+        self,
+        resource: str,
+        method: str,
+        ttl: int,
+        subject: str | None = None,
+        grant: str | None = None,
     ) -> tuple[list[str], list[str]]:
         """
         Generate a signed download or upload URL for one file.
 
-        :param grant: Optional approval ID shared by every link issued for one approved request, so the
-            file service uses one temporary user ID for all of them.
+        ``grant`` is an optional approval ID shared by every link issued for one approved request, so
+        the file service uses one temporary user ID for all of them.
         """
         operation_by_access = {
             "read": "read",
@@ -87,13 +95,23 @@ class PosixStorageAgent(AbstractStorageAgent):
         """
         Sign the link that streams an approved set of files as one ZIP from the file service.
 
-        :param grant: The approval ID; the file service fetches the approved file list by it.
-        :param listing: The SHA-256 of that list (``record_bundle``).
+        ``grant`` is the approval ID, by which the file service fetches the approved file list;
+        ``listing`` is the SHA-256 of that list (``record_bundle``).
+
+        Example: grant "ab12" on namespace "posix" -> ``<instance_url>/v1/bundles/posix/ab12?token=…``
         """
         resource = f"{self.namespace}/{grant}"
-        token = self._signer.sign(self.namespace, resource, "bundle", ttl, subject=subject, grant=grant,
-                                  listing=listing)
-        return f"{self.instance_url}/v1/bundles/{quote(resource, safe='/')}?{httpx.QueryParams(token=token)}"
+        token = self._signer.sign(
+            self.namespace,
+            resource,
+            "bundle",
+            ttl,
+            subject=subject,
+            grant=grant,
+            listing=listing,
+        )
+        bundle_url = f"{self.instance_url}/v1/bundles/{quote(resource, safe='/')}"
+        return f"{bundle_url}?{httpx.QueryParams(token=token)}"
 
     def delete_object(self, resource: str, subject: str | None = None):
         """Delete a file identified by ``namespace/key``. Deleting a missing file succeeds."""
@@ -129,7 +147,11 @@ class PosixStorageAgent(AbstractStorageAgent):
         return metadata
 
     def _check_resource(self, resource: str):
-        """Reject resources outside this namespace or with path segments that could escape it."""
+        """
+        Reject resources outside this namespace or with path segments that could escape it.
+
+        Example: with namespace "posix", "posix/study/a.nii" passes; "posix/../etc" and "other/a" don't.
+        """
         namespace, sep, key = resource.partition("/")
         if not sep or namespace != self.namespace:
             raise ValueError(f"Resource {resource!r} is not in namespace {self.namespace!r}")
@@ -138,12 +160,28 @@ class PosixStorageAgent(AbstractStorageAgent):
             raise ValueError(f"Bad POSIX path: {resource!r}")
 
     def _file_url(self, resource: str) -> str:
+        """
+        Return the file service URL of a resource.
+
+        Example: "posix/my study/a.nii" -> ``<instance_url>/v1/files/posix/my%20study/a.nii``
+        """
         return f"{self.instance_url}/v1/files/{quote(resource, safe='/')}"
 
-    def _service_call(self, http_method: str, resource: str, operation: str,
-                      subject: str | None = None) -> httpx.Response:
+    def _service_call(
+        self,
+        http_method: str,
+        resource: str,
+        operation: str,
+        subject: str | None = None,
+    ) -> httpx.Response:
         self._check_resource(resource)
-        token = self._signer.sign(self.namespace, resource, operation, SERVICE_CALL_TTL_SECONDS, subject=subject)
+        token = self._signer.sign(
+            self.namespace,
+            resource,
+            operation,
+            SERVICE_CALL_TTL_SECONDS,
+            subject=subject,
+        )
         try:
             return self._http().request(
                 http_method,
@@ -151,7 +189,7 @@ class PosixStorageAgent(AbstractStorageAgent):
                 headers={"Authorization": f"Bearer {token}"},
             )
         except httpx.HTTPError as e:
-            logger.exception(f"POSIX file service call failed ({http_method} {resource})")
+            logger.exception("POSIX file service call failed (%s %s)", http_method, resource)
             raise ConnectionError("Unable to reach the POSIX file service.") from e
 
     def _raise_for_status(self, response: httpx.Response, resource: str):
@@ -164,12 +202,14 @@ class PosixStorageAgent(AbstractStorageAgent):
 
     def _http(self) -> httpx.Client:
         """
-        The HTTP client, reopened if it was closed. Instance wrappers close their agent when they're
-        garbage-collected while the instance manager still uses it; S3's client recovers the same way.
+        Return the HTTP client, reopened if it was closed. Instance wrappers close their agent when
+        they're garbage-collected while the instance manager still uses it; S3's client recovers the
+        same way.
         """
         client = getattr(self, "_client", None)
         if client is None or client.is_closed:
-            client = self._client = httpx.Client(timeout=httpx.Timeout(10.0))
+            client = httpx.Client(timeout=httpx.Timeout(10.0))
+            self._client = client
         return client
 
     def close(self):

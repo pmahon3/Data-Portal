@@ -1,5 +1,5 @@
 """
-Opens files as a link's temporary ID and hands the descriptors back to the helper.
+Open files as a link's temporary ID and hand the descriptors back to the helper.
 
 The helper starts this as a child process running as the link's temporary user ID, so the
 operating system decides what it can open: only the files that ID has been granted, through
@@ -10,6 +10,8 @@ Request (stdin, JSON):
   {"mode": "read", "root": "/srv/posix/data", "paths": [["study", "scan.nii.gz"], ...]}
   {"mode": "create", "dir": "/srv/posix/staging/2000001", "name": ".upload-<hex>"}
 """
+from __future__ import annotations
+
 import json
 import os
 import socket
@@ -20,6 +22,13 @@ from app.files import BadPath, Root
 
 
 def _open_reads(root: str, paths: list[list[str]]) -> tuple[list[dict], list[int]]:
+    """
+    Open each file under ``root`` without following symlinks; return a result per file and the
+    descriptors of those opened.
+
+    Example: ``[["study", "a.txt"], ["study", "gone.txt"]]`` ->
+    ``[{"ok": True}, {"ok": False, "status": 404}]``, with one descriptor (for ``a.txt``)
+    """
     tree = Root(Path(root), path_only=True)
     results, fds = [], []
     for parts in paths:
@@ -38,6 +47,7 @@ def _open_reads(root: str, paths: list[list[str]]) -> tuple[list[dict], list[int
 
 
 def _create(directory: str, name: str) -> tuple[list[dict], list[int]]:
+    """Create ``name`` in ``directory`` (new, owner-only, never through a symlink) and open it to write."""
     dir_fd = os.open(directory, os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
         fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=dir_fd)

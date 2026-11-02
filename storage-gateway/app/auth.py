@@ -1,10 +1,12 @@
 """
-Checks the portal's signed links.
+Check the portal's signed links.
 
 The portal decides access. This service only accepts a token that the portal signed, that names
 this service's namespace, the exact path requested and the operation being performed, and that
 hasn't expired.
 """
+from __future__ import annotations
+
 import hashlib
 import json
 from collections.abc import Callable
@@ -51,14 +53,12 @@ def check_token(
     operation: str | None = None,
 ) -> dict[str, Any]:
     """
-    Verify a token for one request.
+    Verify a token for one request and return its claims.
 
-    :param path: The resource requested, ``namespace/key``.
-    :param method: The HTTP method; it must match the token's operation.
-    :param operation: The operation required instead of the method's (``bundle``).
-    :return: The token's claims.
-    :raises HTTPException: 401 for an invalid or expired token, 403 if it names a different path
-        or operation.
+    ``path`` is the resource requested, ``namespace/key``. ``method`` is the HTTP method, which must
+    match the token's operation, unless ``operation`` names the one required instead (``bundle``).
+    Raise ``HTTPException`` 401 for an invalid or expired token, 403 if it names a different path or
+    operation.
     """
     try:
         key = resolve_key(token)
@@ -71,18 +71,22 @@ def check_token(
             options={"require": REQUIRED_CLAIMS},
         )
     except jwt.PyJWTError as e:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token") from e
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        ) from e
 
-    if claims["path"] != path or claims["op"] != (operation or OPERATION_BY_METHOD.get(method)):
+    required = operation or OPERATION_BY_METHOD.get(method)
+    if claims["path"] != path or claims["op"] != required:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Token doesn't allow this request")
     return claims
 
 
 def bundle_listing(claims: dict[str, Any], body: str) -> dict[str, Any]:
     """
-    The file list of a ``bundle`` link, as the portal served it: ``folder_name`` and ``paths``.
+    Return the file list of a ``bundle`` link as the portal served it: ``folder_name`` and ``paths``.
 
-    :raises HTTPException: 403 if the list isn't the one the link was signed for.
+    Raise ``HTTPException`` 403 if the list isn't the one the link was signed for.
     """
     if hashlib.sha256(body.encode()).hexdigest() != claims.get("list"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="File list doesn't match the link")

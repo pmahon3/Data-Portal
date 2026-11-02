@@ -1014,11 +1014,23 @@ async def create_asset_bundle(
     # POSIX: the file service on the machine streams several files as one ZIP, so they are never
     # copied into object storage as the bundler would (PX-14). One approval covers them all.
     if agent.FLAVOUR == "posix" and len(readable) > 1:
-        grant, listing = record_bundle([resource_for_key(f.bucket, f.key) for f in readable],
-                                       request.folder_name or "", str(user_uuid))
-        url = agent.generate_bundle_link(grant, listing, BUNDLE_SOURCE_URL_EXPIRATION_SECONDS, subject=str(user_uuid))
-        return BundleCreateResponse(bundle_id=grant, status="completed", folder_name=request.folder_name or "",
-                                    single_file_url=url)
+        grant, listing = record_bundle(
+            [resource_for_key(f.bucket, f.key) for f in readable],
+            request.folder_name or "",
+            str(user_uuid),
+        )
+        url = agent.generate_bundle_link(
+            grant,
+            listing,
+            BUNDLE_SOURCE_URL_EXPIRATION_SECONDS,
+            subject=str(user_uuid),
+        )
+        return BundleCreateResponse(
+            bundle_id=grant,
+            status="completed",
+            folder_name=request.folder_name or "",
+            single_file_url=url,
+        )
 
     for file in readable:
         try:
