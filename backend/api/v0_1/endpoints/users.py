@@ -188,7 +188,7 @@ async def create_user(
             f"Invalid role(s) for user '{user_data.username}': {e.invalid_roles}"
         )
         raise HTTPException(
-            status_code=400,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
                 f"Unknown role(s): {', '.join(e.invalid_roles)}. "
                 "Check the role names and try again."
@@ -197,7 +197,7 @@ async def create_user(
     except Exception as e:
         logger.exception(f"Failed to create user '{user_data.username}': {e}")
         raise HTTPException(
-            status_code=500,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create user due to an internal error."
         )
 

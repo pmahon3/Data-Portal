@@ -1,5 +1,7 @@
 
+import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -10,15 +12,13 @@ from api.v0_1.endpoints import application_router
 from .startup import run_startup_tasks
 
 from core.services.injectors import get_instance_manager, get_policy_manager, get_project_manager, get_user_manager
+from core.services.policies import end_reminders
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    import asyncio
-    import os
     import sys
     import logging
-    from core.services.policies import end_reminders
     try:
         # Startup tasks for postgres
         await run_startup_tasks()
@@ -36,8 +36,14 @@ async def lifespan(app: FastAPI):
     # Reminders before policies end (AC-8); POLICY_END_REMINDERS=false turns them off
     reminders = None
     if os.getenv("POLICY_END_REMINDERS", "true").lower() != "false":
-        reminders = asyncio.create_task(end_reminders.run_hourly(
-            policy_manager, user_manager, project_manager, instance_manager))
+        reminders = asyncio.create_task(
+            end_reminders.run_hourly(
+                policy_manager,
+                user_manager,
+                project_manager,
+                instance_manager,
+            )
+        )
 
     yield
 
