@@ -28,15 +28,7 @@ async def list_projects(
             project_names = project_manager.get_all_projects()
         else:
             # Managers see what they're assigned to
-            managed_projects = set()
-            # Clean path for expected output
-            for path in current_user.get("projects", []):
-                clean_path = path.strip("/")
-                if clean_path.endswith("/managers"):
-                    project_name = clean_path.split("/")[0]
-                    managed_projects.add(project_name)
-            
-            project_names = sorted(managed_projects)
+            project_names = sorted(project_manager.managed_projects(current_user))
 
         project_responses = []
         for name in project_names:

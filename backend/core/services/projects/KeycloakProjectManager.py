@@ -178,8 +178,13 @@ class KeycloakProjectManager(AbstractProjectManager):
             {"instance_uuid": str(instance_uuid)}
         )
 
-    def _managed_project_names(self, current_user: dict) -> set[str]:
-        """Return project names where current_user belongs to the managers subgroup."""
+    def managed_projects(self, current_user: dict) -> set[str]:
+        """
+        Return the projects whose managers subgroup the signed-in user belongs to, from the groups
+        in their token.
+
+        Example: ``{"projects": ["/study-a/managers", "/study-b"]}`` -> ``{"study-a"}``
+        """
         managed_projects = set()
         for path in current_user.get("projects", []):
             clean_path = str(path).strip("/")
@@ -203,7 +208,7 @@ class KeycloakProjectManager(AbstractProjectManager):
         }
 
         # For each project that the manager has access to
-        for project_name in self._managed_project_names(current_user):
+        for project_name in self.managed_projects(current_user):
             project_path = f"/{project_name}"
             managers_path = f"{project_path}/managers"
             # Check if target user belongs to one of the managed projects

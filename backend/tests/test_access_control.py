@@ -656,3 +656,26 @@ def test_a_manager_may_check_only_people_in_their_projects(make_user, portal):
         assert check(manager._headers, portal, outsider, "study/scan-042.nii", "read").status_code == 403
     finally:
         portal.admin("DELETE", f"/api/projects/{project}")
+
+
+# ------------------------------------------- administration scope: what a manager may see
+
+def test_a_manager_lists_only_people_in_their_projects(make_user, portal):
+    """AC-3. A project manager sees the people in the projects they manage, not everyone's names."""
+    member = make_user()
+    outsider = make_user()
+    manager = make_user()
+    project = f"acl-test-{uuid.uuid4().hex[:8]}"
+    portal.admin("POST", "/api/projects", json={"name": project})
+    try:
+        portal.admin("POST", f"/api/projects/{project}/users", json={"username": member.username})
+        portal.admin("POST", f"/api/projects/{project}/managers", json={"username": manager.username})
+        listed = requests.get(f"{portal.backend}/api/users/", headers=manager._headers, timeout=30)
+        assert listed.status_code == 200, listed.text
+        names = {u["username"] for u in listed.json()}
+        assert member.username in names
+        assert outsider.username not in names
+        everyone = {u["username"] for u in portal.admin("GET", "/api/users/").json()}
+        assert {member.username, outsider.username} <= everyone
+    finally:
+        portal.admin("DELETE", f"/api/projects/{project}")

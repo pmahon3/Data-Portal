@@ -41,21 +41,11 @@ instances_router = APIRouter(prefix='/instances', tags=["Storage Instance Manage
 logger = logging.getLogger("api.endpoints")
 
 
-def _managed_project_names(current_user: dict) -> set[str]:
-    # JWT project paths are the source of truth for manager-scoped create access.
-    managed_projects = set()
-    for path in current_user.get("projects", []):
-        clean_path = str(path).strip("/")
-        if clean_path.endswith("/managers"):
-            managed_projects.add(clean_path.split("/")[0])
-    return managed_projects
-
-
 def _can_access_instance(current_user: dict, instance_name: str, project_manager: AbstractProjectManager) -> bool:
     if is_user_admin(current_user):
         return True
 
-    for project_name in _managed_project_names(current_user):
+    for project_name in project_manager.managed_projects(current_user):
         try:
             if instance_name in project_manager.get_project_storage_instances(project_name):
                 return True
@@ -91,7 +81,7 @@ async def list_instances(
     else:
         # If manager get only instances they have permission for
         instance_names = set()
-        for project_name in _managed_project_names(current_user):
+        for project_name in project_manager.managed_projects(current_user):
             try:
                 instance_names.update(project_manager.get_project_storage_instances(project_name))
             except ProjectNotFoundError:
@@ -210,7 +200,7 @@ async def create_instance(
     if project_names:
         if not is_user_admin(current_user):
             # Reject any project outside the manager's JWT-scoped assignments before saving.
-            unmanaged_projects = sorted(set(project_names) - _managed_project_names(current_user))
+            unmanaged_projects = sorted(set(project_names) - project_manager.managed_projects(current_user))
             if unmanaged_projects:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
