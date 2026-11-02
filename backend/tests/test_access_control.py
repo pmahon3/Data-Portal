@@ -536,3 +536,53 @@ def test_a_link_handed_out_keeps_working_after_its_policy_is_removed(make_user, 
     fetched = fetch_link(url)
     assert fetched.status_code == 200
     assert fetched.content == b"link/a.txt\n"
+
+
+# ---------------------------------- two backend processes: policies are read from the store
+# Production runs two backend processes. A policy saved through one must be listed, refused as a
+# duplicate and removable through the other. Access decisions already read the store each request;
+# the policy pages read a copy each process loaded at startup.
+
+POLICY_REPLICAS = pytest.mark.xfail(strict=True, reason="policy pages read each process's startup copy")
+
+
+@POLICY_REPLICAS
+def test_a_policy_saved_through_another_backend_is_listed(make_user, portal):
+    """AC-8. The policies table, the user's own list, and so end-date reminders, read what's stored."""
+    user = make_user()
+    portal.store_policy_as_another_backend(user, portal.resource("shared/notes.txt"), "read")
+    try:
+        listed_for_admin = portal.admin("GET", "/api/policies/", params={"username": user.username}).json()
+        assert portal.resource("shared/notes.txt") in {p["resource"] for p in listed_for_admin["details"]}
+        assert portal.resource("shared/notes.txt") in {p["resource"] for p in user.my_policies()}
+    finally:
+        portal.unstore_policy(user, portal.resource("shared/notes.txt"), "read")
+
+
+@POLICY_REPLICAS
+def test_a_policy_saved_through_another_backend_is_refused_as_a_duplicate(make_user, portal):
+    """AC-5. One policy per person, instance, path and action."""
+    user = make_user()
+    portal.store_policy_as_another_backend(user, portal.resource("shared/notes.txt"), "read")
+    try:
+        assert portal.try_grant(user, portal.resource("shared/notes.txt"), "read") is None
+    finally:
+        portal.unstore_policy(user, portal.resource("shared/notes.txt"), "read")
+
+
+@POLICY_REPLICAS
+def test_a_policy_saved_through_another_backend_can_be_removed(make_user, portal):
+    """AC-3. Removing a policy works whichever process saved it, and access ends."""
+    user = make_user()
+    portal.store_policy_as_another_backend(user, portal.resource("shared/notes.txt"), "read")
+    try:
+        r = portal.admin("DELETE", "/api/policies/", json={
+            "user_uuid": user.uuid,
+            "instance_uuid": portal.instance_uuid,
+            "resource": portal.resource("shared/notes.txt"),
+            "action": "read",
+        })
+        assert r.status_code == 200, r.text
+        assert portal.resource("shared/notes.txt") not in {p["resource"] for p in user.my_policies()}
+    finally:
+        portal.unstore_policy(user, portal.resource("shared/notes.txt"), "read")
