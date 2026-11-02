@@ -14,8 +14,11 @@ from core.services.injectors import get_instance_manager, get_policy_manager, ge
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import asyncio
+    import os
     import sys
     import logging
+    from core.services.policies import end_reminders
     try:
         # Startup tasks for postgres
         await run_startup_tasks()
@@ -30,7 +33,16 @@ async def lifespan(app: FastAPI):
         logger.error(f"Critical startup failure: {e}")
         sys.exit(1)
 
+    # Reminders before policies end (AC-8); POLICY_END_REMINDERS=false turns them off
+    reminders = None
+    if os.getenv("POLICY_END_REMINDERS", "true").lower() != "false":
+        reminders = asyncio.create_task(end_reminders.run_hourly(
+            policy_manager, user_manager, project_manager, instance_manager))
+
     yield
+
+    if reminders:
+        reminders.cancel()
 
     # Cleanup and close instance connections on shutdown
     if hasattr(instance_manager, 'teardown'):

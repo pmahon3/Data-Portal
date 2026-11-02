@@ -15,10 +15,15 @@ from uuid import UUID
 logger = logging.getLogger(__name__)
 
 SUBJECTS = {"stored": "INN portal: your upload is stored",
-            "stored_with_failures": "INN portal: some files of your upload weren't stored"}
+            "stored_with_failures": "INN portal: some files of your upload weren't stored",
+            "policy_ending_soon": "INN portal: a policy ends soon",
+            "policy_ending_today": "INN portal: a policy ends today"}
 
 
 def _text(notification: dict) -> str:
+    if notification["kind"].startswith("policy_ending"):  # names neither the person nor the files
+        return (f"A policy you manage ends on {notification['ends']}.\n\n"
+                f"Sign in to the portal to review it: {os.getenv('PORTAL_URL', '')}\n")
     completed, failed = notification.get("completed"), notification.get("failed")
     if notification["kind"] == "stored_with_failures":
         what = f"{completed} files of your upload are stored; {failed} weren't stored."

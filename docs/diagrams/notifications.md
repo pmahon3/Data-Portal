@@ -40,6 +40,9 @@ graph LR
 
 ![The navbar bell opened: each upload that was stored, newest first](../images/notifications.png)
 
+Policies with an end date also raise notifications: administrators and the managers of the
+instance's projects are reminded before a policy ends and on the day. The email says only the date.
+
 Completing the same upload twice notifies once. A channel that fails is logged and never fails the
 upload. What's been seen is kept in the browser.
 
@@ -48,3 +51,4 @@ upload. What's been seen is kept in the browser.
 | `MONGO_NOTIFICATION_COLLECTION` | Collection for notifications (default `notifications`) |
 | `SMTP_HOST`, `SMTP_PORT` (587), `SMTP_STARTTLS` (true), `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | Mail relay; email is off while `SMTP_HOST` is unset |
 | `PORTAL_URL` | The link to the portal in each email |
+| `POLICY_END_REMINDER_DAYS` (14), `POLICY_END_REMINDERS` (true) | Reminders before a policy ends ([AC-8](../requirements/access-control.md#ac-8)): how many days ahead, and whether the backend sends them at all |

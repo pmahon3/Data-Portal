@@ -41,6 +41,13 @@ def notify(user: str, kind: str, message: str, **refs) -> dict:
     return notification
 
 
+def notify_once(user: str, key: str, kind: str, message: str, **refs) -> dict | None:
+    """Like notify, unless ``user`` already has a notification with this ``key``; then None."""
+    if list(_collection().find({"user": user, "key": key}).limit(1)):
+        return None
+    return notify(user, kind, message, key=key, **refs)
+
+
 def for_user(user: str) -> list[dict]:
     """The user's newest notifications, newest first."""
     return list(_collection().find({"user": user}).sort("created_at", -1).limit(LISTED))
