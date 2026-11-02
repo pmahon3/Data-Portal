@@ -28,10 +28,10 @@ export default function PolicyManagement() {
   const [instanceName, setInstanceName] = useState("");
   const [resource, setResource] = useState("");
   const [action, setAction] = useState("read");
-  const [ends, setEnds] = useState("");
-  const [leaveOut, setLeaveOut] = useState("");
-  const [endingsText, setEndingsText] = useState("");
-  const [kindsText, setKindsText] = useState("");  // typed kinds of data, e.g. "anat, func" (AC-6)  // typed file endings for a folder policy, e.g. ".nii, .nii.gz" (AC-6)  // typed paths a folder policy leaves out, one per line (AC-10)  // the last day the policy applies; "" for no end (AC-8)
+  const [ends, setEnds] = useState(""); // the last day the policy applies; "" for no end (AC-8)
+  const [leaveOut, setLeaveOut] = useState(""); // typed paths a folder policy leaves out, one per line (AC-10)
+  const [endingsText, setEndingsText] = useState(""); // typed file endings, e.g. ".nii, .nii.gz" (AC-6)
+  const [kindsText, setKindsText] = useState(""); // typed kinds of data, e.g. "anat, func" (AC-6)
   // "path": type the resource; "tree": choose it from the instance's file tree (DS-policy-from-selection)
   const [resourceMode, setResourceMode] = useState("path");
   const [treeSelection, setTreeSelection] = useState(new Set());
@@ -117,21 +117,23 @@ export default function PolicyManagement() {
     const typedExcluded = leaveOut.split("\n").map(line => line.trim()).filter(Boolean);
     const typedEndings = endingsText.split(/[\s,]+/).map(e => e.trim()).filter(Boolean);
     const typedKinds = kindsText.split(/[\s,]+/).map(k => k.trim()).filter(Boolean);
-    const resources = fromTree ? treeRules
-      : [{ resource: r, excluded: typedExcluded, endings: typedEndings, kinds: typedKinds }];
+    let resources = treeRules;
+    if (!fromTree) {
+      resources = [{ resource: r, excluded: typedExcluded, endings: typedEndings, kinds: typedKinds }];
+    }
     const failed = [];
     try {
       const headers = await getAuthHeaders();
       for (const { resource: res, excluded, endings = [], kinds = [] } of resources) {
+        // Example: { username: "alice", instance_name: "minio", resource: "study/*", action: "read",
+        //            excluded: ["study/sub-03/*"] }; empty conditions are left out
+        const body = { username: u, instance_name: i, resource: res, action: a };
+        if (excluded.length) body.excluded = excluded;
+        if (endings.length) body.endings = endings;
+        if (kinds.length) body.kinds = kinds;
+        if (ends) body.ends = ends;
         try {
-          await http.post(
-            `${POLICIES_BASE}/`,
-            { username: u, instance_name: i, resource: res, action: a,
-              ...(excluded.length ? { excluded } : {}), ...(endings.length ? { endings } : {}),
-              ...(kinds.length ? { kinds } : {}),
-              ...(ends ? { ends } : {}) },
-            { headers }
-          );
+          await http.post(`${POLICIES_BASE}/`, body, { headers });
         } catch (e2) {
           failed.push(`${res}: ${formatError(e2)}`);
         }
@@ -220,6 +222,9 @@ export default function PolicyManagement() {
     .sort((a, b) => a.localeCompare(b));
 
     // HTML part
+  let createLabel = "Create Policy";
+  if (resourceMode === "tree" && treeRules.length > 1) createLabel = `Create ${treeRules.length} Policies`;
+
   return (
     <div className="pm-root policy-management">
       <h1>Policy Management</h1>
@@ -249,10 +254,20 @@ export default function PolicyManagement() {
           </div>
 
           <div className="pm-mode" role="group" aria-label="How to choose the resource">
-            <button type="button" className="pm-btn" aria-pressed={resourceMode === "path"} onClick={() => setResourceMode("path")}>
+            <button
+              type="button"
+              className="pm-btn"
+              aria-pressed={resourceMode === "path"}
+              onClick={() => setResourceMode("path")}
+            >
               Type a path
             </button>
-            <button type="button" className="pm-btn" aria-pressed={resourceMode === "tree"} onClick={() => setResourceMode("tree")}>
+            <button
+              type="button"
+              className="pm-btn"
+              aria-pressed={resourceMode === "tree"}
+              onClick={() => setResourceMode("tree")}
+            >
               Choose from the tree
             </button>
           </div>
@@ -274,8 +289,14 @@ export default function PolicyManagement() {
                   username={username.trim()}
                   action={action}
                   onRulesChange={onRulesChange}
-                  onSearch={() => { setTreeSelection(new Set()); return fetchSearchAssets("read", false, false); }}
-                  onClearSearch={() => { setTreeSelection(new Set()); return fetchBrowseRoots("read", false); }}
+                  onSearch={() => {
+                    setTreeSelection(new Set());
+                    return fetchSearchAssets("read", false, false);
+                  }}
+                  onClearSearch={() => {
+                    setTreeSelection(new Set());
+                    return fetchBrowseRoots("read", false);
+                  }}
                   onLoadChildren={(node) => fetchChildAssets("read", node)}
                   loadingNodeIds={loadingNodeIdsByAccess.read || new Set()}
                 />
@@ -306,8 +327,13 @@ export default function PolicyManagement() {
           {resourceMode === "path" && (
           <label className="pm-field">
             <span>Leave out</span>
-            <textarea value={leaveOut} onChange={e => setLeaveOut(e.target.value)} rows={2}
-              placeholder="bucket/folder/sub/*" aria-describedby="pm-leave-out-help" />
+            <textarea
+              value={leaveOut}
+              onChange={e => setLeaveOut(e.target.value)}
+              rows={2}
+              placeholder="bucket/folder/sub/*"
+              aria-describedby="pm-leave-out-help"
+            />
             <small id="pm-leave-out-help" className="pm-muted">
               Optional, for a folder policy: files or folders inside it to leave out, one per line.
               Another policy can still give them.
@@ -318,8 +344,12 @@ export default function PolicyManagement() {
           {resourceMode === "path" && (
           <label className="pm-field">
             <span>Only files ending in</span>
-            <input value={endingsText} onChange={e => setEndingsText(e.target.value)} placeholder=".nii, .nii.gz"
-              aria-describedby="pm-endings-help" />
+            <input
+              value={endingsText}
+              onChange={e => setEndingsText(e.target.value)}
+              placeholder=".nii, .nii.gz"
+              aria-describedby="pm-endings-help"
+            />
             <small id="pm-endings-help" className="pm-muted">
               Optional, for a folder policy: it then covers only files whose names end in one of these (any
               case). Folders inside it can still be browsed.
@@ -330,8 +360,12 @@ export default function PolicyManagement() {
           {resourceMode === "path" && (
           <label className="pm-field">
             <span>Only kinds of data</span>
-            <input value={kindsText} onChange={e => setKindsText(e.target.value)} placeholder="anat, func"
-              aria-describedby="pm-kinds-help" />
+            <input
+              value={kindsText}
+              onChange={e => setKindsText(e.target.value)}
+              placeholder="anat, func"
+              aria-describedby="pm-kinds-help"
+            />
             <small id="pm-kinds-help" className="pm-muted">
               Optional, for a folder in a dataset that declares a standard: kinds as the standard names them
               (for BIDS: anat, func, dwi, fmap, ...). The policy then covers only those.
@@ -351,8 +385,13 @@ export default function PolicyManagement() {
 
           <label className="pm-field">
             <span>Ends</span>
-            <input type="date" value={ends} min={todayUtc()} onChange={e => setEnds(e.target.value)}
-              aria-describedby="pm-ends-help" />
+            <input
+              type="date"
+              value={ends}
+              min={todayUtc()}
+              onChange={e => setEnds(e.target.value)}
+              aria-describedby="pm-ends-help"
+            />
             <small id="pm-ends-help" className="pm-muted">
               Optional. The policy applies through this day and allows nothing after it. Leave empty
               for no end.
@@ -361,8 +400,7 @@ export default function PolicyManagement() {
 
           <div className="pm-actions">
             <button className="pm-btn pm-btn-primary" type="submit" disabled={creating}>
-              {creating ? <CircularProgress size={20} color="inherit" />
-                : resourceMode === "tree" && treeRules.length > 1 ? `Create ${treeRules.length} Policies` : "Create Policy"}
+              {creating ? <CircularProgress size={20} color="inherit" /> : createLabel}
             </button>
             {/* {err && <div className="pm-error">{err}</div>} */}
           </div>

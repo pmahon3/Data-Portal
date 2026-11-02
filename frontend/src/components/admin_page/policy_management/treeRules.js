@@ -1,5 +1,5 @@
 /**
- * Turning a selection in the file tree into policy rules (requirements AC-4, AC-5).
+ * Turn a selection in the file tree into policy rules (requirements AC-4, AC-5, AC-10).
  *
  * The rules are the ones typing would make, with no conversion beyond them:
  *   - a folder the admin ticked, with no filter active: `bucket/folder/*` (covers files added later),
@@ -36,11 +36,13 @@ function hasAncestorIn(id, set, byId) {
 }
 
 function anythingSelected(id, selected, children) {
-  return selected.has(id) || (children.get(id) || []).some((child) => anythingSelected(child, selected, children));
+  if (selected.has(id)) return true;
+  const inside = children.get(id) || [];
+  return inside.some((child) => anythingSelected(child, selected, children));
 }
 
 /**
- * The folder grants after a change in the tree's selection. A folder newly selected with no
+ * Return the folder grants after a change in the tree's selection. A folder newly selected with no
  * filter active was ticked itself; one selected under a filter only stands for the files the
  * filter shows. A grant lasts while anything in it stays ticked (what's unticked inside it is left
  * out), and lapses once nothing in it is, or once the selection was cleared from outside (a search
@@ -61,7 +63,10 @@ export function nextFolderGrants(grants, previous, next, nodes, filterActive) {
   return result;
 }
 
-/** A folder's rule: its bucket and path, then "*". The bucket itself is `bucket/*`. */
+/**
+ * Return a folder's rule: its bucket and path, then "*". The bucket itself is `bucket/*`.
+ * Example: bucket "study", full_path "/sub-01" -> "study/sub-01/*"
+ */
 export function folderRule(node) {
   const attrs = node.li_attr || {};
   let path = String(attrs.full_path || "/");
@@ -70,14 +75,17 @@ export function folderRule(node) {
   return `${attrs.bucket}${path.replace(/\/{2,}/g, "/")}*`;
 }
 
-/** A file's rule: its bucket and key. */
+/**
+ * Return a file's rule: its bucket and key.
+ * Example: bucket "study", key "sub-01/anat/t1.nii" -> "study/sub-01/anat/t1.nii"
+ */
 export function fileRule(node) {
   const attrs = node.li_attr || {};
   return `${attrs.bucket}/${String(attrs.key || "").replace(/^\/+/, "")}`;
 }
 
 /**
- * What a folder grant leaves out: the largest unticked parts loaded inside it. A folder with
+ * Return what a folder grant leaves out: the largest unticked parts loaded inside it. A folder with
  * nothing ticked in it is left out whole (`folder/*`, so files added there later stay out too);
  * one with some things ticked is looked into; an unticked file is left out by name.
  */
@@ -85,14 +93,18 @@ function leftOut(id, selected, children, byId) {
   const out = [];
   for (const child of children.get(id) || []) {
     if (selected.has(child)) continue;
-    if (isFile(child)) out.push(fileRule(byId.get(child)));
-    else if (anythingSelected(child, selected, children)) out.push(...leftOut(child, selected, children, byId));
-    else out.push(folderRule(byId.get(child)));
+    if (isFile(child)) {
+      out.push(fileRule(byId.get(child)));
+    } else if (anythingSelected(child, selected, children)) {
+      out.push(...leftOut(child, selected, children, byId));
+    } else {
+      out.push(folderRule(byId.get(child)));
+    }
   }
   return out;
 }
 
-/** The rules for a selection, in tree order: folder grants (unless under another), then files. */
+/** Return the rules for a selection, in tree order: folder grants (unless under another), then files. */
 export function rulesFromSelection(nodes, selected, grants) {
   const { byId, children } = index(nodes);
   const rules = [];
@@ -108,9 +120,13 @@ export function rulesFromSelection(nodes, selected, grants) {
   return rules;
 }
 
-/** A rule as one line of text, for keys and tests: "study/*" or "study/* leaving out study/sub-03/*". */
+/**
+ * Return a rule as one line of text, for keys and tests.
+ * Example: "study/*" or "study/* leaving out study/sub-03/*"
+ */
 export function ruleText(rule) {
-  return rule.excluded.length ? `${rule.resource} leaving out ${rule.excluded.join(", ")}` : rule.resource;
+  if (!rule.excluded.length) return rule.resource;
+  return `${rule.resource} leaving out ${rule.excluded.join(", ")}`;
 }
 
 const VERBS = { read: "read", write: "write to", delete: "delete", admin: "administer" };
@@ -118,21 +134,24 @@ const VERBS = { read: "read", write: "write to", delete: "delete", admin: "admin
 const asWords = (path) => (path.endsWith("/*") ? path.slice(0, -1) : path);
 
 /**
- * A rule in plain words: "everything in study/patient-7/, including files added later", and for a
- * folder that leaves things out, "except study/patient-7/notes.txt".
+ * Return a rule in plain words.
+ * Example: "everything in study/patient-7/ except study/patient-7/notes.txt, including files added later"
  */
 export function describeRule(rule) {
   if (!rule.resource.endsWith("/*") && rule.resource !== "*") return rule.resource;
-  const what = rule.resource === "*" ? "everything on the instance" : `everything in ${asWords(rule.resource)}`;
-  const except = rule.excluded.length ? ` except ${rule.excluded.map(asWords).join(", ")}` : "";
+  let what = `everything in ${asWords(rule.resource)}`;
+  if (rule.resource === "*") what = "everything on the instance";
+  let except = "";
+  if (rule.excluded.length) except = ` except ${rule.excluded.map(asWords).join(", ")}`;
   return `${what}${except}, including files added later`;
 }
 
-/** "alice can read:" for the preview's heading. */
+/** Return the preview's heading. Example: "alice can read:" */
 export function describeWho(username, action) {
   return `${username || "This user"} can ${VERBS[action] || action}:`;
 }
 
+/** Return how many rules there are. Example: "2 rules." */
 export function describeCount(rules) {
   return `${rules.length} ${rules.length === 1 ? "rule" : "rules"}.`;
 }
