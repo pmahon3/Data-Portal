@@ -55,6 +55,9 @@ FILES = [
     "box/a.txt",
     "box/c.txt",
     "box/sub/b.txt",
+    "bids/dataset_description.json",
+    "bids/sub-01/anat/sub-01_T1w.nii.gz",
+    "bids/sub-01/func/sub-01_task-rest_bold.nii.gz",
 ]
 # The browsing user never lists brackets/: on the current code that listing fails (INN-289).
 BROWSABLE = [key for key in FILES if not key.startswith("brackets/") or key == "brackets/ok.txt"]
@@ -436,3 +439,18 @@ def test_only_a_folder_policy_can_be_limited_to_file_endings(portal, make_user):
     """AC-6."""
     user = make_user()
     assert portal.try_grant(user, portal.resource("study/scan-042.nii"), "read", endings=[".nii"]) is None
+
+
+def test_a_folder_policy_limited_to_kinds_of_data_covers_only_those_kinds(portal, make_user, tree):
+    """AC-6. Read on a BIDS dataset for anatomical scans: the T1w is readable, the functional run isn't."""
+    user = make_user()
+    portal.grant(user, portal.resource("bids/*"), "read", kinds=["anat"])
+    assert user.download_url(tree.file("bids/sub-01/anat/sub-01_T1w.nii.gz")).status_code == 200
+    assert user.download_url(tree.file("bids/sub-01/func/sub-01_task-rest_bold.nii.gz")).status_code == 403
+    assert [p.get("kinds") for p in user.my_policies()] == [["anat"]]
+
+
+def test_kinds_of_data_need_a_dataset_that_declares_a_standard(portal, make_user):
+    """AC-6. study/ isn't a BIDS dataset, so it has no kinds of data."""
+    user = make_user()
+    assert portal.try_grant(user, portal.resource("study/*"), "read", kinds=["anat"]) is None

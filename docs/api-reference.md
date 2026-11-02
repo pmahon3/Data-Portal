@@ -93,7 +93,9 @@ Other forms are refused (400). An optional `ends` (an ISO date, e.g. `2027-06-30
 the policy applies; from the next day (UTC) it allows nothing. A date already past is refused (400),
 and policies are listed with their `ends`. An optional `excluded` lists paths inside a folder policy
 (or `*`) that it leaves out, written like policy paths; anything outside the folder is refused (400). An optional `endings` (e.g. `[".nii", ".nii.gz"]`)
-limits a folder policy to files whose names end in one, in any case; each must start with `.`.
+limits a folder policy to files whose names end in one, in any case; each must start with `.`. An optional `kinds` (e.g. `["anat"]`) limits a folder policy
+inside a dataset that declares a standard to those kinds of data as the standard defines them (BIDS:
+datatypes); a folder outside such a dataset, or a kind the standard doesn't define, is refused (400).
 
 ## Notifications
 

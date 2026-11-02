@@ -14,6 +14,7 @@ resource. What a policy does, and how to write one, for the people who use this 
 | Action | `read`, `write`, `delete`, or `admin`. |
 | Leave out | Optional, for a folder policy: paths inside it that it leaves out, one per line. The tree picker fills this when a ticked folder has things unticked inside it. |
 | Only files ending in | Optional, for a folder policy: file endings such as `.nii`; the policy then covers only those files. |
+| Only kinds of data | Optional, for a folder in a dataset that declares a standard: kinds such as `anat`. |
 | Ends | Optional: the last day the policy applies. The **Policies** table shows it, or **Never**, or **Ended** and the date once it's past. |
 
 Resource paths are literal, not patterns: `bucket/folder/*` covers that folder and

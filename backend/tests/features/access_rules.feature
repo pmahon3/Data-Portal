@@ -197,3 +197,31 @@ Feature: What a policy allows
       | qa-bucket/study/* | nii          | refused                          |
       | qa-bucket/study/* | .n*i         | refused                          |
       | qa-bucket/study/* | ./x          | refused                          |
+
+  @AC-6
+  Scenario Outline: A folder policy limited to kinds of data covers only those kinds
+    Given the user holds "read" on "qa-bucket/study/*" for kinds "anat" of the BIDS dataset at "qa-bucket/study/"
+    Then the user <may> "read" "<path>"
+
+    Examples:
+      | path                                                 | may     |
+      | qa-bucket/study/sub-01/anat/sub-01_T1w.nii.gz        | may     |
+      | qa-bucket/study/sub-01/anat/sub-01_T1w.json          | may     |
+      | qa-bucket/study/sub-01/ses-1/anat/sub-01_ses-1_T1w.nii.gz | may |
+      | qa-bucket/study/sub-01/func/sub-01_task-rest_bold.nii.gz | may not |
+      | qa-bucket/study/participants.tsv                     | may not |
+      | qa-bucket/study/sub-01/                              | may     |
+
+  @AC-6
+  Scenario Outline: Kinds are checked when a policy is saved
+    When an administrator saves a policy on "<policy>" for kinds "<kinds>" of the BIDS dataset at "<dataset>"
+    Then it is <outcome>
+
+    Examples:
+      | policy                   | kinds      | dataset          | outcome                   |
+      | qa-bucket/study/*        | anat, func | qa-bucket/study/ | saved for kinds anat, func |
+      | qa-bucket/study/sub-01/* | anat       | qa-bucket/study/ | saved for kinds anat      |
+      | qa-bucket/study/*        | scans      | qa-bucket/study/ | refused                   |
+      | qa-bucket/*              | anat       | qa-bucket/study/ | refused                   |
+      | qa-bucket/study/a.nii    | anat       | qa-bucket/study/ | refused                   |
+      | qa-bucket/study/*        | anat       |                  | refused                   |

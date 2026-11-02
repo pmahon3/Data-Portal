@@ -16,7 +16,8 @@ def policy_from_row(row: list[str]) -> Policy:
     p_user_uuid, p_instance_uuid, res, act, *cond = row
     rule = rule_from_stored(res, act, cond[0] if cond else "")
     return Policy(user_uuid=UUID(p_user_uuid), instance_uuid=UUID(p_instance_uuid), resource=res, action=act,
-                  ends=rule.ends, excluded=list(rule.excluded), endings=list(rule.endings))
+                  ends=rule.ends, excluded=list(rule.excluded), endings=list(rule.endings), kinds=list(rule.kinds),
+                  dataset=rule.dataset or None, standard=rule.standard or None)
 
 
 class CasbinPolicyManager:
@@ -115,7 +116,8 @@ class CasbinPolicyManager:
         # One policy per person, instance, path and action, whatever its conditions
         if self.enforcer.get_filtered_policy(0, *filter_):
             raise ValueError("Policy already exists.")
-        conditions = conditions_json(Rule(resource, action, policy.ends, tuple(policy.excluded), tuple(policy.endings)))
+        conditions = conditions_json(Rule(resource, action, policy.ends, tuple(policy.excluded), tuple(policy.endings),
+                                          tuple(policy.kinds), policy.dataset or "", policy.standard or ""))
         if self.enforcer.add_policy(*filter_, *([conditions] if conditions else [])):
             return True
         raise ValueError("Failed to add policy.")

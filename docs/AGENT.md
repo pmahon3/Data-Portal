@@ -286,7 +286,9 @@ A folder holding a standard's marker file at its root declares that standard (BI
 declared dataset it touched, as a whole, by file names and layout from the PostgreSQL tree (no file
 contents). A failure puts the dataset in quarantine (MongoDB `dataset-checks`) and the upload response
 lists the problems in `checks`. Quarantine is recorded only, until what it holds back is decided.
-Standards plug in as validators; `DATA_STANDARDS` chooses them (default `bids`). See
+Standards plug in as validators; `DATA_STANDARDS` chooses them (default `bids`). Each also names the
+kinds of data it defines and a file's kind from its path (`kind_of`; BIDS: the datatype folder), which
+policies limited to kinds use ([AC-6](requirements/access-control.md#ac-6)). See
 `docs/diagrams/data-standards.md` and `docs/requirements/data-standards.md`.
 
 ## POSIX Storage
