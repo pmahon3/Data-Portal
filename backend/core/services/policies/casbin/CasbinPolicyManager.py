@@ -1,12 +1,8 @@
-import os
 from uuid import UUID
-
-from casbin import Enforcer
-from casbin_pymongo_adapter import Adapter
 
 from core.db import get_mongo_database
 from core.db.mongodb.mongo_client import POLICY_RULE_COLLECTION
-from core.services.policies.models import Policy, Agreement
+from core.services.policies.models import Policy
 from core.services.policies.rules import Checker, Rule, conditions_json, rule_from_stored
 
 
@@ -37,47 +33,23 @@ class CasbinPolicyManager:
 
     Class that provides methods for managing user policies and permissions.
 
-    Attributes:
-        enforcer (Enforcer): Casbin's model and its casbin-pymongo adapter, which set how policies
-            are stored. Its in-memory copy isn't read: policies are read and written in MongoDB
-            (_stored), and permission decisions are made by checker() (core/services/policies/rules.py).
-        _actions (list): A list of actions that can be performed on resources.
+    Policies are stored in MongoDB in the Casbin adapter's format (``casbin_rule``: ptype, v0 user,
+    v1 instance, v2 path, v3 action, v4 conditions; see model.conf) and read and written there
+    directly. Permission decisions are made by checker() (core/services/policies/rules.py).
     """
 
     def __init__(self, uuids=None):
         """
         Initialise the policy manager backed by MongoDB.
 
-        The adapter loads all existing policy rules from MongoDB on construction.
-        The ``uuids`` parameter is accepted for backward compatibility but is no longer required — the adapter handles policy loading automatically.
-
         :param uuids: Unused; kept for backward compatibility.
         """
-
-        # Create Casbin MongoDB adapter using an existing client
-        database = get_mongo_database()
-        adapter = Adapter(
-            client=database.client,
-            db_name=database.name,
-            collection=POLICY_RULE_COLLECTION,
-        )
-        self._rules = database[POLICY_RULE_COLLECTION]
-
-        # Pass the adapter to the Enforcer so it owns policy persistence
-        self.enforcer = Enforcer(os.environ['ENFORCER_MODEL'], adapter, enable_log=False)
-        self.enforcer.enable_auto_save(True)
-        self._actions = ['read', 'write', 'share']
-
-    @property
-    def actions(self) -> list[str]:
-        return self._actions
+        self._rules = get_mongo_database()[POLICY_RULE_COLLECTION]
 
     def _stored(self, **fields: str) -> list[Policy]:
         """
-        Return the stored policies whose fields match. Policies are read and written in MongoDB
-        directly, never through the enforcer's in-memory copy: each backend process loads that copy
-        at startup and never sees changes made through another (production runs two), and it reads
-        a path containing "[" as part of the next field.
+        Return the stored policies whose fields match. Read from MongoDB on every call, so every
+        backend process (production runs two) sees the same policies.
 
         Example: ``_stored(v0=user_uuid)`` -> that user's policies on every instance
         """
@@ -156,8 +128,8 @@ class CasbinPolicyManager:
         )
         conditions = conditions_json(rule)
         # a policy without conditions keeps the four fields it always had
-        # Written in the adapter's storage format, without the enforcer's copy (see _stored).
-        # A policy without conditions keeps the four fields it always had.
+        # Written in the adapter's storage format. A policy without conditions keeps the four fields
+        # it always had.
         row = {"ptype": "p", "v0": user_uuid, "v1": instance_uuid, "v2": resource, "v3": action}
         if conditions:
             row["v4"] = conditions
@@ -223,8 +195,8 @@ class CasbinPolicyManager:
         """
         Return the user's rules on one storage instance, read from MongoDB with one indexed query.
 
-        Decisions are made from these rules (core/services/policies/rules.py), not by Casbin's
-        enforcer, so a policy change applies to the next request in every backend process.
+        Decisions are made from these rules (core/services/policies/rules.py), read on every
+        request, so a policy change applies to the next request in every backend process.
         Build one checker per request and reuse it for every path the request checks.
         """
         return Checker(self.rules_for(user_uuid, instance_uuid))
@@ -244,20 +216,3 @@ class CasbinPolicyManager:
         checker = self.checker(policy.user_uuid, policy.instance_uuid)
         return checker.allows(policy.resource, policy.action)
 
-    def create_agreement(self, agreement: Agreement) -> bool:
-        """
-        Create an agreement.
-        :param agreement: The agreement to be created.
-        :type agreement: Agreement
-        :return: True if successful, False otherwise.
-        """
-        NotImplementedError("create_agreement method is not implemented.")
-
-    def remove_agreement(self, agreement: Agreement) -> bool:
-        """
-        Remove an agreement.
-        :param agreement: The agreement to be removed.
-        :type agreement: Agreement
-        :return: True if successful, False otherwise.
-        """
-        NotImplementedError("remove_agreement method is not implemented.")

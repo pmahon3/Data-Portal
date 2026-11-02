@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date
 from typing import Optional, Union
 from uuid import UUID
 
@@ -20,13 +20,3 @@ class Policy(BaseModel):
     kinds: list[str] = []
     dataset: Optional[str] = None
     standard: Optional[str] = None  # e.g. "BIDS"
-
-
-Policies = list[Policy]
-
-
-class Agreement(BaseModel):
-    uuid: UUID
-    policies: Policies
-    lifespan: timedelta
-    version: float
