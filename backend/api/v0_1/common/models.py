@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Any, Dict, Type, Literal, Union, Annotated, Optional
 from uuid import UUID
 
@@ -52,6 +53,7 @@ class AddPolicyRequest(BaseModel):
     instance_name: str = Field(..., description="The name of the instance.")
     resource: str = Field(..., description="The resource to be accessed.")
     action: str = Field(..., description="The action to be performed on the resource.")
+    ends: Optional[date] = Field(default=None, description="The last day the policy applies (AC-8); omit for no end.")
 
 
 class AddPolicyResponse(BaseModel):

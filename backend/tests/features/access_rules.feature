@@ -95,3 +95,22 @@ Feature: What a policy allows
       | qa-bucket/fold*       |
       | qa-bucket/fold/*.csv  |
       | /                     |
+
+  @AC-8
+  Scenario Outline: A policy allows nothing after its end date
+    Given the user holds "read" on "qa-bucket/fold/*" until "<ends>"
+    Then the user <may> "read" "qa-bucket/fold/a.txt"
+    And the folder "qa-bucket/fold/" is <shown> when browsing to "read"
+
+    Examples:
+      | ends       | may     | shown     |
+      | 2000-01-01 | may not | not shown |
+      | today      | may     | shown     |
+      | 2999-12-31 | may     | shown     |
+
+  @AC-8
+  Scenario: An ended policy leaves the user's other policies working
+    Given the user holds "read" on "qa-bucket/fold/*" until "2000-01-01"
+    And the user holds "read" on "qa-bucket/fold/a.txt"
+    Then the user may "read" "qa-bucket/fold/a.txt"
+    And the user may not "read" "qa-bucket/fold/b.txt"

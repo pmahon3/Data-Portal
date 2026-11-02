@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Optional, Union
 from uuid import UUID
 
@@ -12,6 +12,7 @@ class Policy(BaseModel):
     action: Optional[str] = None
     username: Optional[str] = None
     instance_name: Optional[str] = None
+    ends: Optional[date] = None  # the last day the policy applies (AC-8); None for no end
 
 
 Policies = list[Policy]

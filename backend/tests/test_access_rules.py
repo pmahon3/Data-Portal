@@ -4,8 +4,11 @@ Steps for features/access_rules.feature, plus property tests for the decision la
 Every check runs through both the definition (rule_allows, rule_shows_folder) and the indexed
 Checker, so the scenarios also test that the two agree.
 
-Verifies: AC-5.
+Verifies: AC-5, AC-8.
 """
+import datetime
+from pathlib import Path
+
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -18,6 +21,7 @@ from core.services.policies.rules import (
     normalize_rule_path,
     rule_allows,
     rule_shows_folder,
+    today,
 )
 
 scenarios("features/access_rules.feature")
@@ -43,6 +47,11 @@ def rules():
 @bdd_given(parsers.parse('the user holds "{action}" on "{path}"'))
 def user_holds(rules, action, path):
     rules.append(Rule(path, action))
+
+
+@bdd_given(parsers.parse('the user holds "{action}" on "{path}" until "{ends}"'))
+def user_holds_until(rules, action, path, ends):
+    rules.append(Rule(path, action, today() if ends == "today" else datetime.date.fromisoformat(ends)))
 
 
 @then(parsers.re(r'the user (?P<may>may|may not) "(?P<action>[^"]*)" "(?P<path>[^"]*)"'))
@@ -84,11 +93,14 @@ def joined(min_size, max_size):
     return st.lists(SEGMENTS, min_size=min_size, max_size=max_size).map("/".join)
 
 
+ENDS = st.one_of(st.none(), st.sampled_from([datetime.date(2000, 1, 1), datetime.date(2999, 12, 31)]))
+
 VALID_RULES = st.lists(
     st.builds(
         Rule,
         st.one_of(st.just("*"), joined(1, 3).map(lambda p: p + "/*"), joined(1, 4)),
         st.one_of(ACTIONS, st.just("*")),
+        ENDS,
     ),
     max_size=6,
 )
@@ -124,3 +136,22 @@ def test_saving_is_stable(entered):
     except ValueError:
         return
     assert normalize_rule_path(saved) == saved
+
+
+def test_no_decision_goes_through_casbins_own_matcher():
+    """AC-3, AC-8. Casbin stores policies; rules.py decides. Casbin's matcher ignores a policy's
+    conditions (its end date), so a call to enforce() would grant what an ended policy no longer
+    does. Declaring the conditions field in model.conf makes enforce() fail rather than grant."""
+    backend = Path(__file__).resolve().parents[1]
+    callers = [str(f.relative_to(backend)) for d in ("api", "core") for f in (backend / d).rglob("*.py")
+               if ".enforce(" in f.read_text()]
+    assert callers == []
+
+
+def test_stored_policies_read_back_with_and_without_an_end_date():
+    """AC-8. Rows saved before policies had conditions have four fields; newer ones may have five."""
+    from core.services.policies.casbin.CasbinPolicyManager import policy_from_row
+    user, instance = "3ad5aedb-dd63-418a-ae55-a67a455e2e4b", "ded55682-2208-4584-a324-ef15d47c4601"
+    assert policy_from_row([user, instance, "b/x", "read"]).ends is None
+    ended = policy_from_row([user, instance, "b/y/*", "read", '{"ends": "2027-06-30"}'])
+    assert (ended.resource, ended.ends) == ("b/y/*", datetime.date(2027, 6, 30))

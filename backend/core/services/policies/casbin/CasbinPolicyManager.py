@@ -7,7 +7,15 @@ from casbin_pymongo_adapter import Adapter
 from core.db import get_mongo_database
 from core.db.mongodb.mongo_client import POLICY_RULE_COLLECTION
 from core.services.policies.models import Policy, Agreement
-from core.services.policies.rules import Checker, Rule
+from core.services.policies.rules import Checker, Rule, conditions_json, rule_from_stored
+
+
+def policy_from_row(row: list[str]) -> Policy:
+    """A stored policy row (sub, dom, obj, act, cond as in model.conf) as a Policy. Rows saved
+    before policies had conditions have no fifth field."""
+    p_user_uuid, p_instance_uuid, res, act, *cond = row
+    return Policy(user_uuid=UUID(p_user_uuid), instance_uuid=UUID(p_instance_uuid), resource=res, action=act,
+                  ends=rule_from_stored(res, act, cond[0] if cond else "").ends)
 
 
 class CasbinPolicyManager:
@@ -55,18 +63,7 @@ class CasbinPolicyManager:
         """
         user_uuid = user_uuid.__str__()
         policies = self.enforcer.get_filtered_policy(0, user_uuid)
-        result = []
-        for policy in policies:
-            # Unpacking order is hard-coded to match the policy definition in model.conf
-            p_user_uuid, p_instance_uuid, res, act = policy
-            result.append(Policy(
-                user_uuid=UUID(p_user_uuid),
-                instance_uuid=UUID(p_instance_uuid),
-                resource=res,
-                action=act
-            ))
-            
-        return result
+        return [policy_from_row(policy) for policy in policies]
 
     def get_instance_policies(self, instance_uuid: UUID) -> list[Policy]:
         """
@@ -78,18 +75,7 @@ class CasbinPolicyManager:
         instance_uuid = instance_uuid.__str__()
 
         policies = self.enforcer.get_filtered_policy(1, instance_uuid)
-        result = []
-        for policy in policies:
-            # Unpacking order is hard-coded to match the policy definition in model.conf
-            p_user_uuid, p_instance_uuid, res, act = policy
-            result.append(Policy(
-                user_uuid=UUID(p_user_uuid),
-                instance_uuid=UUID(p_instance_uuid),
-                resource=res,
-                action=act
-            ))
-
-        return result
+        return [policy_from_row(policy) for policy in policies]
 
     def filter_policies(self, filter_: Policy) -> list[Policy]:
         """
@@ -106,19 +92,7 @@ class CasbinPolicyManager:
         # Retrieve the policies matching the filter
         policies = self.enforcer.get_filtered_policy(0, *filter_)
 
-        # Sort by access points
-        result = []
-        for policy in policies:
-            # Unpacking order is hard-coded to match the policy definition in model.conf
-            p_user_uuid, p_instance_uuid, res, act = policy
-            result.append(Policy(
-                user_uuid=UUID(p_user_uuid),
-                instance_uuid=UUID(p_instance_uuid),
-                resource=res,
-                action=act
-            ))
-
-        return result
+        return [policy_from_row(policy) for policy in policies]
 
     def add_policy(self, policy: Policy) -> bool:
         """
@@ -133,13 +107,13 @@ class CasbinPolicyManager:
         action = policy.action
 
         filter_ = (user_uuid, instance_uuid, resource, action)
-        result = self.enforcer.add_policy(*filter_)
-        if result:
-            return True
-        elif self.enforcer.has_policy(*filter_):
+        # One policy per person, instance, path and action, whatever its conditions
+        if self.enforcer.get_filtered_policy(0, *filter_):
             raise ValueError("Policy already exists.")
-        else:
-            raise ValueError("Failed to add policy.")
+        conditions = conditions_json(Rule(resource, action, policy.ends))
+        if self.enforcer.add_policy(*filter_, *([conditions] if conditions else [])):
+            return True
+        raise ValueError("Failed to add policy.")
         
     def add_policies(self, policies: list[Policy]) -> bool:
         """
@@ -201,9 +175,9 @@ class CasbinPolicyManager:
         """
         rows = self._rules.find(
             {"ptype": "p", "v0": str(user_uuid), "v1": str(instance_uuid)},
-            {"_id": 0, "v2": 1, "v3": 1},
+            {"_id": 0, "v2": 1, "v3": 1, "v4": 1},
         )
-        return Checker(Rule(row.get("v2", ""), row.get("v3", "")) for row in rows)
+        return Checker(rule_from_stored(row.get("v2", ""), row.get("v3", ""), row.get("v4", "")) for row in rows)
 
     def validate_policy(self, policy: Policy) -> bool:
         """

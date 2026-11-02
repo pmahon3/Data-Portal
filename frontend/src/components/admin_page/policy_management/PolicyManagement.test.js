@@ -84,3 +84,18 @@ test('a rule the API refuses is named, and the others are still created', async 
   expect(await screen.findByText(/Not created: study\/protocol.pdf/)).toBeInTheDocument();
   expect(mockPost).toHaveBeenCalledTimes(2);
 });
+
+// AC-8: a policy can be given an end date, sent with it when it's saved.
+test('a typed policy is saved with its end date', async () => {
+  mockPost.mockResolvedValue({ data: {} });
+  render(<PolicyManagement />);
+  fireEvent.change(screen.getByPlaceholderText('alice'), { target: { value: 'alice' } });
+  await screen.findByRole('option', { name: 'demo' });
+  fireEvent.change(screen.getByRole('combobox', { name: /Instance/ }), { target: { value: 'demo' } });
+  fireEvent.change(screen.getByPlaceholderText('bucket/folder/* or bucket/path/file.ext'), { target: { value: 'study/*' } });
+  fireEvent.change(screen.getByLabelText(/^Ends/), { target: { value: '2999-12-31' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Create Policy' }));
+  await waitFor(() => expect(mockPost).toHaveBeenCalled());
+  expect(mockPost.mock.calls[0][1]).toEqual(
+    { username: 'alice', instance_name: 'demo', resource: 'study/*', action: 'read', ends: '2999-12-31' });
+});

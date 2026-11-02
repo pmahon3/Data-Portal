@@ -17,6 +17,7 @@ From backend/, after `set -a; . ../local/.env; set +a`:
 Each run creates its own bucket, and each test its own users with only the grants it names,
 removed afterwards. Grants name single files, or folders as "folder/*".
 """
+import datetime
 import time
 import uuid
 
@@ -373,3 +374,23 @@ def test_a_listing_for_an_action_shows_what_the_user_may_do_it_to(make_user, tre
     assert r.status_code == 200, r.text
     assert listed(r) == ({"/study/patient-7/"}, set())
     assert user.list_folder(folder).status_code == 403
+
+
+# --------------------------------------------------------------------------- end dates
+
+def utc_day(offset: int) -> str:
+    return (datetime.datetime.now(datetime.timezone.utc).date() + datetime.timedelta(days=offset)).isoformat()
+
+
+def test_a_policy_with_an_end_date_gives_access_until_then(portal, make_user, tree):
+    """AC-8. A policy ending tomorrow gives access today, and the person sees when it ends."""
+    user = make_user()
+    portal.grant(user, portal.resource("study/scan-042.nii"), "read", ends=utc_day(1))
+    assert user.download_url(tree.file("study/scan-042.nii")).status_code == 200
+    assert [p.get("ends") for p in user.my_policies()] == [utc_day(1)]
+
+
+def test_a_policy_cannot_end_on_a_date_already_past(portal, make_user):
+    """AC-8. It would allow nothing, so the portal refuses it."""
+    user = make_user()
+    assert portal.try_grant(user, portal.resource("study/scan-042.nii"), "read", ends=utc_day(-1)) is None

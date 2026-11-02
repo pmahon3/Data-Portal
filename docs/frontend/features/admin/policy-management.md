@@ -12,6 +12,7 @@ resource. What a policy does, and how to write one, for the people who use this 
 | Instance | Storage instance containing the resource. |
 | Resource | One file (`bucket/path/file.ext`), a folder and everything in it (`bucket/folder/*`), or everything on the instance (`*`). Typed, or chosen from the instance's file tree. |
 | Action | `read`, `write`, `delete`, or `admin`. |
+| Ends | Optional: the last day the policy applies. The **Policies** table shows it, or **Never**, or **Ended** and the date once it's past. |
 
 Resource paths are literal, not patterns: `bucket/folder/*` covers that folder and
 everything in it, any other path names exactly one file, and `*` covers everything.

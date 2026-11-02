@@ -7,10 +7,10 @@ What a policy gives, exactly. For the steps to give someone access, see
 <!-- claim: AC-1, AC-5 -->
 
 - **You may do something when at least one of your policies allows it.** A policy allows an action
-  on a path when it names that action (or `*`) and its path covers that path.
+  on a path when it names that action (or `*`), its path covers that path, and it hasn't ended.
 - **A path is one file, a folder ending in `/*`, or `*`.** A folder path covers everything in the
   folder, now and later. `*` covers everything on the instance.
-- **Policies only add up.** Nothing takes access away except removing the policy that gives it.
+- **Policies only add up.** Access goes only when the policy that gives it is removed or ends.
 - **Policies name paths, not files.** Rename a file or folder and the policies on its old name no
   longer reach it.
 
@@ -65,6 +65,14 @@ The [examples table](#does-this-policy-allow-it) shows each of these.
 Each action stands alone: `write` doesn't include `read` or `delete`, so give each one a person
 needs. The `admin` action is given to whoever creates an instance. It has no effect on files: file
 access always comes from `read`, `write` and `delete`.
+
+## Policies that end
+<!-- claim: AC-8; tests: A policy allows nothing after its end date, An ended policy leaves the user's other policies working, test_a_policy_with_an_end_date_gives_access_until_then, test_a_policy_cannot_end_on_a_date_already_past -->
+
+A policy can have an end date. It applies through that day and allows nothing after it: the files
+it covers stop showing, and downloads are refused. Your other policies keep working. The policy
+isn't deleted; the **Policies** table and **My Policies** show it as **Ended**, with the date.
+Days are counted in UTC. An end date can't be one already past.
 
 ## How policies add up
 <!-- claim: AC-1, AC-5 -->
@@ -161,7 +169,7 @@ own decision code checks every row on each test run.
 
 Decided, but not built yet, so no policy can express them today:
 
-- access that ends on a date, with reminders before it does ([AC-8](../requirements/access-control.md#ac-8));
+- reminders to administrators before a policy's end date ([AC-8](../requirements/access-control.md#ac-8));
 - a folder policy that leaves out named files or folders inside it ([AC-10](../requirements/access-control.md#ac-10));
 - access by type of file, by name ending or by kind of data ([AC-6](../requirements/access-control.md#ac-6));
 - what happens to a participant's data when they withdraw ([AC-7](../requirements/access-control.md#ac-7)).

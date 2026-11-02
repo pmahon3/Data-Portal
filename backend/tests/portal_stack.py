@@ -179,18 +179,18 @@ class Portal:
 
     # ---------------------------------------------------------------- policies
 
-    def grant(self, user: "User", resource: str, action: str) -> str:
-        """Add a policy through the policy API, as an administrator would. Returns the
-        resource as the portal stored it."""
-        stored = self.try_grant(user, resource, action)
+    def grant(self, user: "User", resource: str, action: str, ends: str | None = None) -> str:
+        """Add a policy through the policy API, as an administrator would, ending on `ends`
+        (an ISO date) if given. Returns the resource as the portal stored it."""
+        stored = self.try_grant(user, resource, action, ends)
         assert stored is not None, f"the portal refused a grant of {action} on {resource!r}"
         return stored
 
-    def try_grant(self, user: "User", resource: str, action: str) -> str | None:
+    def try_grant(self, user: "User", resource: str, action: str, ends: str | None = None) -> str | None:
         """Like grant, but returns None if the portal refuses the policy."""
         r = requests.post(f"{self.backend}/api/policies/", headers=self.admin_headers(), timeout=TIMEOUT, json={
             "username": user.username, "instance_name": self.instance,
-            "resource": resource, "action": action})
+            "resource": resource, "action": action, **({"ends": ends} if ends else {})})
         if r.status_code not in (200, 201):
             print(f"policy refused: {action} on {resource!r}: {r.status_code} {r.text}")
             return None
@@ -230,6 +230,12 @@ class User:
 
     def root(self) -> requests.Response:
         return self._call("GET", "/root", params=self._where)
+
+    def my_policies(self) -> list[dict]:
+        """The user's own policies, as the My Policies page shows them."""
+        r = requests.get(f"{self.portal.backend}/api/policies/me", headers=self._headers, timeout=TIMEOUT)
+        r.raise_for_status()
+        return r.json()["details"]
 
     def list_folder(self, folder_id: int, access: str = "read") -> requests.Response:
         return self._call("GET", f"/{folder_id}", params={**self._where, "access": access})

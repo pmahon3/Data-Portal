@@ -18,7 +18,7 @@ from core.services.injectors import get_user_manager, get_policy_manager, get_in
 from core.services.instances import AbstractInstanceManager
 from core.services.policies import CasbinPolicyManager
 from core.services.policies import Policy
-from core.services.policies.rules import normalize_rule_path, validate_rule_action
+from core.services.policies.rules import normalize_rule_path, today, validate_rule_action
 from core.services.projects import AbstractProjectManager
 from core.services.users import AbstractUserManager
 from api.v0_1.common.models import (
@@ -193,6 +193,9 @@ async def create_policy(
         new_policy.action = validate_rule_action(new_policy.action)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    # A policy can end on a date (AC-8), but not one already past: it would allow nothing.
+    if new_policy.ends is not None and new_policy.ends < today():
+        raise HTTPException(status_code=400, detail=f"The end date {new_policy.ends} has already passed.")
 
     # Get user and instance UUIDs
     try:
@@ -223,7 +226,8 @@ async def create_policy(
         user_uuid=user_uuid,
         instance_uuid=instance_uuid,
         resource=new_policy.resource,
-        action=new_policy.action
+        action=new_policy.action,
+        ends=new_policy.ends,
     )
 
     # Validate user and instance exist

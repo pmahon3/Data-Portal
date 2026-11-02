@@ -89,7 +89,9 @@ they manage.
 `GET /api/policies/` filters by `username` or `instance_name` as well as by UUID. A policy's
 `resource` is a literal path: `bucket/path/file.txt` (that file), `bucket/folder/*` (that folder and
 everything in it) or `*` (the whole instance). Its `action` is one action (`read`, `write`, `delete`, `admin`) or `*`.
-Other forms are refused (400).
+Other forms are refused (400). An optional `ends` (an ISO date, e.g. `2027-06-30`) is the last day
+the policy applies; from the next day (UTC) it allows nothing. A date already past is refused (400),
+and policies are listed with their `ends`.
 
 ## Notifications
 
