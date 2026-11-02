@@ -131,6 +131,11 @@ export function ruleText(rule) {
 
 const VERBS = { read: "read", write: "write to", delete: "delete", admin: "administer" };
 
+/** Return an action as a verb in a sentence. Example: "write" -> "write to" */
+export function verbFor(action) {
+  return VERBS[action] || action;
+}
+
 const asWords = (path) => (path.endsWith("/*") ? path.slice(0, -1) : path);
 
 /**
@@ -148,7 +153,7 @@ export function describeRule(rule) {
 
 /** Return the preview's heading. Example: "alice can read:" */
 export function describeWho(username, action) {
-  return `${username || "This user"} can ${VERBS[action] || action}:`;
+  return `${username || "This user"} can ${verbFor(action)}:`;
 }
 
 /** Return how many rules there are. Example: "2 rules." */

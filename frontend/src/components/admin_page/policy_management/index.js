@@ -8,6 +8,7 @@ import { formatError } from "../../../utils/errorUtils";
 import { getAuthHeaders } from '../../../utils/authUtils';
 import useEndpointAssetTree from "../asset_management/useEndpointAssetTree.js";
 import TreePicker from "./TreePicker.js";
+import CheckAccess from "./CheckAccess.js";
 import { describeEnds, todayUtc } from "../../../utils/policyEnds";
 // Constants and the component states
 // const http = axios.create({ baseURL: "http://localhost:8000" });
@@ -406,6 +407,8 @@ export default function PolicyManagement() {
           </div>
         </form>
       </section>
+
+      <CheckAccess http={http} instanceOptions={instanceOptions} />
 
       {/* Show policies and provide delete option */}
       <section className="pm-card">

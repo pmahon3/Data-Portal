@@ -18,6 +18,7 @@ The data stays on that storage; the portal controls who may use it. Start with
 ## Administrators and project managers
 
 - [Giving people access](policies.md)
+- [Checking someone's access](checking-access.md)
 - [Storage, projects and users](administering.md)
 
 ## Reference

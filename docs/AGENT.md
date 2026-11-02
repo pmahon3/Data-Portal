@@ -77,7 +77,7 @@ Main backend route groups:
 
 - `/api/auth` for token validation
 - `/api/users` for user CRUD and instance listing
-- `/api/policies` for policy CRUD
+- `/api/policies` for policy CRUD, and `/api/policies/check` to check a person's access
 - `/api/instances` for storage instance CRUD
 - `/api/tree` for DB-backed file tree endpoints
 - `/api/notifications` for the current user's notifications
@@ -232,7 +232,7 @@ The frontend is a React app using `@react-keycloak/web`.
 Current admin pages:
 
 - `user_management` for Keycloak user CRUD
-- `policy_management` for Casbin policy CRUD; a policy's resource can be typed or chosen from the instance's file tree (`TreePicker.js`, rules in `treeRules.js`)
+- `policy_management` for Casbin policy CRUD; a policy's resource can be typed or chosen from the instance's file tree (`TreePicker.js`, rules in `treeRules.js`), and a person's access can be checked (`CheckAccess.js`)
 - `asset_management` for per-instance tree and asset actions
 - `storage_management` for instance CRUD
 

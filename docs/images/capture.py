@@ -33,6 +33,8 @@ FILES = [
     "protocol.pdf",
 ]
 UPLOADED = ["sub-03/anat/sub-03_T1w.nii.gz", "sub-03/anat/sub-03_T1w.json"]
+# The navbar is fixed and would cover the top of anything captured lower down.
+HIDE_NAVBAR = "nav.navbar { position: static !important; }"
 
 
 def seed(portal: Portal) -> None:
@@ -127,6 +129,22 @@ def capture_researcher(portal: Portal, browser) -> None:
         page.get_by_role("tab", name="My Policies").click()
         page.wait_for_timeout(1500)
         page.screenshot(path=HERE / "researcher-my-policies.png", clip={"x": 0, "y": 0, "width": 1280, "height": 430})
+
+        # Check access, as the admin: may the researcher read a scan, and which policy allows it.
+        admin = sign_in(browser, *portal.portal_admin)
+        admin.goto(f"{FRONTEND}/app/policy-management")
+        admin.add_style_tag(content=HIDE_NAVBAR)
+        admin.get_by_role("button", name="Check someone's access").click()
+        section = admin.locator("section[aria-label='Check access']")
+        section.get_by_placeholder("who to check, e.g. bob").fill("researcher")
+        section.get_by_role("combobox").first.select_option(portal.instance)
+        section.get_by_placeholder("bucket/path/file.ext or bucket/folder/").fill(
+            f"{BUCKET}/sub-01/anat/sub-01_T1w.nii.gz",
+        )
+        section.get_by_role("button", name="Check", exact=True).click()
+        section.get_by_role("status").wait_for()
+        section.screenshot(path=HERE / "check-access.png")
+        admin.close()
     finally:
         portal.delete_user(user)
 
@@ -144,12 +162,9 @@ def capture(portal: Portal) -> None:
         page.screenshot(path=HERE / "notifications.png", clip={"x": 680, "y": 0, "width": 600, "height": 360})
         page.keyboard.press("Escape")
 
-        # The navbar is fixed and would cover the top of anything captured lower down.
-        hide_navbar = "nav.navbar { position: static !important; }"
-
         # Policies: choosing the resource from the file tree, with the preview.
         page.goto(f"{FRONTEND}/app/policy-management")
-        page.add_style_tag(content=hide_navbar)
+        page.add_style_tag(content=HIDE_NAVBAR)
         page.get_by_placeholder("alice").fill("alice")
         page.get_by_role("combobox").first.select_option(portal.instance)
         page.get_by_role("button", name="Choose from the tree").click()
@@ -160,7 +175,7 @@ def capture(portal: Portal) -> None:
 
         # Assets: an instance's Download tab.
         page.goto(f"{FRONTEND}/app/asset-management")
-        page.add_style_tag(content=hide_navbar)
+        page.add_style_tag(content=HIDE_NAVBAR)
         card = page.locator(".ec-card", has_text=portal.instance)
         card.locator(".ec-header").click()
         expand(page, BUCKET)
@@ -181,7 +196,7 @@ def capture(portal: Portal) -> None:
 
         # Storage connections (secret fields are masked by the page).
         page.goto(f"{FRONTEND}/app/storage-management")
-        page.add_style_tag(content=hide_navbar)
+        page.add_style_tag(content=HIDE_NAVBAR)
         page.wait_for_timeout(1500)
         page.locator(".admin-content, main").first.screenshot(path=HERE / "storage-management.png")
         page.close()

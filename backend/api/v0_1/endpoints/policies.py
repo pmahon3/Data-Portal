@@ -23,6 +23,8 @@ from core.db.postgres.session import get_session
 from core.services import standards
 from core.services.filetree.file_service import FileService
 from core.services.policies.rules import (
+    Checker,
+    covering,
     normalize_rule_path,
     today,
     validate_endings,
@@ -34,7 +36,7 @@ from core.services.projects import AbstractProjectManager
 from core.services.users import AbstractUserManager
 from api.v0_1.common.models import (
     GetPolicyResponse, AddPolicyResponse, AddPolicyRequest,
-    RemovePolicyRequest, RemovePolicyResponse
+    RemovePolicyRequest, RemovePolicyResponse, CheckAccessResponse,
 )
 
 policies_router = APIRouter(prefix='/policies', tags=["Policy Management"])
@@ -164,6 +166,71 @@ async def get_policies(
         policy.instance_name = uuid_to_instance_name.get(policy.instance_uuid, "Unknown Instance")
 
     return GetPolicyResponse(success=True, details=policies)
+
+
+@policies_router.get(
+    "/check",
+    response_model=CheckAccessResponse,
+    summary="Check a person's access",
+    description=(
+        "May this person do this action on this path, and which of their policies allows it? "
+        "Administrators may check anyone; project managers, people in the projects they manage."
+    ),
+)
+async def check_access(
+    username: str,
+    instance_name: str,
+    resource: str,
+    action: str,
+    current_user: dict = Depends(require_admin_or_manager),
+    user_manager: AbstractUserManager = Depends(get_user_manager),
+    project_manager: AbstractProjectManager = Depends(get_project_manager),
+    policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
+    instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
+) -> CheckAccessResponse:
+    """
+    Answer as a request would be decided today: allowed or not, and the person's policies that allow
+    it. For a folder (a path ending in "/"), also whether it appears in their tree (DS-check-access;
+    AC-1, AC-3).
+    """
+    try:
+        user_uuid = user_manager.get_user_uuid(username)
+        instance_uuid = instance_manager.get_instance_uuid(instance_name)
+    except KeyError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User or instance not found") from e
+    if not is_user_admin(current_user) and not project_manager.can_manage_instance_for_user(
+        current_user,
+        username,
+        instance_uuid,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: user and instance must belong to a project you manage",
+        )
+
+    # Example: "/study//sub-01/" -> "study/sub-01/"
+    path = resource.strip()
+    while "//" in path:
+        path = path.replace("//", "/")
+    path = path.lstrip("/")
+
+    rules = policy_manager.rules_for(user_uuid, instance_uuid)
+    because = []
+    for rule in covering(rules, path, action):
+        because.append(Policy(
+            username=username,
+            instance_name=instance_name,
+            resource=rule.path,
+            action=rule.action,
+            ends=rule.ends,
+            excluded=list(rule.excluded),
+            endings=list(rule.endings),
+            kinds=list(rule.kinds),
+        ))
+    shown = None
+    if path.endswith("/"):
+        shown = Checker(rules).shows_folder(path, action)
+    return CheckAccessResponse(allowed=bool(because), shown=shown, because=because)
 
 
 async def dataset_of(session: AsyncSession, resource: str) -> tuple[str | None, str]:

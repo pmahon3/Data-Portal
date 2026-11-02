@@ -227,12 +227,15 @@ class CasbinPolicyManager:
         enforcer, so a policy change applies to the next request in every backend process.
         Build one checker per request and reuse it for every path the request checks.
         """
+        return Checker(self.rules_for(user_uuid, instance_uuid))
+
+    def rules_for(self, user_uuid: UUID, instance_uuid: UUID) -> list[Rule]:
+        """Return the user's rules on one storage instance, read from MongoDB with one indexed query."""
         rows = self._rules.find(
             {"ptype": "p", "v0": str(user_uuid), "v1": str(instance_uuid)},
             {"_id": 0, "v2": 1, "v3": 1, "v4": 1},
         )
-        rules = [rule_from_stored(row.get("v2", ""), row.get("v3", ""), row.get("v4", "")) for row in rows]
-        return Checker(rules)
+        return [rule_from_stored(row.get("v2", ""), row.get("v3", ""), row.get("v4", "")) for row in rows]
 
     def validate_policy(self, policy: Policy) -> bool:
         """

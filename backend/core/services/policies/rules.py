@@ -135,6 +135,20 @@ def rule_shows_folder(rule: Rule, folder: str, action: str) -> bool:
     return head.startswith(folder)
 
 
+def covering(rules: Iterable[Rule], path: str, action: str) -> list[Rule]:
+    """
+    Return the rules that allow `action` on `path`, in the order given: why a user may do it. Empty
+    when none does; policies only add up, so nothing else decides it.
+
+    Example: rules "b/x/*" (read) and "b/x/f.txt" (*) both cover reading "b/x/f.txt"
+    """
+    found = []
+    for rule in rules:
+        if rule_allows(rule, path, action):
+            found.append(rule)
+    return found
+
+
 def validate_excluded(path: str, excluded: Iterable[str]) -> tuple[str, ...]:
     """
     Return the saved form of what a policy on `path` leaves out. Each is a policy path strictly inside
