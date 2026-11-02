@@ -30,4 +30,4 @@ Open and proposed entries name the question that settles them in *INN use cases:
 
 [AC-4](#ac-4) and [AC-5](#ac-5) were decided on 31 October 2026 by Patrick, from concrete cases in INN's studies (a study folder gaining sessions, a participant folder under a DAA, picked files, renames, replaced files, a filtered selection). [AC-4](#ac-4)'s filter rule was decided the same day (C3): a selection holds what the filter
 shows, so a download or delete never acts on files the filter hid. [AC-6](#ac-6) to [AC-10](#ac-10) were decided
-on 1 November 2026 by Patrick (C2, C4, C5, C6, D7, D8). They stay open until each is designed and has tests; [AC-8](#ac-8)'s end dates are built (reminders to come).
+on 1 November 2026 by Patrick (C2, C4, C5, C6, D7, D8). They stay open until each is designed and has tests; [AC-8](#ac-8) is built.

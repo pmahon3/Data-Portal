@@ -274,6 +274,11 @@ Completing an upload records a notification for the user (MongoDB `notifications
 files, since file names can identify participants. See `docs/diagrams/notifications.md` and [NT-1](requirements/notifications.md#nt-1) in
 `docs/requirements/notifications.md`.
 
+Policies with an end date ([AC-8](requirements/access-control.md#ac-8)) raise reminders too: the backend checks hourly
+(`core/services/policies/end_reminders.py`) and notifies the administrators and the managers of the
+instance's projects `POLICY_END_REMINDER_DAYS` (14) days before and on the day, once each.
+`POLICY_END_REMINDERS=false` turns this off.
+
 ## Data Standards
 
 A folder holding a standard's marker file at its root declares that standard (BIDS:

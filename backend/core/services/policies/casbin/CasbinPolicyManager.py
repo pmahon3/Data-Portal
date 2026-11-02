@@ -54,6 +54,10 @@ class CasbinPolicyManager:
     def actions(self) -> list[str]:
         return self._actions
 
+    def get_all_policies(self) -> list[Policy]:
+        """Every stored policy."""
+        return [policy_from_row(row) for row in self.enforcer.get_policy()]
+
     def get_user_policies(self, user_uuid: UUID) -> list[Policy]:
         """
         Get the user policies.

@@ -67,12 +67,13 @@ needs. The `admin` action is given to whoever creates an instance. It has no eff
 access always comes from `read`, `write` and `delete`.
 
 ## Policies that end
-<!-- claim: AC-8; tests: A policy allows nothing after its end date, An ended policy leaves the user's other policies working, test_a_policy_with_an_end_date_gives_access_until_then, test_a_policy_cannot_end_on_a_date_already_past -->
+<!-- claim: AC-8; tests: A policy allows nothing after its end date, An ended policy leaves the user's other policies working, test_a_policy_with_an_end_date_gives_access_until_then, test_a_policy_cannot_end_on_a_date_already_past, test_administrators_and_the_instances_project_managers_are_reminded, test_each_reminder_is_sent_once_however_often_the_job_runs -->
 
 A policy can have an end date. It applies through that day and allows nothing after it: the files
 it covers stop showing, and downloads are refused. Your other policies keep working. The policy
 isn't deleted; the **Policies** table and **My Policies** show it as **Ended**, with the date.
-Days are counted in UTC. An end date can't be one already past.
+Days are counted in UTC. An end date can't be one already past. Administrators, and the managers of
+the instance's projects, are reminded two weeks before a policy ends and again on the day.
 
 ## How policies add up
 <!-- claim: AC-1, AC-5 -->
@@ -169,7 +170,6 @@ own decision code checks every row on each test run.
 
 Decided, but not built yet, so no policy can express them today:
 
-- reminders to administrators before a policy's end date ([AC-8](../requirements/access-control.md#ac-8));
 - a folder policy that leaves out named files or folders inside it ([AC-10](../requirements/access-control.md#ac-10));
 - access by type of file, by name ending or by kind of data ([AC-6](../requirements/access-control.md#ac-6));
 - what happens to a participant's data when they withdraw ([AC-7](../requirements/access-control.md#ac-7)).
