@@ -581,3 +581,25 @@ def test_a_policy_saved_through_another_backend_can_be_removed(make_user, portal
         assert portal.resource("shared/notes.txt") not in {p["resource"] for p in user.my_policies()}
     finally:
         portal.unstore_policy(user, portal.resource("shared/notes.txt"), "read")
+
+
+BRACKET_ROWS = pytest.mark.xfail(strict=True, reason="the enforcer's copy splits a path with '[' wrongly")
+
+
+@BRACKET_ROWS
+def test_a_policy_on_a_path_with_a_bracket_is_listed_and_removed(make_user, portal):
+    """AC-5. Paths are literal: a policy on brackets/a[b.bin is listed like any other, and removing
+    it works (the enforcer's own copy reads that row as three fields)."""
+    user = make_user(("read", "brackets/a[b.bin"))
+    listed_for_admin = portal.admin("GET", "/api/policies/", params={"username": user.username})
+    assert listed_for_admin.status_code == 200, listed_for_admin.text
+    assert portal.resource("brackets/a[b.bin") in {p["resource"] for p in listed_for_admin.json()["details"]}
+
+    r = requests.delete(f"{portal.backend}/api/policies/", headers=portal.admin_headers(), timeout=30, json={
+        "user_uuid": user.uuid,
+        "instance_uuid": portal.instance_uuid,
+        "resource": portal.resource("brackets/a[b.bin"),
+        "action": "read",
+    })
+    assert r.status_code == 200, r.text
+    assert user.my_policies() == []
