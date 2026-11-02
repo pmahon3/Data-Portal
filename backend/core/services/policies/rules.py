@@ -21,10 +21,11 @@ Two questions are asked of a user's policies:
     doesn't allow acting on it.
 
 rule_allows and rule_shows_folder define the rule for one policy. Checker applies it to all of
-a user's policies at once, indexed so each path costs a few set lookups however many policies
-the user holds; tests check that the two agree.
+a user's policies at once, indexed by the folder each covers, so each path costs a few set lookups
+however many policies the user holds, with or without conditions (AC-11); tests check that the two agree
+and that decisions meet AC-11's timings.
 
-Requirements AC-1, AC-2, AC-3, AC-5, AC-6, AC-8 and AC-10 in docs/requirements/access-control.md.
+Requirements AC-1, AC-2, AC-3, AC-5, AC-6, AC-8, AC-10 and AC-11 in docs/requirements/access-control.md.
 """
 import datetime
 import json
@@ -203,56 +204,103 @@ def validate_kinds(path: str, kinds: Iterable[str], dataset: str | None, standar
     return saved
 
 
+class _Conditioned(NamedTuple):
+    """A rule with conditions, its exclusions split into files and folders ("bucket/folder/") for lookup."""
+    rule: Rule
+    excluded_files: frozenset[str]
+    excluded_folders: frozenset[str]
+
+    @classmethod
+    def of(cls, rule: Rule) -> "_Conditioned":
+        folders = frozenset(e[:-1] for e in rule.excluded if e.endswith("/*"))
+        return cls(rule, frozenset(e for e in rule.excluded if not e.endswith("/*")), folders)
+
+    def covers(self, path: str, folders: list[str]) -> bool:
+        """As covers(rule, path), for a path inside the rule's folder whose enclosing folders are `folders`."""
+        return (of_its_types(self.rule, path) and path not in self.excluded_files
+                and self.excluded_folders.isdisjoint(folders))
+
+
+def _endings_any(group: list[_Conditioned]) -> tuple[str, ...] | None:
+    """Every ending the group's rules accept, or None if one of them accepts any name."""
+    if any(not c.rule.endings for c in group):
+        return None
+    return tuple({e for c in group for e in c.rule.endings})
+
+
+def _folders_of(path: str) -> list[str]:
+    """The folders `path` is in, outermost first, ending with `path` itself if it's a folder: "a/b/c" -> ["a/", "a/b/"]."""
+    found, i = [], path.find("/")
+    while i != -1:
+        found.append(path[: i + 1])
+        i = path.find("/", i + 1)
+    return found
+
+
 class Checker:
-    """A user's rules on one storage instance that are in force today, indexed by action."""
+    """
+    A user's rules on one storage instance that are in force today, indexed by action and by the folder
+    each covers, so a path costs a lookup per folder it's in however many rules the user holds. Rules with
+    conditions are indexed the same way and checked only for paths inside their folder (AC-11).
+    """
 
     def __init__(self, rules: Iterable[Rule]):
         self._everything: set[str] = set()                  # actions held on the whole instance
         self._exact: dict[str, set[str]] = defaultdict(set)    # action -> exact paths
         self._folders: dict[str, set[str]] = defaultdict(set)  # action -> "bucket/folder/"
         self._above: dict[str, set[str]] = defaultdict(set)    # action -> folders above a rule's path
-        self._leaving_out: list[Rule] = []                      # rules with exclusions or endings, checked one by one
+        conditioned: dict[str, dict[str, list[_Conditioned]]] = defaultdict(lambda: defaultdict(list))
         on = today()
         for rule in rules:
             if not in_force(rule, on):
                 continue
+            head = "" if rule.path == ALL else rule.path[:-1] if rule.path.endswith("/*") else rule.path
             if rule.excluded or rule.endings or rule.kinds:
-                self._leaving_out.append(rule)
-                continue
-            if rule.path == ALL:
+                conditioned[rule.action][head].append(_Conditioned.of(rule))
+            elif rule.path == ALL:
                 self._everything.add(rule.action)
-                continue
-            if rule.path.endswith("/*"):
-                head = rule.path[:-1]
+            elif rule.path.endswith("/*"):
                 self._folders[rule.action].add(head)
             else:
-                head = rule.path
                 self._exact[rule.action].add(head)
             parts = head.split("/")
             for i in range(1, len(parts)):
                 self._above[rule.action].add("/".join(parts[:i]) + "/")
+        # action -> "" (everything), "bucket/folder/" or an exact path -> the rules with conditions there,
+        # with the endings one of them needs (None if one takes any name), so a file matching none skips them all
+        self._conditioned: dict[str, dict[str, tuple[tuple[str, ...] | None, list[_Conditioned]]]] = {
+            action: {head: (_endings_any(group), group) for head, group in by_head.items()}
+            for action, by_head in conditioned.items()
+        }
 
     def allows(self, path: str, action: str) -> bool:
-        if any(rule_allows(rule, path, action) for rule in self._leaving_out):
-            return True
+        folders = _folders_of(path)
         for act in (action, ALL):
             if act in self._everything or path in self._exact.get(act, ()):
                 return True
-            folders = self._folders.get(act)
-            if folders:
-                i = path.find("/")
-                while i != -1:
-                    if path[: i + 1] in folders:
+            held = self._folders.get(act)
+            if held and not held.isdisjoint(folders):
+                return True
+        for act in (action, ALL):
+            by_head = self._conditioned.get(act)
+            if not by_head:
+                continue
+            heads = ["", *folders] if path.endswith("/") else ["", *folders, path]
+            lower = path.lower()
+            for head in heads:
+                endings, group = by_head.get(head, (None, ()))
+                if endings and not path.endswith("/") and not lower.endswith(endings):
+                    continue
+                for conditioned in group:
+                    if conditioned.covers(path, folders):
                         return True
-                    i = path.find("/", i + 1)
         return False
 
     def shows_folder(self, folder: str, action: str) -> bool:
         if not folder.endswith("/"):
             return False
         return (
-            any(rule_shows_folder(rule, folder, action) for rule in self._leaving_out)
-            or self.allows(folder, action)
+            self.allows(folder, action)
             or folder in self._above.get(action, ())
             or folder in self._above.get(ALL, ())
         )
