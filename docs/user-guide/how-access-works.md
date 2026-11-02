@@ -132,7 +132,7 @@ The file tree is shown per action: browsing to upload shows what you may write, 
 delete shows what you may delete.
 
 ## Renaming and moving
-<!-- claim: AC-5 -->
+<!-- claim: AC-5; tests: test_renaming_a_folder_leaves_its_policy_on_the_old_name, test_moving_a_file_puts_it_under_the_policies_of_its_new_path -->
 
 Access is by name: a policy names a path, not a particular file.
 
@@ -178,7 +178,7 @@ own decision code checks every row on each test run.
 | `study-a/patient-7/` | read | Not applicable | Not applicable | refused |
 
 ## Downloads, uploads and links
-<!-- claim: AC-2, AC-3, AC-4; tests: test_uploading_a_file_never_replaces_an_existing_one, test_a_download_refuses_a_selected_file_the_user_may_not_read, test_a_folder_download_holds_only_files_the_user_may_read, test_another_users_bundle_cant_be_checked_or_fetched, test_a_bundle_is_refused_once_access_to_a_file_in_it_is_revoked -->
+<!-- claim: AC-2, AC-3, AC-4; tests: test_uploading_a_file_never_replaces_an_existing_one, test_a_download_refuses_a_selected_file_the_user_may_not_read, test_a_folder_download_holds_only_files_the_user_may_read, test_another_users_bundle_cant_be_checked_or_fetched, test_a_bundle_is_refused_once_access_to_a_file_in_it_is_revoked, test_a_download_link_lasts_at_most_15_minutes, test_a_link_handed_out_keeps_working_after_its_policy_is_removed -->
 
 - **Single-file uploads never replace an existing file.** Replacing goes through a folder upload
   that chooses to replace, and needs `write` on what it replaces.
