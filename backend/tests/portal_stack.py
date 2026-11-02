@@ -9,7 +9,9 @@ Tests and their setup reach the portal through:
   - the object store behind the test instance, to create the test files and to see what
     happened to them.
 Nothing here imports backend code or reads the portal's databases, so the same tests run
-unchanged against any version of the backend.
+unchanged against any version of the backend. One exception: ``store_policy_as_another_backend``
+writes a policy row straight into the policy store, in Casbin's storage format, to stand in for a
+second backend process (production runs two).
 
 Settings come from the environment. The defaults fit the local docker stack (local/), so
 sourcing local/.env is enough there:
@@ -23,6 +25,8 @@ sourcing local/.env is enough there:
   TEST_INSTANCE                           storage instance to test on (qa-instance)
   TEST_S3_URL                             object store behind it (http://localhost:9000)
   MINIO_ROOT_USER, MINIO_ROOT_PASSWORD    object store credentials
+  TEST_MONGO_URL                          policy store (mongodb://localhost:27017), with
+  MONGO_INITDB_ROOT_USERNAME/_PASSWORD     its credentials, and MONGO_DB (ams_portal)
 """
 import os
 import time
@@ -200,6 +204,31 @@ class Portal:
         stored = r.json()["details"][0]["resource"]
         user.grants.append((stored, action))
         return stored
+
+    def store_policy_as_another_backend(self, user: "User", resource: str, action: str) -> None:
+        """
+        Save a policy the way a second backend process would: straight into the policy store, so
+        this backend never sees the change happen. Removed again by ``unstore_policy``.
+        """
+        import pymongo  # only these tests need it
+
+        client = pymongo.MongoClient(
+            setting("TEST_MONGO_URL", "mongodb://localhost:27017"),
+            username=setting("MONGO_INITDB_ROOT_USERNAME"),
+            password=setting("MONGO_INITDB_ROOT_PASSWORD"),
+        )
+        self._rules = client[setting("MONGO_DB", "ams_portal")]["casbin_rule"]
+        self._rules.insert_one({
+            "ptype": "p",
+            "v0": user.uuid,
+            "v1": self.instance_uuid,
+            "v2": resource,
+            "v3": action,
+        })
+
+    def unstore_policy(self, user: "User", resource: str, action: str) -> None:
+        """Remove a row ``store_policy_as_another_backend`` wrote, if it's still there."""
+        self._rules.delete_many({"ptype": "p", "v0": user.uuid, "v2": resource, "v3": action})
 
     def revoke(self, user: "User", resource: str, action: str) -> None:
         requests.delete(f"{self.backend}/api/policies/", headers=self.admin_headers(), timeout=TIMEOUT, json={

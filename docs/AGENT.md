@@ -99,7 +99,11 @@ Different kinds of data are persisted in different systems. This is important an
 
 - Keycloak stores users, credentials, and realm role assignments.
 - MongoDB stores storage instance configurations, notifications (`notifications`), bundle owners (`bundle-owners`), and dataset check results (`dataset-checks`).
-- Casbin policies are persisted through the MongoDB Casbin adapter.
+- Casbin policies are persisted in MongoDB (`casbin_rule`) in the Casbin adapter's format. The
+  backend reads and writes those rows directly (`CasbinPolicyManager._stored`), never Casbin's
+  in-memory copy: each backend process loads that copy once, so it misses changes made through
+  another process, and it misreads paths containing `[`. Decisions are made in
+  `core/services/policies/rules.py`.
 - PostgreSQL stores folder and file tree metadata used by the newer tree endpoints.
 - Object storage stores the actual data files.
 
