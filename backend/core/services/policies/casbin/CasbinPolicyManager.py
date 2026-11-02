@@ -38,8 +38,9 @@ class CasbinPolicyManager:
     Class that provides methods for managing user policies and permissions.
 
     Attributes:
-        enforcer (Enforcer): Stores and manages policies through the casbin-pymongo adapter.
-            Permission decisions are made by checker() (core/services/policies/rules.py).
+        enforcer (Enforcer): Casbin's model and its casbin-pymongo adapter, which set how policies
+            are stored. Its in-memory copy isn't read: policies are read and written in MongoDB
+            (_stored), and permission decisions are made by checker() (core/services/policies/rules.py).
         _actions (list): A list of actions that can be performed on resources.
     """
 
@@ -73,9 +74,10 @@ class CasbinPolicyManager:
 
     def _stored(self, **fields: str) -> list[Policy]:
         """
-        Return the stored policies whose fields match, read from MongoDB rather than the enforcer's
-        copy: each backend process loads that copy at startup and never sees changes made through
-        another process (production runs two).
+        Return the stored policies whose fields match. Policies are read and written in MongoDB
+        directly, never through the enforcer's in-memory copy: each backend process loads that copy
+        at startup and never sees changes made through another (production runs two), and it reads
+        a path containing "[" as part of the next field.
 
         Example: ``_stored(v0=user_uuid)`` -> that user's policies on every instance
         """
@@ -88,10 +90,6 @@ class CasbinPolicyManager:
                 values = values[:4]
             policies.append(policy_from_row(values))
         return policies
-
-    def _reload(self) -> None:
-        """Load the enforcer's copy from MongoDB again, so a change starts from what's stored."""
-        self.enforcer.load_policy()
 
     def get_all_policies(self) -> list[Policy]:
         """Return every stored policy."""
@@ -158,9 +156,12 @@ class CasbinPolicyManager:
         )
         conditions = conditions_json(rule)
         # a policy without conditions keeps the four fields it always had
-        fields = (*filter_, conditions) if conditions else filter_
-        self._reload()
-        if self.enforcer.add_policy(*fields):
+        # Written in the adapter's storage format, without the enforcer's copy (see _stored).
+        # A policy without conditions keeps the four fields it always had.
+        row = {"ptype": "p", "v0": user_uuid, "v1": instance_uuid, "v2": resource, "v3": action}
+        if conditions:
+            row["v4"] = conditions
+        if self._rules.insert_one(row).acknowledged:
             return True
         raise ValueError("Failed to add policy.")
         
@@ -178,7 +179,7 @@ class CasbinPolicyManager:
 
     def remove_policy(self, policy: Policy) -> bool:
         """
-        Remove a policy from the enforcer.
+        Remove a policy from the store.
 
         :param policy: The policy to be removed.
         :type policy: Policy
@@ -188,13 +189,16 @@ class CasbinPolicyManager:
         resource = policy.resource
         action = policy.action
 
-        filter_ = (user_uuid, instance_uid, resource, action)
-        self._reload()
-        result = self.enforcer.remove_filtered_policy(0, *filter_)
-        if result:
+        removed = self._rules.delete_many({
+            "ptype": "p",
+            "v0": user_uuid,
+            "v1": instance_uid,
+            "v2": resource,
+            "v3": action,
+        })
+        if removed.deleted_count:
             return True
-        else:
-            raise ValueError("Failed to remove policy.")
+        raise ValueError("Failed to remove policy.")
         
     def remove_policies(self, policies: list[Policy]) -> bool:
         """
@@ -212,8 +216,7 @@ class CasbinPolicyManager:
         """
         Remove all policies belonging to ``user_uuid`` from MongoDB.
         """
-        self._reload()
-        self.enforcer.remove_filtered_policy(0, user_uuid.__str__())
+        self._rules.delete_many({"ptype": "p", "v0": str(user_uuid)})
         return True
 
     def checker(self, user_uuid: UUID, instance_uuid: UUID) -> Checker:

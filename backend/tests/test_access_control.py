@@ -583,13 +583,9 @@ def test_a_policy_saved_through_another_backend_can_be_removed(make_user, portal
         portal.unstore_policy(user, portal.resource("shared/notes.txt"), "read")
 
 
-BRACKET_ROWS = pytest.mark.xfail(strict=True, reason="the enforcer's copy splits a path with '[' wrongly")
-
-
-@BRACKET_ROWS
 def test_a_policy_on_a_path_with_a_bracket_is_listed_and_removed(make_user, portal):
     """AC-5. Paths are literal: a policy on brackets/a[b.bin is listed like any other, and removing
-    it works (the enforcer's own copy reads that row as three fields)."""
+    it works."""
     user = make_user(("read", "brackets/a[b.bin"))
     listed_for_admin = portal.admin("GET", "/api/policies/", params={"username": user.username})
     assert listed_for_admin.status_code == 200, listed_for_admin.text
