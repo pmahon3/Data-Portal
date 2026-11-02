@@ -541,12 +541,9 @@ def test_a_link_handed_out_keeps_working_after_its_policy_is_removed(make_user, 
 # ---------------------------------- two backend processes: policies are read from the store
 # Production runs two backend processes. A policy saved through one must be listed, refused as a
 # duplicate and removable through the other. Access decisions already read the store each request;
-# the policy pages read a copy each process loaded at startup.
+# the policy pages and the duplicate check read the store too, and a change reloads the
+# enforcer's copy first.
 
-POLICY_REPLICAS = pytest.mark.xfail(strict=True, reason="policy pages read each process's startup copy")
-
-
-@POLICY_REPLICAS
 def test_a_policy_saved_through_another_backend_is_listed(make_user, portal):
     """AC-8. The policies table, the user's own list, and so end-date reminders, read what's stored."""
     user = make_user()
@@ -559,7 +556,6 @@ def test_a_policy_saved_through_another_backend_is_listed(make_user, portal):
         portal.unstore_policy(user, portal.resource("shared/notes.txt"), "read")
 
 
-@POLICY_REPLICAS
 def test_a_policy_saved_through_another_backend_is_refused_as_a_duplicate(make_user, portal):
     """AC-5. One policy per person, instance, path and action."""
     user = make_user()
@@ -570,7 +566,6 @@ def test_a_policy_saved_through_another_backend_is_refused_as_a_duplicate(make_u
         portal.unstore_policy(user, portal.resource("shared/notes.txt"), "read")
 
 
-@POLICY_REPLICAS
 def test_a_policy_saved_through_another_backend_can_be_removed(make_user, portal):
     """AC-3. Removing a policy works whichever process saved it, and access ends."""
     user = make_user()

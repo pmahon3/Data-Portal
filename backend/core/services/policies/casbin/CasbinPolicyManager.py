@@ -71,9 +71,31 @@ class CasbinPolicyManager:
     def actions(self) -> list[str]:
         return self._actions
 
+    def _stored(self, **fields: str) -> list[Policy]:
+        """
+        Return the stored policies whose fields match, read from MongoDB rather than the enforcer's
+        copy: each backend process loads that copy at startup and never sees changes made through
+        another process (production runs two).
+
+        Example: ``_stored(v0=user_uuid)`` -> that user's policies on every instance
+        """
+        rows = self._rules.find({"ptype": "p", **fields}, {"_id": 0, "ptype": 0})
+        policies = []
+        for row in rows:
+            values = [row.get(f"v{i}", "") for i in range(5)]
+            # a policy saved before policies had conditions has no fifth field
+            if not values[4]:
+                values = values[:4]
+            policies.append(policy_from_row(values))
+        return policies
+
+    def _reload(self) -> None:
+        """Load the enforcer's copy from MongoDB again, so a change starts from what's stored."""
+        self.enforcer.load_policy()
+
     def get_all_policies(self) -> list[Policy]:
         """Return every stored policy."""
-        return [policy_from_row(row) for row in self.enforcer.get_policy()]
+        return self._stored()
 
     def get_user_policies(self, user_uuid: UUID) -> list[Policy]:
         """
@@ -82,9 +104,7 @@ class CasbinPolicyManager:
         :return: The filtered user policies.
         :rtype: list[str]
         """
-        user_uuid = user_uuid.__str__()
-        policies = self.enforcer.get_filtered_policy(0, user_uuid)
-        return [policy_from_row(policy) for policy in policies]
+        return self._stored(v0=str(user_uuid))
 
     def get_instance_policies(self, instance_uuid: UUID) -> list[Policy]:
         """
@@ -93,10 +113,7 @@ class CasbinPolicyManager:
         :return: The filtered access point policies.
         :rtype: list[str]
         """
-        instance_uuid = instance_uuid.__str__()
-
-        policies = self.enforcer.get_filtered_policy(1, instance_uuid)
-        return [policy_from_row(policy) for policy in policies]
+        return self._stored(v1=str(instance_uuid))
 
     def filter_policies(self, filter_: Policy) -> list[Policy]:
         """
@@ -104,19 +121,14 @@ class CasbinPolicyManager:
 
         """
 
-        def convert_to_str(value: object | None) -> str:
-            return value.__str__() if value is not None else ""
-
-        # Only the fields a stored rule has (p = sub, dom, obj, act in model.conf)
-        filter_ = tuple(map(
-            convert_to_str,
-            (filter_.user_uuid, filter_.instance_uuid, filter_.resource, filter_.action),
-        ))
-
-        # Retrieve the policies matching the filter
-        policies = self.enforcer.get_filtered_policy(0, *filter_)
-
-        return [policy_from_row(policy) for policy in policies]
+        # Only the fields a stored rule has (p = sub, dom, obj, act in model.conf); a field left
+        # out matches anything
+        values = (filter_.user_uuid, filter_.instance_uuid, filter_.resource, filter_.action)
+        fields = {}
+        for i, value in enumerate(values):
+            if value is not None and str(value) != "":
+                fields[f"v{i}"] = str(value)
+        return self._stored(**fields)
 
     def add_policy(self, policy: Policy) -> bool:
         """
@@ -132,7 +144,7 @@ class CasbinPolicyManager:
 
         filter_ = (user_uuid, instance_uuid, resource, action)
         # One policy per person, instance, path and action, whatever its conditions
-        if self.enforcer.get_filtered_policy(0, *filter_):
+        if self._stored(v0=user_uuid, v1=instance_uuid, v2=resource, v3=action):
             raise ValueError("Policy already exists.")
         rule = Rule(
             resource,
@@ -147,6 +159,7 @@ class CasbinPolicyManager:
         conditions = conditions_json(rule)
         # a policy without conditions keeps the four fields it always had
         fields = (*filter_, conditions) if conditions else filter_
+        self._reload()
         if self.enforcer.add_policy(*fields):
             return True
         raise ValueError("Failed to add policy.")
@@ -176,6 +189,7 @@ class CasbinPolicyManager:
         action = policy.action
 
         filter_ = (user_uuid, instance_uid, resource, action)
+        self._reload()
         result = self.enforcer.remove_filtered_policy(0, *filter_)
         if result:
             return True
@@ -198,6 +212,7 @@ class CasbinPolicyManager:
         """
         Remove all policies belonging to ``user_uuid`` from MongoDB.
         """
+        self._reload()
         self.enforcer.remove_filtered_policy(0, user_uuid.__str__())
         return True
 

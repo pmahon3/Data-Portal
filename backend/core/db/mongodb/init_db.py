@@ -36,9 +36,11 @@ PROJECT_INSTANCE_ASSOCIATION_INDEXES = [
     ),
 ]
 
-# Each request reads one user's rules on one instance (policy type, user, instance)
+# Each request reads one user's rules on one instance (policy type, user, instance); listings
+# and reminders also read one instance's rules (policy type, instance)
 POLICY_RULE_INDEXES = [
     IndexModel([("ptype", ASCENDING), ("v0", ASCENDING), ("v1", ASCENDING)]),
+    IndexModel([("ptype", ASCENDING), ("v1", ASCENDING)]),
 ]
 
 
