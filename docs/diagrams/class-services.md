@@ -189,16 +189,15 @@ classDiagram
 
 ## Policy Manager Architecture
 
-Provides a service layer for the CRUD lifecycle of policies and agreements. 
-Persistence is managed via a MongoDB Casbin adapter.
-Note: Agreement functionality is currently defined but not yet implemented.
+Provides the CRUD lifecycle of policies. Policies are stored in MongoDB (`casbin_rule`) in the
+Casbin adapter's format and read and written there directly; decisions are made by a `Checker`
+built from one user's rules on one instance for each request (`core/services/policies/rules.py`).
 
 ```mermaid
 classDiagram
     class CasbinPolicyManager {
-        -enforcer: casbin.Enforcer
-        -_actions: list
-        +actions : list
+        -_rules: Collection
+        +get_all_policies() list~Policy~
         +get_user_policies(user_uuid) list~Policy~
         +get_instance_policies(instance_uuid) list~Policy~
         +filter_policies(filter_) list~Policy~
@@ -207,10 +206,9 @@ classDiagram
         +remove_policy(policy) bool
         +remove_policies(policies) bool
         +remove_user_policy_store(user_uuid) bool
+        +rules_for(user_uuid, instance_uuid) list~Rule~
+        +checker(user_uuid, instance_uuid) Checker
         +validate_policy(policy) bool
-        +get_allowed_actions(user_uuid, instance_uuid, resource, actions) list~str~
-        +create_agreement(agreement) bool
-        +remove_agreement(agreement) bool
     }
 
     class Policy {
@@ -218,28 +216,27 @@ classDiagram
         +instance_uuid: UUID | None
         +resource: str | None
         +action: str | None
+        +ends: date | None
+        +excluded: list~str~
+        +endings: list~str~
+        +kinds: list~str~
     }
 
-    class Agreement {
-        <<not implemented>>
-        +uuid: UUID
-        +policies: list~Policy~
-        +lifespan: timedelta
-        +version: float
+    class Rule {
+        +path: str
+        +action: str
+        +ends, excluded, endings, kinds
     }
 
-    class Enforcer {
-        <<external casbin>>
+    class Checker {
+        +allows(path, action) bool
+        +shows_folder(folder, action) bool
+        +split(paths, action) tuple
     }
 
-    class MongoAdapter {
-        <<external casbin-pymongo-adapter>>
-    }
-
-    CasbinPolicyManager o-- Enforcer : evaluates policies with
-    Enforcer o-- MongoAdapter : persists through
     CasbinPolicyManager ..> Policy : manages
-    Agreement *-- Policy : contains
+    CasbinPolicyManager ..> Checker : builds
+    Checker o-- Rule : decides with
 ```
 
 ## Tree Service Architecture

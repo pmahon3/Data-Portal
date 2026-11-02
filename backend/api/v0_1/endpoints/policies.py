@@ -10,10 +10,9 @@ import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.v0_1.common.auth_dependencies import get_current_user, is_user_admin, require_admin, require_admin_or_manager
+from api.v0_1.common.auth_dependencies import get_current_user, is_user_admin, require_admin_or_manager
 from api.v0_1.startup import init_db_roots
 from core.services.injectors import get_user_manager, get_policy_manager, get_instance_manager, get_project_manager
 from core.services.instances import AbstractInstanceManager
@@ -450,41 +449,3 @@ async def delete_policy(
 
     logger.info(f"Deleted policy for user UUID '{user_uuid}' on instance UUID '{instance_uuid}' with action '{old_policy.action}' on resource '{old_policy.resource}'")
     return RemovePolicyResponse(success=True, details=[policy])
-
-
-@policies_router.post(
-    "/validate",
-    summary="Validate a policy",
-    description="Check if a specific policy would be allowed by the current policy configuration."
-)
-async def validate_policy(
-    policy_data: Policy,
-    admin_user: dict = Depends(require_admin),
-    policy_manager: CasbinPolicyManager = Depends(get_policy_manager)
-) -> JSONResponse:
-    """
-    Validate if a policy would be allowed (admin only).
-    
-    Useful for testing policy configurations before applying them.
-    
-    Args:
-        policy_data: Policy to validate
-        admin_user: Current user (must have admin privileges)
-        policy_manager: Policy manager dependency
-        
-    Returns:
-        JSONResponse: Validation result
-    """
-    is_valid = policy_manager.validate_policy(policy_data)
-    return JSONResponse(
-        status_code=200,
-        content={
-            "valid": is_valid,
-            "policy": {
-                "user_uuid": str(policy_data.user_uuid),
-                "instance_uuid": str(policy_data.instance_uuid),
-                "resource": policy_data.resource,
-                "action": policy_data.action
-            }
-        }
-    )

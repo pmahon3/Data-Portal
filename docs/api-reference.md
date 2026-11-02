@@ -85,7 +85,6 @@ they manage.
 | `GET` | `/api/policies/check` | May a person do an action on a path, and which of their policies allows it? Takes `username`, `instance_name`, `resource` and `action`; returns `allowed`, `because` (the policies) and, for a folder path ending in `/`, `shown` *(admin, or project manager for people in their projects)*. |
 | `POST` | `/api/policies/` | Add a policy *(admin or project manager)*. |
 | `DELETE` | `/api/policies/` | Remove a policy *(admin or project manager)*. |
-| `POST` | `/api/policies/validate` | Test a policy without adding it *(admin)*. |
 
 `GET /api/policies/` filters by `username` or `instance_name` as well as by UUID. A policy's
 `resource` is a literal path: `bucket/path/file.txt` (that file), `bucket/folder/*` (that folder and
