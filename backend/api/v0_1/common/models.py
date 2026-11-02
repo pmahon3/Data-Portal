@@ -55,6 +55,7 @@ class AddPolicyRequest(BaseModel):
     action: str = Field(..., description="The action to be performed on the resource.")
     ends: Optional[date] = Field(default=None, description="The last day the policy applies (AC-8); omit for no end.")
     excluded: list[str] = Field(default_factory=list, description="Paths inside a folder policy that it leaves out (AC-10).")
+    endings: list[str] = Field(default_factory=list, description="If given, a folder policy covers only files ending in one, e.g. '.nii' (AC-6).")
 
 
 class AddPolicyResponse(BaseModel):

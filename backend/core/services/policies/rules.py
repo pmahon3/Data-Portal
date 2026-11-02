@@ -8,7 +8,9 @@ A policy gives one user one action on one path of a storage instance. The path i
 The action is a single action ("read", "write", "delete") or "*" for every action.
 A policy may also end: from the day after its end date it allows and shows nothing (AC-8). A folder
 policy may leave out files or folders inside it, which it then neither allows nor shows; another
-policy can still give them (AC-10). These conditions are stored as JSON in the policy's fifth field
+policy can still give them (AC-10). And a folder policy may be limited to files whose names end in
+given endings, such as ".nii"; it still covers the folders inside, so they can be browsed and
+uploaded into (AC-6). These conditions are stored as JSON in the policy's fifth field
 (model.conf); only this module reads them.
 
 Two questions are asked of a user's policies:
@@ -21,7 +23,7 @@ rule_allows and rule_shows_folder define the rule for one policy. Checker applie
 a user's policies at once, indexed so each path costs a few set lookups however many policies
 the user holds; tests check that the two agree.
 
-Requirements AC-1, AC-2, AC-3, AC-5, AC-8 and AC-10 in docs/requirements/access-control.md.
+Requirements AC-1, AC-2, AC-3, AC-5, AC-6, AC-8 and AC-10 in docs/requirements/access-control.md.
 """
 import datetime
 import json
@@ -39,6 +41,7 @@ class Rule(NamedTuple):
     action: str
     ends: datetime.date | None = None  # the last day it applies; None for no end
     excluded: tuple[str, ...] = ()       # paths inside a folder policy that it leaves out
+    endings: tuple[str, ...] = ()        # if any, a folder policy covers only files ending in one (lower case)
 
 
 def today() -> datetime.date:
@@ -58,6 +61,8 @@ def conditions_json(rule: Rule) -> str:
         conditions["ends"] = rule.ends.isoformat()
     if rule.excluded:
         conditions["except"] = list(rule.excluded)
+    if rule.endings:
+        conditions["endings"] = list(rule.endings)
     return json.dumps(conditions) if conditions else ""
 
 
@@ -65,7 +70,8 @@ def rule_from_stored(path: str, action: str, conditions: str | None = "") -> Rul
     """A rule from a stored policy row."""
     stored = json.loads(conditions) if conditions else {}
     ends = stored.get("ends")
-    return Rule(path, action, datetime.date.fromisoformat(ends) if ends else None, tuple(stored.get("except", ())))
+    return Rule(path, action, datetime.date.fromisoformat(ends) if ends else None, tuple(stored.get("except", ())),
+                tuple(stored.get("endings", ())))
 
 
 def leaves_out(rule: Rule, path: str) -> bool:
@@ -73,9 +79,15 @@ def leaves_out(rule: Rule, path: str) -> bool:
     return any(key_match(path, excluded) for excluded in rule.excluded)
 
 
+def of_its_types(rule: Rule, path: str) -> bool:
+    """`path` is a folder, or the rule has no endings, or the file's name ends in one (any case)."""
+    return not rule.endings or path.endswith("/") or path.lower().endswith(rule.endings)
+
+
 def covers(rule: Rule, path: str) -> bool:
-    """The rule's path covers `path`, exactly or as a folder ending in "/*", and doesn't leave it out."""
-    return key_match(path, rule.path) and not leaves_out(rule, path)
+    """The rule's path covers `path`, exactly or as a folder ending in "/*", without leaving it out,
+    and `path` is of the rule's file types."""
+    return key_match(path, rule.path) and not leaves_out(rule, path) and of_its_types(rule, path)
 
 
 def rule_allows(rule: Rule, path: str, action: str) -> bool:
@@ -137,6 +149,21 @@ def validate_rule_action(action: str) -> str:
     return action
 
 
+def validate_endings(path: str, endings: Iterable[str]) -> tuple[str, ...]:
+    """
+    The saved form of the file endings a policy on `path` is limited to: each starts with "." and
+    has no "/" or "*", kept in lower case. Only a folder policy ("folder/*") or "*" can have them.
+    Raises ValueError otherwise.
+    """
+    saved = tuple(dict.fromkeys(e.strip().lower() for e in endings if e.strip()))
+    if saved and not path.endswith(ALL):
+        raise ValueError("Only a folder policy (ending in '/*') or '*' can be limited to file endings.")
+    for e in saved:
+        if not e.startswith(".") or len(e) < 2 or "/" in e or ALL in e:
+            raise ValueError(f"'{e}' isn't a file ending: write it like '.nii' or '.nii.gz'.")
+    return saved
+
+
 class Checker:
     """A user's rules on one storage instance that are in force today, indexed by action."""
 
@@ -145,12 +172,12 @@ class Checker:
         self._exact: dict[str, set[str]] = defaultdict(set)    # action -> exact paths
         self._folders: dict[str, set[str]] = defaultdict(set)  # action -> "bucket/folder/"
         self._above: dict[str, set[str]] = defaultdict(set)    # action -> folders above a rule's path
-        self._leaving_out: list[Rule] = []                      # rules with exclusions, checked one by one
+        self._leaving_out: list[Rule] = []                      # rules with exclusions or endings, checked one by one
         on = today()
         for rule in rules:
             if not in_force(rule, on):
                 continue
-            if rule.excluded:
+            if rule.excluded or rule.endings:
                 self._leaving_out.append(rule)
                 continue
             if rule.path == ALL:

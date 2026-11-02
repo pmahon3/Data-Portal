@@ -114,3 +114,18 @@ test('a typed folder policy is saved with what it leaves out', async () => {
   expect(mockPost.mock.calls[0][1]).toEqual({ username: 'alice', instance_name: 'demo', resource: 'study/*',
     action: 'read', excluded: ['study/sub-03/*', 'study/notes.txt'] });
 });
+
+// AC-6: a typed folder policy can be limited to file endings.
+test('a typed folder policy is saved with its file endings', async () => {
+  mockPost.mockResolvedValue({ data: {} });
+  render(<PolicyManagement />);
+  fireEvent.change(screen.getByPlaceholderText('alice'), { target: { value: 'alice' } });
+  await screen.findByRole('option', { name: 'demo' });
+  fireEvent.change(screen.getByRole('combobox', { name: /Instance/ }), { target: { value: 'demo' } });
+  fireEvent.change(screen.getByPlaceholderText('bucket/folder/* or bucket/path/file.ext'), { target: { value: 'study/*' } });
+  fireEvent.change(screen.getByLabelText(/^Only files ending in/), { target: { value: '.nii, .nii.gz' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Create Policy' }));
+  await waitFor(() => expect(mockPost).toHaveBeenCalled());
+  expect(mockPost.mock.calls[0][1]).toEqual({ username: 'alice', instance_name: 'demo', resource: 'study/*',
+    action: 'read', endings: ['.nii', '.nii.gz'] });
+});

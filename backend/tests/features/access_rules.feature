@@ -162,3 +162,38 @@ Feature: What a policy allows
       | qa-bucket/study/* | qa-bucket/study/*           | refused                                  |
       | qa-bucket/a.txt   | qa-bucket/a.txt             | refused                                  |
       | qa-bucket/study/* | qa-bucket/study/sub-0*/x    | refused                                  |
+
+  @AC-6
+  Scenario Outline: A folder policy limited to file endings covers only those files
+    Given the user holds "read" on "qa-bucket/study/*" for files ending in ".nii, .nii.gz"
+    Then the user <may> "read" "<path>"
+
+    Examples:
+      | path                              | may     |
+      | qa-bucket/study/sub-01/scan.nii   | may     |
+      | qa-bucket/study/sub-01/SCAN.NII   | may     |
+      | qa-bucket/study/sub-01/scan.nii.gz| may     |
+      | qa-bucket/study/sub-01/notes.txt  | may not |
+      | qa-bucket/study/sub-01/scan.nii.bak | may not |
+      | qa-bucket/other/scan.nii          | may not |
+      | qa-bucket/study/sub-01/           | may     |
+
+  @AC-6
+  Scenario: Endings and exclusions apply together
+    Given the user holds "read" on "qa-bucket/study/*" for files ending in ".nii" leaving out "qa-bucket/study/sub-03/*"
+    Then the user may "read" "qa-bucket/study/sub-01/scan.nii"
+    And the user may not "read" "qa-bucket/study/sub-03/scan.nii"
+    And the user may not "read" "qa-bucket/study/sub-01/notes.txt"
+
+  @AC-6
+  Scenario Outline: Endings are checked when a policy is saved
+    When an administrator saves a policy on "<policy>" for files ending in "<endings>"
+    Then it is <outcome>
+
+    Examples:
+      | policy            | endings      | outcome                          |
+      | qa-bucket/study/* | .NII, .nii.gz | saved for endings .nii, .nii.gz |
+      | qa-bucket/a.txt   | .txt         | refused                          |
+      | qa-bucket/study/* | nii          | refused                          |
+      | qa-bucket/study/* | .n*i         | refused                          |
+      | qa-bucket/study/* | ./x          | refused                          |

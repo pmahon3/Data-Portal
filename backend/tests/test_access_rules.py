@@ -4,7 +4,7 @@ Steps for features/access_rules.feature, plus property tests for the decision la
 Every check runs through both the definition (rule_allows, rule_shows_folder) and the indexed
 Checker, so the scenarios also test that the two agree.
 
-Verifies: AC-5, AC-8, AC-10.
+Verifies: AC-5, AC-6, AC-8, AC-10.
 """
 import datetime
 from pathlib import Path
@@ -22,6 +22,7 @@ from core.services.policies.rules import (
     rule_allows,
     rule_shows_folder,
     today,
+    validate_endings,
     validate_excluded,
 )
 
@@ -45,19 +46,33 @@ def rules():
     return []
 
 
-@bdd_given(parsers.parse('the user holds "{action}" on "{path}"'))
+@bdd_given(parsers.re(r'the user holds "(?P<action>[^"]*)" on "(?P<path>[^"]*)"$'))
 def user_holds(rules, action, path):
     rules.append(Rule(path, action))
 
 
-@bdd_given(parsers.parse('the user holds "{action}" on "{path}" until "{ends}"'))
+@bdd_given(parsers.re(r'the user holds "(?P<action>[^"]*)" on "(?P<path>[^"]*)" until "(?P<ends>[^"]*)"$'))
 def user_holds_until(rules, action, path, ends):
     rules.append(Rule(path, action, today() if ends == "today" else datetime.date.fromisoformat(ends)))
 
 
-@bdd_given(parsers.parse('the user holds "{action}" on "{path}" leaving out "{excluded}"'))
+@bdd_given(parsers.re(r'the user holds "(?P<action>[^"]*)" on "(?P<path>[^"]*)" leaving out "(?P<excluded>[^"]*)"$'))
 def user_holds_leaving_out(rules, action, path, excluded):
     rules.append(Rule(path, action, None, tuple(e.strip() for e in excluded.split(","))))
+
+
+def endings_of(text):
+    return tuple(e.strip() for e in text.split(","))
+
+
+@bdd_given(parsers.re(r'the user holds "(?P<action>[^"]*)" on "(?P<path>[^"]*)" for files ending in "(?P<endings>[^"]*)" leaving out "(?P<excluded>[^"]*)"$'))
+def user_holds_endings_leaving_out(rules, action, path, endings, excluded):
+    rules.append(Rule(path, action, None, tuple(e.strip() for e in excluded.split(",")), endings_of(endings)))
+
+
+@bdd_given(parsers.re(r'the user holds "(?P<action>[^"]*)" on "(?P<path>[^"]*)" for files ending in "(?P<endings>[^"]*)"$'))
+def user_holds_endings(rules, action, path, endings):
+    rules.append(Rule(path, action, None, (), endings_of(endings)))
 
 
 @then(parsers.re(r'the user (?P<may>may|may not) "(?P<action>[^"]*)" "(?P<path>[^"]*)"'))
@@ -86,6 +101,19 @@ def save_policy_leaving_out(policy, excluded):
         return error
 
 
+@when(parsers.parse('an administrator saves a policy on "{policy}" for files ending in "{endings}"'), target_fixture="saved")
+def save_policy_endings(policy, endings):
+    try:
+        return validate_endings(policy, endings_of(endings))
+    except ValueError as error:
+        return error
+
+
+@then(parsers.parse("it is saved for endings {expected}"))
+def saved_for_endings(saved, expected):
+    assert saved == endings_of(expected)
+
+
 @then(parsers.parse("it is saved leaving out {expected}"))
 def saved_leaving_out(saved, expected):
     assert saved == (expected,)
@@ -104,7 +132,7 @@ def refused(saved):
 # Property tests: the indexed Checker gives the same answers as the definition for any valid
 # rules and any path, and saving is stable.
 
-SEGMENTS = st.sampled_from(["a", "b", "study", "p7", "sub-07", "x.nii", "y.csv", "a[b", "(c)"])
+SEGMENTS = st.sampled_from(["a", "b", "study", "p7", "sub-07", "x.nii", "y.csv", "Z.NII", "a[b", "(c)"])
 ACTIONS = st.sampled_from(["read", "write", "delete"])
 
 
@@ -124,7 +152,8 @@ def valid_rule(draw):
         inside = path[:-1]
         excluded = tuple(draw(st.lists(st.one_of(joined(1, 2).map(lambda p: inside + p + "/*"),
                                                   joined(1, 2).map(lambda p: inside + p)), max_size=2)))
-    return Rule(path, draw(st.one_of(ACTIONS, st.just("*"))), draw(ENDS), excluded)
+    endings = draw(st.sampled_from([(), (".nii",), (".csv", ".nii")])) if path.endswith("*") else ()
+    return Rule(path, draw(st.one_of(ACTIONS, st.just("*"))), draw(ENDS), excluded, endings)
 
 
 VALID_RULES = st.lists(valid_rule(), max_size=6)
@@ -173,11 +202,11 @@ def test_no_decision_goes_through_casbins_own_matcher():
 
 
 def test_stored_policies_read_back_with_and_without_conditions():
-    """AC-8, AC-10. Rows saved before policies had conditions have four fields; newer ones may have five."""
+    """AC-6, AC-8, AC-10. Rows saved before policies had conditions have four fields; newer ones may have five."""
     from core.services.policies.casbin.CasbinPolicyManager import policy_from_row
     user, instance = "3ad5aedb-dd63-418a-ae55-a67a455e2e4b", "ded55682-2208-4584-a324-ef15d47c4601"
     assert policy_from_row([user, instance, "b/x", "read"]).ends is None
     ended = policy_from_row([user, instance, "b/y/*", "read", '{"ends": "2027-06-30"}'])
     assert (ended.resource, ended.ends) == ("b/y/*", datetime.date(2027, 6, 30))
-    leaving = policy_from_row([user, instance, "b/y/*", "read", '{"except": ["b/y/z/*"]}'])
-    assert (leaving.ends, leaving.excluded) == (None, ["b/y/z/*"])
+    leaving = policy_from_row([user, instance, "b/y/*", "read", '{"except": ["b/y/z/*"], "endings": [".nii"]}'])
+    assert (leaving.ends, leaving.excluded, leaving.endings) == (None, ["b/y/z/*"], [".nii"])
