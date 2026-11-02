@@ -27,9 +27,12 @@ def list_notifications(
     user: dict = Depends(decode_token),
     user_manager: AbstractUserManager = Depends(get_user_manager),
 ) -> list[NotificationOut]:
-    """The caller's own notifications, newest first."""
+    """Return the caller's own notifications, newest first."""
     user_uuid = str(user_manager.get_user_uuid(user["preferred_username"]))
-    # MongoDB returns UTC times without a zone; mark them, or browsers read them as local time.
-    return [NotificationOut(id=n["_id"], **{k: v for k, v in n.items() if k not in ("_id", "user", "created_at")},
-                            created_at=n["created_at"].replace(tzinfo=UTC))
-            for n in notifications.for_user(user_uuid)]
+    listed = []
+    for notification in notifications.for_user(user_uuid):
+        refs = {k: v for k, v in notification.items() if k not in ("_id", "user", "created_at")}
+        # MongoDB returns UTC times without a zone; mark them, or browsers read them as local time.
+        created_at = notification["created_at"].replace(tzinfo=UTC)
+        listed.append(NotificationOut(id=notification["_id"], created_at=created_at, **refs))
+    return listed

@@ -11,6 +11,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.v0_1.common.auth_dependencies import get_current_user, is_user_admin, require_admin, require_admin_or_manager
 from api.v0_1.startup import init_db_roots
@@ -18,13 +19,17 @@ from core.services.injectors import get_user_manager, get_policy_manager, get_in
 from core.services.instances import AbstractInstanceManager
 from core.services.policies import CasbinPolicyManager
 from core.services.policies import Policy
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from core.db.postgres.session import get_session
 from core.services import standards
 from core.services.filetree.file_service import FileService
-from core.services.policies.rules import (normalize_rule_path, today, validate_endings, validate_excluded,
-                                          validate_kinds, validate_rule_action)
+from core.services.policies.rules import (
+    normalize_rule_path,
+    today,
+    validate_endings,
+    validate_excluded,
+    validate_kinds,
+    validate_rule_action,
+)
 from core.services.projects import AbstractProjectManager
 from core.services.users import AbstractUserManager
 from api.v0_1.common.models import (
@@ -110,8 +115,8 @@ async def get_policies(
             policy_filter.user_uuid = user_manager.get_user_uuid(policy_filter.username)
         if policy_filter.instance_name:
             policy_filter.instance_uuid = instance_manager.get_instance_uuid(policy_filter.instance_name)
-    except KeyError:
-        raise HTTPException(status_code=404, detail="User or instance not found")
+    except KeyError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User or instance not found") from e
 
     policies = policy_manager.filter_policies(policy_filter)
     if policies is None:
@@ -162,11 +167,18 @@ async def get_policies(
 
 
 async def dataset_of(session: AsyncSession, resource: str) -> tuple[str | None, str]:
-    """The root ("bucket/folder/") and standard of the nearest dataset a folder policy is in, if any."""
+    """
+    Return the root ("bucket/folder/") and standard of the nearest dataset a folder policy is in, or
+    None and "" if it's in none.
+
+    Example: "study/sub-01/*" in a BIDS dataset at "study/" -> ("study/", "BIDS")
+    """
     bucket, _, rest = resource.partition("/")
     folder = rest[:-1] if rest.endswith("*") else rest
+    tree = FileService(session)
     for validator in standards.VALIDATORS:
-        roots = await standards.declared_roots(FileService(session), bucket, [folder + "_"], validator.marker)
+        # a stand-in file name, so the folder itself is among the folders searched
+        roots = await standards.declared_roots(tree, bucket, [folder + "_"], validator.marker)
         if roots:
             return f"{bucket}/{roots.pop()}", validator.standard
     return None, ""
@@ -197,7 +209,8 @@ async def create_policy(
         user_manager: User manager dependency
         policy_manager: Policy manager dependency
         instance_manager: Instance manager dependency
-        
+        session: Database session, to find the dataset a policy limited to kinds of data is in
+
     Returns:
         AddPolicyResponse: Success status and created policy details
         
@@ -212,16 +225,23 @@ async def create_policy(
         new_policy.excluded = list(validate_excluded(new_policy.resource, new_policy.excluded))
         new_policy.endings = list(validate_endings(new_policy.resource, new_policy.endings))
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
     # Kinds of data are as the policy's dataset's standard defines them (AC-6)
-    dataset, standard = (await dataset_of(session, new_policy.resource)) if new_policy.kinds else (None, "")
+    dataset, standard = None, ""
+    if new_policy.kinds:
+        dataset, standard = await dataset_of(session, new_policy.resource)
     try:
         new_policy.kinds = list(validate_kinds(new_policy.resource, new_policy.kinds, dataset, standard))
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
     # A policy can end on a date (AC-8), but not one already past: it would allow nothing.
     if new_policy.ends is not None and new_policy.ends < today():
-        raise HTTPException(status_code=400, detail=f"The end date {new_policy.ends} has already passed.")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"The end date {new_policy.ends} has already passed.",
+        )
 
     # Get user and instance UUIDs
     try:
