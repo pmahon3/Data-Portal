@@ -1,5 +1,5 @@
 """
-Send notifications by email, alongside the portal's own list (N-NOTIFY: both).
+Send notifications by email, alongside the portal's own list (NT-NOTIFY: both).
 
 Off until a mail relay is set (``SMTP_HOST``; SA-MAIL). The email never names files, since file names
 can identify participants: it says what happened, with counts, and links to the portal for the

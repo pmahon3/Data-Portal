@@ -1,5 +1,5 @@
 """
-Check datasets against BIDS (E-STD, proposed first).
+Check datasets against BIDS (STD-WHICH, proposed first).
 
 Every file in a dataset must have a name and place the BIDS specification allows (``bids-validator``,
 which checks paths against the schema it bundles). Hidden files are left out, as the BIDS validator
