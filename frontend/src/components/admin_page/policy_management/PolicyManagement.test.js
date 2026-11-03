@@ -59,6 +59,27 @@ async function chooseFromTree() {
   await screen.findByText('patient-7', { selector: '.tree-node-text' });
 }
 
+// Jest 27 has no test.failing: this passes only while the check fails, and fails once it passes,
+// so the fix has to replace it with test().
+function knownFailing(name, check) {
+  test(`${name} (known failing)`, async () => {
+    let failed = false;
+    try {
+      await check();
+    } catch {
+      failed = true;
+    }
+    if (!failed) throw new Error('This now passes: replace knownFailing with test.');
+  });
+}
+
+// AC-10: unticking something inside a ticked folder leaves it out of that folder's policy.
+knownFailing('the tree help says unticking inside a ticked folder leaves it out', async () => {
+  await chooseFromTree();
+  const help = screen.getByText(/A ticked folder covers everything in it/);
+  expect(help).toHaveTextContent('Untick something inside a ticked folder to leave it out');
+});
+
 // AC-5, AC-4: rules chosen from the tree are saved through the policy API, one policy each.
 test('a selection from the tree creates one policy per rule', async () => {
   mockPost.mockResolvedValue({ data: {} });
