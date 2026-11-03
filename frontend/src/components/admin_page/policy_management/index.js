@@ -303,8 +303,9 @@ export default function PolicyManagement() {
                 />
               )}
               <small className="pm-muted">
-                A ticked folder covers everything in it, including files added later. Ticked files are
-                granted one by one, and under a filter only the files it shows are granted.
+                A ticked folder covers everything in it, including files added later. Untick something
+                inside a ticked folder to leave it out. Ticked files are granted one by one, and under a
+                filter only the files it shows are granted.
               </small>
             </div>
           ) : (

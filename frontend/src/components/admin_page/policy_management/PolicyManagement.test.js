@@ -59,6 +59,13 @@ async function chooseFromTree() {
   await screen.findByText('patient-7', { selector: '.tree-node-text' });
 }
 
+// AC-10: unticking something inside a ticked folder leaves it out of that folder's policy.
+test('the tree help says unticking inside a ticked folder leaves it out', async () => {
+  await chooseFromTree();
+  const help = screen.getByText(/A ticked folder covers everything in it/);
+  expect(help).toHaveTextContent('Untick something inside a ticked folder to leave it out');
+});
+
 // AC-5, AC-4: rules chosen from the tree are saved through the policy API, one policy each.
 test('a selection from the tree creates one policy per rule', async () => {
   mockPost.mockResolvedValue({ data: {} });
