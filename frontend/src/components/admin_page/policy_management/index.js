@@ -9,7 +9,7 @@ import { getAuthHeaders } from '../../../utils/authUtils';
 import useEndpointAssetTree from "../asset_management/useEndpointAssetTree.js";
 import TreePicker from "./TreePicker.js";
 import CheckAccess from "./CheckAccess.js";
-import { broadExtent } from "./treeRules.js";
+import { broadExtent, describeConditions, describeRule, describeWho } from "./treeRules.js";
 import { describeEnds, todayUtc } from "../../../utils/policyEnds";
 // Constants and the component states
 // const http = axios.create({ baseURL: "http://localhost:8000" });
@@ -97,6 +97,11 @@ export default function PolicyManagement() {
     })();
   }, [initialized]);
 
+  // What a typed policy leaves out and is limited to, from the form fields (AC-6, AC-10).
+  const typedExcluded = leaveOut.split("\n").map(line => line.trim()).filter(Boolean);
+  const typedEndings = endingsText.split(/[\s,]+/).map(e => e.trim()).filter(Boolean);
+  const typedKinds = kindsText.split(/[\s,]+/).map(k => k.trim()).filter(Boolean);
+
   // Create new policy
   async function handleCreate(e) {
     e.preventDefault();
@@ -116,9 +121,6 @@ export default function PolicyManagement() {
     if (!a) { setCreating(false); return setErr("Action is required."); }
 
     // From the tree, one policy per rule, each through the same API as a typed one.
-    const typedExcluded = leaveOut.split("\n").map(line => line.trim()).filter(Boolean);
-    const typedEndings = endingsText.split(/[\s,]+/).map(e => e.trim()).filter(Boolean);
-    const typedKinds = kindsText.split(/[\s,]+/).map(k => k.trim()).filter(Boolean);
     let resources = treeRules;
     if (!fromTree) {
       resources = [{ resource: r, excluded: typedExcluded, endings: typedEndings, kinds: typedKinds }];
@@ -403,6 +405,20 @@ export default function PolicyManagement() {
               for no end.
             </small>
           </label>
+
+          {resourceMode === "path" && resource.trim() && (
+            <section className="pm-rule-preview" aria-label="Policy to create">
+              <p>{describeWho(username.trim(), action)}</p>
+              <ul>
+                <li>
+                  <code>{describeRule({ resource: resource.trim(), excluded: typedExcluded })}</code>
+                </li>
+              </ul>
+              {describeConditions({ endings: typedEndings, kinds: typedKinds, ends }).map((sentence) => (
+                <p key={sentence} className="pm-muted">{sentence}</p>
+              ))}
+            </section>
+          )}
 
           {broadWarnings.length > 0 && (
             <div role="status" className="pm-warn">

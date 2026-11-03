@@ -86,6 +86,21 @@ test('a bucket ticked in the tree is called broad', async () => {
   expect(screen.getByRole('status')).toHaveTextContent('This covers the whole bucket study, including files added later.');
 });
 
+// AC-5, AC-6, AC-10: a typed policy is said in plain words before it's saved, as the tree's are.
+test('a typed policy is previewed in plain words', async () => {
+  render(<PolicyManagement />);
+  fireEvent.change(screen.getByPlaceholderText('alice'), { target: { value: 'alice' } });
+  const field = await screen.findByPlaceholderText('bucket/folder/* or bucket/path/file.ext');
+  expect(screen.queryByRole('region', { name: 'Policy to create' })).toBeNull();
+  fireEvent.change(field, { target: { value: 'study/*' } });
+  fireEvent.change(screen.getByLabelText(/^Leave out/), { target: { value: 'study/sub-03/*' } });
+  fireEvent.change(screen.getByLabelText(/^Only files ending in/), { target: { value: '.nii, .nii.gz' } });
+  const preview = screen.getByRole('region', { name: 'Policy to create' });
+  expect(preview).toHaveTextContent('alice can read:');
+  expect(preview).toHaveTextContent('everything in study/ except study/sub-03/, including files added later');
+  expect(preview).toHaveTextContent('Only files ending in .nii or .nii.gz.');
+});
+
 // AC-5, AC-4: rules chosen from the tree are saved through the policy API, one policy each.
 test('a selection from the tree creates one policy per rule', async () => {
   mockPost.mockResolvedValue({ data: {} });

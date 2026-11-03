@@ -172,3 +172,18 @@ export function broadExtent(resource) {
   if (bucket) return `This covers the whole bucket ${bucket[1]}, including files added later.`;
   return null;
 }
+
+// Example: ["a", "b", "c"] -> "a, b or c"
+const joinOr = (items) => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} or ${items.at(-1)}`);
+
+/**
+ * Return a typed policy's conditions in words, one sentence each (AC-6, AC-8).
+ * Example: { endings: [".nii"], kinds: [], ends: "" } -> ["Only files ending in .nii."]
+ */
+export function describeConditions({ endings, kinds, ends }) {
+  const sentences = [];
+  if (endings.length) sentences.push(`Only files ending in ${joinOr(endings)}.`);
+  if (kinds.length) sentences.push(`Only ${joinOr(kinds)} data.`);
+  if (ends) sentences.push(`Until the end of ${ends}, then nothing.`);
+  return sentences;
+}
