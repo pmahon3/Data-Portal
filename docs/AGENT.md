@@ -128,7 +128,7 @@ Storage instances are managed through the backend `InstanceManager`.
 
 - Instance definitions are loaded from MongoDB at startup.
 - A storage agent is created in memory for each configured instance.
-- The instance UUID is stable and derived from the instance name.
+- An instance gets a random UUID when it is created; policies name the UUID, so renaming an instance keeps its policies.
 - The backend supports `s3`, `posix` and `dummy` flavours in code.
 - The admin UI creates `s3` and `posix` instances.
 

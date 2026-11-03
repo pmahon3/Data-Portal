@@ -112,7 +112,7 @@ export default function StorageInstanceForm({ onCreate, creating, initialized })
         <label className="im-field">
           <span>Instance Name *</span>
           <input value={instanceName} onChange={e => setInstanceName(e.target.value)} placeholder="my-instance-name" />
-          <small className="im-muted">Used to derive a stable UUID and shown in the UI</small>
+          <small className="im-muted">Shown in the portal. You can rename it later.</small>
         </label>
 
         <div className="im-field">
