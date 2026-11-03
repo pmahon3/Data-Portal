@@ -38,3 +38,5 @@
 .pm-tree-picker { display: grid; gap: 8px; }
 .pm-rule-preview { border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px 12px; background: #f9fafb; }
 .pm-rule-preview ul { margin: 4px 0; padding-left: 20px; }
+.pm-warn { border: 1px solid #f59e0b; border-radius: 8px; padding: 4px 12px; background: #fffbeb; color: #92400e; }
+.pm-warn p { margin: 4px 0; }

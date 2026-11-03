@@ -66,6 +66,26 @@ test('the tree help says unticking inside a ticked folder leaves it out', async 
   expect(help).toHaveTextContent('Untick something inside a ticked folder to leave it out');
 });
 
+// AC-5: a typed policy on a whole bucket or the whole instance says so before it's saved.
+test('a typed policy on a whole bucket is called broad, and one on a folder is not', async () => {
+  render(<PolicyManagement />);
+  const field = await screen.findByPlaceholderText('bucket/folder/* or bucket/path/file.ext');
+  fireEvent.change(field, { target: { value: 'study/*' } });
+  expect(screen.getByRole('status')).toHaveTextContent('This covers the whole bucket study, including files added later.');
+  fireEvent.change(field, { target: { value: '*' } });
+  expect(screen.getByRole('status')).toHaveTextContent('This covers the whole instance, including files added later.');
+  fireEvent.change(field, { target: { value: 'study/patient-7/*' } });
+  expect(screen.queryByRole('status')).toBeNull();
+});
+
+// AC-5: ticking a whole bucket in the tree says so too.
+test('a bucket ticked in the tree is called broad', async () => {
+  await chooseFromTree();
+  expect(screen.queryByRole('status')).toBeNull();
+  fireEvent.click(rowFor('study'));
+  expect(screen.getByRole('status')).toHaveTextContent('This covers the whole bucket study, including files added later.');
+});
+
 // AC-5, AC-4: rules chosen from the tree are saved through the policy API, one policy each.
 test('a selection from the tree creates one policy per rule', async () => {
   mockPost.mockResolvedValue({ data: {} });
