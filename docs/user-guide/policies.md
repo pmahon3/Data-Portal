@@ -22,8 +22,8 @@ one path and one action. A person's access is everything their policies give, ad
 4. Choose the **Action**: `read`, `write` or `delete`.
 5. If the access should stop on a date, choose it under **Ends**. Leave it empty for access with no
    end, such as to an open dataset.
-6. Check the rules listed under the tree, then choose **Create Policy** (**Create 2 Policies**, and
-   so on, when the ticks make several). If a policy covers a whole bucket or the whole instance, a
+6. Check what the form says the policy allows (under the tree, or under the typed path), then choose
+   **Create Policy** (**Create 2 Policies**, and so on, when the ticks make several). If a policy covers a whole bucket or the whole instance, a
    note above the button says so: check that's what you mean.
 
 ![The policy form with "Choose from the tree": a folder and a file ticked, and the two rules they make listed below the tree](../images/policy-from-tree.png)

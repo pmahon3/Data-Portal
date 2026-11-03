@@ -1,4 +1,4 @@
-import { broadExtent, describeRule, fileRule, folderRule, nextFolderGrants, rulesFromSelection } from './treeRules';
+import { broadExtent, describeConditions, describeRule, fileRule, folderRule, nextFolderGrants, rulesFromSelection } from './treeRules';
 
 // AC-5: the rules the picker makes are the ones typing would: a file, or a folder and everything in it.
 const nodes = [
@@ -37,4 +37,13 @@ test('a policy on the whole instance or a whole bucket is called broad', () => {
   expect(broadExtent('study/patient-7/*')).toBeNull();
   expect(broadExtent('study/protocol.pdf')).toBeNull();
   expect(broadExtent('')).toBeNull();
+});
+
+// AC-6, AC-8: a typed policy's conditions are said in words before it's saved.
+test('a typed policy\'s conditions are described in words', () => {
+  expect(describeConditions({ endings: ['.nii', '.nii.gz'], kinds: [], ends: '' })).toEqual(
+    ['Only files ending in .nii or .nii.gz.']);
+  expect(describeConditions({ endings: [], kinds: ['anat', 'func', 'dwi'], ends: '2026-12-31' })).toEqual(
+    ['Only anat, func or dwi data.', 'Until the end of 2026-12-31, then nothing.']);
+  expect(describeConditions({ endings: [], kinds: [], ends: '' })).toEqual([]);
 });
