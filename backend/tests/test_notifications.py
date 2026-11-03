@@ -94,7 +94,7 @@ def test_a_folder_upload_is_one_notification_with_its_counts(store):
     assert (n["kind"], n["folder_id"], n["completed"], n["failed"]) == ("stored_with_failures", 3, 2998, 2)
 
 
-# --- email (N-NOTIFY: told both in the portal and by email) ---
+# --- email (NT-NOTIFY: told both in the portal and by email) ---
 
 from uuid import UUID  # noqa: E402
 

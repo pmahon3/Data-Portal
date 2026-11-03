@@ -4,7 +4,7 @@ held in quarantine).
 
 Each notification is recorded per user in the portal and listed at ``GET /api/notifications/``, and
 also sent by every channel in ``CHANNELS``: researchers are told both in the portal and by email
-(N-NOTIFY). A channel that fails is logged and never fails the operation that raised the notification.
+(NT-NOTIFY). A channel that fails is logged and never fails the operation that raised the notification.
 """
 from __future__ import annotations
 

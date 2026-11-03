@@ -7,8 +7,8 @@ upload. When an upload completes, every declared dataset it touched is checked a
 puts the dataset in quarantine, a later pass takes it out, and the response tells the researcher what
 failed. Checks read names and layout from the file tree, never file contents.
 
-What quarantine holds back is open (N-QUARANTINE), so here it's only recorded. Which standards are
-checked is open too (E-STD): each plugs in a ``Validator``. A standard also names the kinds of data it
+What quarantine holds back is open (STD-QUARANTINE), so here it's only recorded. Which standards are
+checked is open too (STD-WHICH): each plugs in a ``Validator``. A standard also names the kinds of data it
 defines (BIDS: ``anat``, ``func``, ...) and a file's kind from its path, for policies (AC-6).
 """
 from __future__ import annotations
