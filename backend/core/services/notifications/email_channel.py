@@ -1,5 +1,5 @@
 """
-Notifications by email, alongside the portal's own list (NT-NOTIFY: both). Off until a mail relay is
+Notifications by email, alongside the portal's own list (N-NOTIFY: both). Off until a mail relay is
 set (``SMTP_HOST``; SA-MAIL). The email never names files, since file names can identify participants:
 it says what happened, with counts, and links to the portal for the details. Sending happens in the
 background, so a slow relay never slows the upload that raised it; a failure is logged.
