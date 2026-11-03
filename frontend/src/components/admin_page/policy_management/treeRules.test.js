@@ -1,4 +1,4 @@
-import { describeRule, fileRule, folderRule, nextFolderGrants, rulesFromSelection } from './treeRules';
+import { broadExtent, describeRule, fileRule, folderRule, nextFolderGrants, rulesFromSelection } from './treeRules';
 
 // AC-5: the rules the picker makes are the ones typing would: a file, or a folder and everything in it.
 const nodes = [
@@ -28,4 +28,13 @@ test('a folder grant made before the selection was cleared does not come back un
   // A search clears the selection; the folder is then selected again under the filter.
   const after = nextFolderGrants(grants, new Set(), ticked, nodes, true);
   expect(rulesFromSelection(nodes, ticked, after)).toEqual([{ resource: 'study/patient-7/scan.nii', excluded: [] }]);
+});
+
+// AC-5: a policy on the whole instance or a whole bucket is named as such before it's saved.
+test('a policy on the whole instance or a whole bucket is called broad', () => {
+  expect(broadExtent('*')).toBe('This covers the whole instance, including files added later.');
+  expect(broadExtent('study/*')).toBe('This covers the whole bucket study, including files added later.');
+  expect(broadExtent('study/patient-7/*')).toBeNull();
+  expect(broadExtent('study/protocol.pdf')).toBeNull();
+  expect(broadExtent('')).toBeNull();
 });

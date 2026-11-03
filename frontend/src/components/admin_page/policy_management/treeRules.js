@@ -160,3 +160,15 @@ export function describeWho(username, action) {
 export function describeCount(rules) {
   return `${rules.length} ${rules.length === 1 ? "rule" : "rules"}.`;
 }
+
+/**
+ * Return a warning when a policy path covers the whole instance or a whole bucket, else null
+ * (DS-broad-grant-warning).
+ * Example: "study/*" -> "This covers the whole bucket study, including files added later."
+ */
+export function broadExtent(resource) {
+  if (resource === "*") return "This covers the whole instance, including files added later.";
+  const bucket = resource.match(/^([^/]+)\/\*$/);
+  if (bucket) return `This covers the whole bucket ${bucket[1]}, including files added later.`;
+  return null;
+}

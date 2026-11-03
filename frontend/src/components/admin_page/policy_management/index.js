@@ -9,6 +9,7 @@ import { getAuthHeaders } from '../../../utils/authUtils';
 import useEndpointAssetTree from "../asset_management/useEndpointAssetTree.js";
 import TreePicker from "./TreePicker.js";
 import CheckAccess from "./CheckAccess.js";
+import { broadExtent } from "./treeRules.js";
 import { describeEnds, todayUtc } from "../../../utils/policyEnds";
 // Constants and the component states
 // const http = axios.create({ baseURL: "http://localhost:8000" });
@@ -225,6 +226,9 @@ export default function PolicyManagement() {
     // HTML part
   let createLabel = "Create Policy";
   if (resourceMode === "tree" && treeRules.length > 1) createLabel = `Create ${treeRules.length} Policies`;
+  let resourcesToSave = [resource.trim()];
+  if (resourceMode === "tree") resourcesToSave = treeRules.map((rule) => rule.resource);
+  const broadWarnings = [...new Set(resourcesToSave.map(broadExtent).filter(Boolean))];
 
   return (
     <div className="pm-root policy-management">
@@ -399,6 +403,14 @@ export default function PolicyManagement() {
               for no end.
             </small>
           </label>
+
+          {broadWarnings.length > 0 && (
+            <div role="status" className="pm-warn">
+              {broadWarnings.map((warning) => (
+                <p key={warning}>{warning}</p>
+              ))}
+            </div>
+          )}
 
           <div className="pm-actions">
             <button className="pm-btn pm-btn-primary" type="submit" disabled={creating}>
