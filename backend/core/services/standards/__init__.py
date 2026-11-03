@@ -5,8 +5,8 @@ machine directly declare it the same way as an upload. When an upload completes,
 dataset it touched is checked as a whole; a failure puts the dataset in quarantine, a later pass
 takes it out, and the researcher is told what failed in the upload's response.
 
-What quarantine holds back is an open question (N-QUARANTINE), so here it's only recorded. Which
-standards the portal checks is another (E-STD): each plugs in a ``Validator`` (``VALIDATORS``).
+What quarantine holds back is an open question (STD-QUARANTINE), so here it's only recorded. Which
+standards the portal checks is another (STD-WHICH): each plugs in a ``Validator`` (``VALIDATORS``).
 Checks read names and layout from the file tree, never file contents.
 """
 import logging

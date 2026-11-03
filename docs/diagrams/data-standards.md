@@ -39,9 +39,9 @@ Checks read names and layout from the file tree only, so no file contents move. 
 the contents (sidecar files, image headers) will run beside the data on the storage machine.
 
 Still open:
-- **What quarantine holds back (N-QUARANTINE).** Until it's decided, quarantine is recorded and
+- **What quarantine holds back (STD-QUARANTINE).** Until it's decided, quarantine is recorded and
   shown, and holds nothing back.
-- **Which standards the portal checks (E-STD).** Each standard plugs in a validator.
+- **Which standards the portal checks (STD-WHICH).** Each standard plugs in a validator.
 
 | Standard | Validator | Checks |
 |---|---|---|

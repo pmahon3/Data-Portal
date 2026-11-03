@@ -2,7 +2,7 @@
 Notifications to researchers about their data (strategy 5.1: stored, and the exceptions: failed
 validation, held in quarantine). Each is recorded per user in the portal and listed at
 ``GET /api/notifications/``, and also sent by every channel in ``CHANNELS``: researchers are told
-both in the portal and by email (N-NOTIFY). A channel that fails is logged and never fails the
+both in the portal and by email (NT-NOTIFY). A channel that fails is logged and never fails the
 operation that raised the notification.
 """
 import logging
