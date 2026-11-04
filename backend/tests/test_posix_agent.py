@@ -260,7 +260,7 @@ def bundle_request(monkeypatch, signer, file_ids, recorded=None):
 
 
 def test_posix_files_are_never_sent_to_the_bundler(signer, monkeypatch):
-    """PX-14. Several files get one link that streams them from the file service; nothing is bundled."""
+    """PX-4, PX-14. Several files get one link that streams them from the file service; nothing is bundled."""
     recorded = {}
     response = bundle_request(monkeypatch, signer, [1, 2], recorded)
     url = urlparse(response.single_file_url)
