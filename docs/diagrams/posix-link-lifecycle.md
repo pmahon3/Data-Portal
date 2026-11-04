@@ -2,7 +2,7 @@
 
 Each approved request (its links share an approval ID, `grant`; a link without one is its own request)
 gets its own temporary user ID from a reserved range, the first time one of its links is used to read
-or upload. This diagram is **checked**: a test drives the helper through every situation, and the
+or upload. This diagram is **checked**: a test drives the access broker through every situation, and the
 transitions it observes must be exactly these.
 
 ```mermaid
@@ -18,7 +18,7 @@ stateDiagram-v2
 
 | State | Meaning | Where it's recorded |
 |---|---|---|
-| Free | Not held by any approval | absent from the helper's state |
+| Free | Not held by any approval | absent from the access broker's state |
 | Active | Held by one live approval; may have ACL entries and a staging folder | `links` (keyed by approval ID, or link ID without one) |
 | Quarantined | Approval expired and fully revoked; not reused yet, so audit records never mix two approvals | `quarantine` (until a time) |
 | Retired | An ACL entry may survive on a moved file, so the ID is never reused; logged for an administrator | `retired` |

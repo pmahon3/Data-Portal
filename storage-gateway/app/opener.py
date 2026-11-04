@@ -1,7 +1,7 @@
 """
-Open files as a link's temporary ID and hand the descriptors back to the helper.
+Open files as a link's temporary ID and hand the descriptors back to the access broker.
 
-The helper starts this as a child process running as the link's temporary user ID, so the
+The access broker starts this as a child process running as the link's temporary user ID, so the
 operating system decides what it can open: only the files that ID has been granted, through
 folders it can pass through but not list. Descriptors go back over the socket inherited as the
 first argument (SCM_RIGHTS). Kept free of web-framework imports so it starts quickly.

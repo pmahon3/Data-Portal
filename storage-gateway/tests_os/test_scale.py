@@ -1,8 +1,8 @@
 """
-Load on the POSIX machine with a helper (administrator access): many small files in one multi-file
+Load on the POSIX machine with an access broker (administrator access): many small files in one multi-file
 download, where each file is granted and then opened by a new process running as the approval's
 temporary ID, and several such downloads at once. The steps are the ones the file service takes for
-``/v1/bundles`` (register the list, then stat and open each file through the helper, streaming the
+``/v1/bundles`` (register the list, then stat and open each file through the broker, streaming the
 ZIP as it goes, checking and opening files a batch at a time); only HTTP is left out.
 
 The gate runs a few hundred files. For the full measurement:
@@ -27,7 +27,7 @@ import pytest
 if sys.platform != "linux" or os.geteuid() != 0:
     pytest.skip("operating-system boundary tests need Linux and root", allow_module_level=True)
 
-from app.broker import BatchOpener  # noqa: E402
+from app.file_access import BatchOpener  # noqa: E402
 from app.config import OPEN_BATCH  # noqa: E402
 from app.zipstream import Entry, ZipStream  # noqa: E402
 from tests_os.test_isolation import DATA_OWNER, TRAVERSE, close_env, make_env, token  # noqa: E402
@@ -94,8 +94,8 @@ def test_many_small_files_in_one_download(env):
         names = z.namelist()
         assert len(names) == FILES
         assert all(z.read(name) == content(i) for i, name in enumerate(names))
-    assert len({link["uid"] for key, link in env["helper"].ids.state["links"].items() if "scale-one" in key}) == 1
-    assert open_fds() <= before + 2  # the helper's socket may be in use; no file stays open
+    assert len({link["uid"] for key, link in env["broker"].ids.state["links"].items() if "scale-one" in key}) == 1
+    assert open_fds() <= before + 2  # the access broker's socket may be in use; no file stays open
     RESULTS["one_download"] = {"seconds": round(elapsed, 2), "files_per_second": round(FILES / elapsed, 1),
                                "ms_per_file": round(1000 * elapsed / FILES, 2)}
 
@@ -129,7 +129,7 @@ def test_downloads_at_once(env, downloads):
 
 
 def test_a_burst_of_requests_is_queued_not_refused(env):
-    """PX-14. Many requests reaching the helper at once wait their turn; none fails as unavailable."""
+    """PX-14. Many requests reaching the access broker at once wait their turn; none fails as unavailable."""
     grant, files = "scale-burst", paths(64)
     listing = json.dumps({"folder_name": "", "paths": files})
     bundle = f"{NS}/{grant}"

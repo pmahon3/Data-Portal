@@ -1,8 +1,8 @@
 """
-The temporary-ID lifecycle diagram (docs/diagrams/posix-link-lifecycle.md) against the helper.
+The temporary-ID lifecycle diagram (docs/diagrams/posix-link-lifecycle.md) against the access broker.
 
-The helper is driven through every situation: first use, clean expiry, expiry after a granted file
-was moved, the end of quarantine, and reuse. The state of every ID is read from the helper's own
+The access broker is driven through every situation: first use, clean expiry, expiry after a granted file
+was moved, the end of quarantine, and reuse. The state of every ID is read from the access broker's own
 records before and after each step. The transitions observed must be exactly the diagram's.
 Linux and root only.
 
@@ -23,8 +23,8 @@ from tests_os.test_isolation import NS, close_env, make_env, token  # noqa: E402
 IDS = range(2_000_000, 2_000_003)
 
 
-def states(helper, now):
-    s = helper.ids.state
+def states(broker, now):
+    s = broker.ids.state
     active = {link["uid"] for link in s["links"].values()}
     result = {}
     for uid in IDS:
@@ -39,17 +39,17 @@ def states(helper, now):
     return result
 
 
-def test_the_lifecycle_diagram_is_exactly_what_the_helper_does(monkeypatch):
+def test_the_lifecycle_diagram_is_exactly_what_the_access_broker_does(monkeypatch):
     e = make_env(id_count=len(IDS), quarantine_seconds=100)
-    helper, access = e["helper"], e["access"]
+    broker, access = e["broker"], e["access"]
     observed = set()
     clock = time.time()
-    snapshot = states(helper, clock)
+    snapshot = states(broker, clock)
 
     def step(action, at):
         nonlocal snapshot
         action()
-        after = states(helper, at)
+        after = states(broker, at)
         observed.update((snapshot[u], after[u]) for u in IDS if snapshot[u] != after[u])
         snapshot = after
 
@@ -69,12 +69,12 @@ def test_the_lifecycle_diagram_is_exactly_what_the_helper_does(monkeypatch):
         step(write("u.csv"), clock)                                      # Free -> Active (upload)
         step(read("b.nii.gz"), clock)                                    # Free -> Active
         os.rename(e["data"] / "study" / "b.nii.gz", e["data"] / "study" / "moved.nii.gz")
-        step(lambda: helper.sweep(now=clock + 120), clock + 120)         # Active -> Quarantined, -> Retired
+        step(lambda: broker.sweep(now=clock + 120), clock + 120)         # Active -> Quarantined, -> Retired
         step(lambda: None, clock + 400)                                  # Quarantined -> Free (time passes)
         reuse = token(f"{NS}/study/a.nii.gz", "read", ttl=10_000)
-        import app.helper as helper_module
+        import app.access_broker as broker_module
 
-        monkeypatch.setattr(helper_module.time, "time", lambda: clock + 400)  # the helper's clock moves on too
+        monkeypatch.setattr(broker_module.time, "time", lambda: clock + 400)  # the access broker's clock moves on too
         step(lambda: os.close(access.open_read(reuse, f"{NS}/study/a.nii.gz", None)[0]), clock + 400)  # Free -> Active
     finally:
         close_env(e)

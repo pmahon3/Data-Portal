@@ -19,7 +19,7 @@ Status: built and tested locally on branch `posix/stack`; not deployed. See
 | [Components](../diagrams/posix-components.md) | System overview; file service modules; backend POSIX modules | Python imports |
 | [Deployment](../diagrams/posix-deployment.md) | Processes, accounts, permissions on the machine | Dockerfile, entrypoint, the running container |
 | [Sequences](../diagrams/posix-sequences.md) | Download, resume, upload, delete, expiry | What each component logs, end to end |
-| [Temporary ID lifecycle](../diagrams/posix-link-lifecycle.md) | Free, Active, Quarantined, Retired | The helper's own records |
+| [Temporary ID lifecycle](../diagrams/posix-link-lifecycle.md) | Free, Active, Quarantined, Retired | The access broker's own records |
 | [Direct access alongside the portal](../diagrams/posix-direct-access.md) | Who sets what on the files: administrators by hand, the portal per approval | Not drawn from code; each rule is tested (`tests_os/test_direct_access.py`) |
 
 ## Decisions
@@ -44,27 +44,27 @@ that would need it.
 | | Without administrator access | With it, added | Needed when |
 |---|---|---|---|
 | Who gets in through the portal | The portal checks access and signs a link per file; the file service checks each link. | Same. | Always; both ways. |
-| What the file service can read | It runs as one ordinary account that can read the governed files, so a fault in it could reach any of them. | It can't open data files. A helper opens each requested file as the link's temporary ID, so the operating system enforces each grant. | No requirement yet. Proposed for identifiable data ([PX-4](../requirements/posix-storage.md#px-4)); if kept, it becomes a requirement. |
+| What the file service can read | It runs as one ordinary account that can read the governed files, so a fault in it could reach any of them. | It can't open data files. An access broker opens each requested file as the link's temporary ID, so the operating system enforces each grant. | No requirement yet. Proposed for identifiable data ([PX-4](../requirements/posix-storage.md#px-4)); if kept, it becomes a requirement. |
 | Who owns the governed files | The researchers, as today. They give the service's account read access (for example an ACL). | Still the researchers: administrators manage direct access (A1). The layout tool only closes the area to everyone else. | Always ([PX-9](../requirements/posix-storage.md#px-9)). |
-| Records of portal access on the machine | The file service's line per request (link ID, path, status); the person is in the portal's records. | The helper's line per operation, so the machine's own records trace each temporary ID to a person. | A2, if the machine's own records must show portal access ([PX-10](../requirements/posix-storage.md#px-10)). |
+| Records of portal access on the machine | The file service's line per request (link ID, path, status); the person is in the portal's records. | The access broker's line per operation, so the machine's own records trace each temporary ID to a person. | A2, if the machine's own records must show portal access ([PX-10](../requirements/posix-storage.md#px-10)). |
 | Records of direct work on the machine, such as scrubbing | Not possible. | The administrator sets up the machine's auditing. | A2, second and third answers ([PX-10](../requirements/posix-storage.md#px-10)). |
 | New files showing in the portal | A regular check of the machine. | Change reports as they happen (at least to set up). | A3, "within seconds" ([PX-11](../requirements/posix-storage.md#px-11)). |
 | Reaching the machine: port, firewall, TLS | The machine's administrators, either way. | | Always. |
 
 **HTTPS.** The file service serves TLS itself, so nothing sits between users and the storage: set
-`GATEWAY_TLS_CERT` and `GATEWAY_TLS_KEY` to the host's certificate and key (PEM). With a helper, the
+`GATEWAY_TLS_CERT` and `GATEWAY_TLS_KEY` to the host's certificate and key (PEM). With an access broker, the
 web service gets its own copy of the key, readable only by it. Without them it serves plain HTTP,
 for local tests only.
 
 **Choosing per machine.** One build runs either way, set by `GATEWAY_ACCESS`:
-- `helper` (the default): the second column. The container starts the root helper and runs the web
+- `user-per-approval` (the default): the second column. The container starts the root access broker and runs the web
   service as `gateway`, which refuses to start if it can read the data and never falls back.
-- `account`: the first column. No root and no helper: the web service runs as the container's user,
+- `shared-account`: the first column. No root and no access broker: the web service runs as the container's user,
   which must hold the data (it refuses to start if it can't read and write it), and the portal's
   links alone decide access. Run the container as that account (`user:` in compose).
 
-Locally, `posix-gateway` runs the helper mode and `posix-gateway-account` (port 9102, namespace
-`inn-posix-account`) the account mode; the end-to-end tests cover both.
+Locally, `posix-gateway` runs the user-per-approval mode and `posix-gateway-shared` (port 9102, namespace
+`inn-posix-shared`) the shared-account mode; the end-to-end tests cover both.
 
 ## What enforces what
 
@@ -74,20 +74,20 @@ With administrator access (the tip of the branch).
 - Only the link's temporary ID can read the link's file: one ACL entry on that file. Folders are
   pass-through only (a shared group), never listable.
 - The web service can't open any data file. It refuses to start if it can (it tries to read a canary
-  file only the data owner can read), and answers 503 if the helper is unreachable. It never falls back
+  file only the data owner can read), and answers 503 if the access broker is unreachable. It never falls back
   to direct access.
 - Uploads are written by the link's ID into a staging folder outside the data tree. Temporary IDs never
   get write access to data folders, where they could delete or replace other files.
 
-**The helper enforces, after checking the token itself:**
+**The access broker enforces, after checking the token itself:**
 - Final placement of uploads (moved into place through no-follow handles, given to the data owner
   with its folder's group and default entries, never open to everyone else).
 - Deletes. POSIX can't grant "delete only this one file", so this can't be pushed down to the OS.
 - Multi-file downloads: a file is opened for a bundle link only if it's on the list the link was
-  signed for (the helper checks the list's SHA-256 against the link itself).
+  signed for (the access broker checks the list's SHA-256 against the link itself).
 
 **What that guarantees.** The web service only ever receives descriptors for files a valid link names,
-opened by the helper as that link's ID. A compromised web service would still see the tokens and the
+opened by the access broker as that link's ID. A compromised web service would still see the tokens and the
 bytes of files people actually request, but it couldn't reach anything nobody requested.
 
 **Also handled:**
@@ -129,7 +129,7 @@ approved list (MongoDB `posix-bundles`) and returns one link,
 `{instance_url}/v1/bundles/{namespace}/{grant}`, whose token has `op: bundle`, the approval ID and
 `list`, the SHA-256 of the list as served. The file service fetches the list from `GET
 /api/storage-links/bundles/{grant}`, presenting that same link, and refuses a list whose digest
-doesn't match; with a helper, the helper checks it too. Entries are named `folder_name/namespace/key`,
+doesn't match; and the access broker checks it too. Entries are named `folder_name/namespace/key`,
 as the bundler names them. Entries are stored (not compressed) and ZIP64, so the length is exact and
 any byte range can be rebuilt: a broken download resumes with `Range` and `If-Range`, and the ETag
 changes if any file changes, so the download starts again. Checksums of files already sent are kept
@@ -155,7 +155,7 @@ staging files and quarantines the ID; it's reused only after the quarantine. Sta
 
 ## Audit
 
-The helper writes one line per operation on the `storage-gateway.audit` logger, for example:
+The access broker writes one line per operation on the `storage-gateway.audit` logger, for example:
 
 ```
 read link=28f87078… id=2000001 user=d30f195b-… path=inn-posix/study/scan.nii.gz grant=7c1e…
@@ -180,7 +180,7 @@ endpoint needs a link; restrict them at the proxy if the counts shouldn't be pub
 
 Two ways reach the same files. People and their pipelines work on the machine with their own
 accounts, and administrators and project managers manage that access by hand over SSH (A1). The
-portal reaches files only through the helper, as a temporary ID per approval.
+portal reaches files only through the access broker, as a temporary ID per approval.
 
 How the two meet on the files: [Direct access alongside the portal](../diagrams/posix-direct-access.md).
 
@@ -226,7 +226,7 @@ POSIX instance through the API on port 8001 (the UI on port 3000 talks to the ma
 | Suite | What | Where | Command (from `storage-gateway/`) |
 |---|---|---|---|
 | `tests/` | File service: examples, attacks, properties, stateful model, contract, fuzzing, diagrams vs imports, import rules | anywhere | `uv run --no-project --with-requirements requirements-test.txt pytest tests` |
-| `tests_os/` | The OS boundary, helper protocol and fuzzing, layout tool, ID lifecycle diagram | Linux, root, ACL filesystem | `docker run --rm -v "$PWD/..:/repo" -w /repo/storage-gateway python:3.12-slim sh -c "pip install -r requirements-test.txt && pytest tests_os"` |
+| `tests_os/` | The OS boundary, access broker protocol and fuzzing, layout tool, ID lifecycle diagram | Linux, root, ACL filesystem | `docker run --rm -v "$PWD/..:/repo" -w /repo/storage-gateway python:3.12-slim sh -c "pip install -r requirements-test.txt && pytest tests_os"` |
 | `e2e/` | Through the portal: uploads, downloads, refusals, faults (Toxiproxy), sequence and deployment diagrams | local stack | `uv run --no-project --with pytest --with requests pytest e2e` |
 | backend | Connector, signer, contract | backend image | `backend/tests/test_posix_agent.py`, `test_posix_contract.py` |
 
@@ -239,25 +239,25 @@ workstream's testing strategy.
 Only Mermaid blocks whose first line is `%% check: <name>` are checked; others are explanation.
 
 - **Module diagrams** (flowcharts): each node's label starts with the module's path in its component
-  (`app/helper`, `core/storage_agents/posix_agent`). A plain solid arrow `A --> B` claims "A imports B".
+  (`app/access_broker`, `core/storage_agents/posix_agent`). A plain solid arrow `A --> B` claims "A imports B".
   The test reads the imports from the source and fails if an arrow is missing or extra. Labelled or
   dotted arrows are runtime relationships and aren't import claims.
 - **Deployment** (flowchart): labels state facts in a fixed form (`process uvicorn · uid 10001 · groups
   none`, `path /srv/posix/data · mode 0710 · owner 10002:10010`). They're compared with the Dockerfile and
   entrypoint, and with the running container.
-- **Sequences**: a solid arrow `A->>B: METHOD /path → status` or `A->>Helper: op` is a claim.
+- **Sequences**: a solid arrow `A->>B: METHOD /path → status` or `A->>Broker: op` is a claim.
   `{id}` and `{path}` stand for any ID or path; text in parentheses is explanation. The end-to-end test
-  performs the operation and reads what the backend, file service and helper logged; since each logs a
+  performs the operation and reads what the backend, file service and access broker logged; since each logs a
   call when it finishes, the expected order is the diagram's completion order (a call made during
   another call finishes first). Dashed replies, async arrows and notes aren't checked.
-- **Lifecycle** (state diagram): every `S1 --> S2` must be observed when the helper is driven through
+- **Lifecycle** (state diagram): every `S1 --> S2` must be observed when the access broker is driven through
   each case, and nothing else may occur.
 
 When the code changes, a test fails until the diagram is updated, and the other way round.
 
 ## Load
 
-Measured 2026-10-31 with a helper (administrator access), in a Linux container on a 10-CPU laptop,
+Measured 2026-10-31 with an access broker (administrator access), in a Linux container on a 10-CPU laptop,
 using 1 KB files (`tests_os/test_scale.py`; the gate runs a 300-file version):
 
 | Multi-file download | Before batching | Now | Files per second now |
@@ -268,15 +268,15 @@ using 1 KB files (`tests_os/test_scale.py`; the gate runs a 300-file version):
 | 625 files each, 8 at once | 59 s | 3.4 s | 1,457 |
 | 625 files each, 16 at once | 163 s | 8.3 s | 1,212 |
 
-A multi-file download checks and opens its files 64 at a time (`OPEN_BATCH`): the helper grants each
+A multi-file download checks and opens its files 64 at a time (`OPEN_BATCH`): the access broker grants each
 file and records the grants with one save, then starts one process as the temporary ID to open the
 batch, so the operating system still checks every file as that ID. Before, each file cost a process
-start (about 30 ms) and a rewrite of the helper's whole state, which grew with the square of the
+start (about 30 ms) and a rewrite of the access broker's whole state, which grew with the square of the
 download's size. Files opened ahead of the stream are closed if it stops early; a file gone since it
 was listed fails when the stream reaches it. Throughput peaks around 4 downloads at once and holds
-past the spec's default cap of 8. Without a helper (`GATEWAY_ACCESS=account`) no process is started.
+past the spec's default cap of 8. Without an access broker (`GATEWAY_ACCESS=shared-account`) no process is started.
 
-The measurement also found that the helper's listen backlog was Python's default of 5, so 8
+The measurement also found that the access broker's listen backlog was Python's default of 5, so 8
 downloads at once failed as unavailable; it's now the system's maximum.
 
 **Uploading a scanning session.** A session is usually thousands of small DICOM files, uploaded from
@@ -300,11 +300,11 @@ meet a proxy's request timeout.
 ## What isn't built yet
 
 
-- For multi-file downloads: a link that outlives a long download (with a helper, each file is
+- For multi-file downloads: a link that outlives a long download (with an access broker, each file is
   opened as the stream reaches it, so the link must still be valid then; how long links should last
   is undecided), read-ahead for many small files.
 - Single-file downloads still get one approval per link; only multi-file downloads share one.
 - Getting files already on the machine into the portal's file tree (file tracking, RDT's decision).
 - Deployment to a real machine: hosting is RDT's decision, and it depends on the system
-  administrators' answers (ID range, the helper's privileges, ACL support and limits, NFS settings,
+  administrators' answers (ID range, the access broker's privileges, ACL support and limits, NFS settings,
   audit rules).

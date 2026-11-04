@@ -22,7 +22,7 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 from starlette.background import BackgroundTask
 
 from app.auth import KeyResolver, bundle_listing, check_token, jwks_key_resolver, token_from_request
-from app.broker import BatchOpener, DirectAccess, HelperAccess
+from app.file_access import BatchOpener, DirectAccess, BrokerAccess
 from app.checksums import ChecksumStore
 from app.config import CANARY, OPEN_BATCH, Settings
 from app.files import BadPath, Root, etag, file_headers, parse_range, read_chunks, split_key
@@ -379,34 +379,34 @@ def _fetch_list(url: str, grant: str, token: str) -> str:
 
 def _file_access(settings: Settings):
     """
-    Choose how files are reached. With a helper, this service must not be able to read the data
-    itself: it checks that at startup by trying to read the helper's canary file, and refuses to start
-    if it can. Without a helper, only local unit tests may run (``require_isolation`` is off).
+    Choose how files are reached. With a broker, this service must not be able to read the data
+    itself: it checks that at startup by trying to read the access broker's canary file, and refuses to start
+    if it can. Without a broker, only local unit tests may run (``require_isolation`` is off).
     """
-    if settings.account_mode:
-        # Without administrator access: no helper, and this account must hold the data (the reverse
-        # of the helper mode's check), or nothing could be served.
-        if settings.helper_socket or settings.require_isolation:
-            raise RuntimeError("GATEWAY_ACCESS=account can't be combined with a helper or required isolation")
+    if settings.shared_account:
+        # Without administrator access: no broker, and this account must hold the data (the reverse
+        # of the user-per-approval mode's check), or nothing could be served.
+        if settings.broker_socket or settings.require_isolation:
+            raise RuntimeError("GATEWAY_ACCESS=shared-account can't be combined with an access broker or required isolation")
         if not os.access(settings.root, os.R_OK | os.W_OK | os.X_OK):
-            raise RuntimeError(f"GATEWAY_ACCESS=account: this account can't read and write {settings.root}")
+            raise RuntimeError(f"GATEWAY_ACCESS=shared-account: this account can't read and write {settings.root}")
         return DirectAccess(Root(settings.root))
-    if settings.helper_socket:
+    if settings.broker_socket:
         try:
             fd = os.open(settings.root / CANARY, os.O_RDONLY)
         except PermissionError:
-            return HelperAccess(settings.helper_socket)
+            return BrokerAccess(settings.broker_socket)
         except FileNotFoundError as e:
             raise RuntimeError(
-                "The helper's canary file is missing; can't confirm this service is isolated from the data"
+                "The access broker's canary file is missing; can't confirm this service is isolated from the data"
             ) from e
         os.close(fd)
         raise RuntimeError(
             "This service can read the data directly; refusing to start "
-            "(it must only reach files through the helper)"
+            "(it must only reach files through the broker)"
         )
     if settings.require_isolation:
-        raise RuntimeError("GATEWAY_REQUIRE_ISOLATION is set but no helper socket is configured")
+        raise RuntimeError("GATEWAY_REQUIRE_ISOLATION is set but no access broker socket is configured")
     return DirectAccess(Root(settings.root))
 
 

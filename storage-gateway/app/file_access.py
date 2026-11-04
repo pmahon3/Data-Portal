@@ -1,9 +1,9 @@
 """
 Give the web service its way to reach files.
 
-- ``HelperAccess`` (deployed): every operation goes through the privileged helper, which checks the
+- ``BrokerAccess`` (deployed): every operation goes through the access broker, which checks the
   token itself and opens files as the link's temporary ID. The web service can't read the data on
-  its own; if the helper is unreachable, requests fail with 503 and nothing falls back to direct
+  its own; if the access broker is unreachable, requests fail with 503 and nothing falls back to direct
   access.
 - ``DirectAccess`` (local unit tests only): reads the root directly. The deployed container sets
   ``GATEWAY_REQUIRE_ISOLATION`` so this can't be used there.
@@ -23,8 +23,8 @@ from fastapi import HTTPException, status
 from app.config import OPEN_BATCH
 from app.files import BadPath, Root
 
-# What the web service answers for each refusal the helper reports.
-_HELPER_DETAILS = {
+# What the web service answers for each refusal the access broker reports.
+_BROKER_DETAILS = {
     400: "Bad path",
     401: "Invalid or expired token",
     403: "Token doesn't allow this request",
@@ -94,15 +94,15 @@ class DirectAccess:
             raise _refused(e)
 
 
-class HelperAccess:
-    """Reach files only through the privileged helper's socket."""
+class BrokerAccess:
+    """Reach files only through the access broker's socket."""
 
     def __init__(self, socket_path: str):
         self.socket_path = socket_path
 
     def call(self, request: dict, max_fds: int = 8) -> tuple[dict, list[int]]:
         """
-        Send one request to the helper; return its reply and the descriptors it handed back.
+        Send one request to the access broker; return its reply and the descriptors it handed back.
 
         A refusal closes any descriptors and raises the ``HTTPException`` for its status.
         """
@@ -122,11 +122,11 @@ class HelperAccess:
             for fd in fds:
                 os.close(fd)
             code = reply.get("status", 500)
-            raise HTTPException(status_code=code, detail=_HELPER_DETAILS.get(code, "File access failed"))
+            raise HTTPException(status_code=code, detail=_BROKER_DETAILS.get(code, "File access failed"))
         return reply, fds
 
     def register_bundle(self, token, resource, listing):
-        """Give the helper a bundle link's file list once; later opens name the bundle only."""
+        """Give the access broker a bundle link's file list once; later opens name the bundle only."""
         self.call({"op": "bundle", "token": token, "path": resource, "list": listing})
 
     def _read_request(self, op, token, resource, bundle):
@@ -147,7 +147,7 @@ class HelperAccess:
 
     def open_read_many(self, token, resources, bundle):
         """
-        Open several files of a bundle in one request (one process in the helper).
+        Open several files of a bundle in one request (one process in the broker).
 
         Return, in order, a descriptor or the ``HTTPException`` for each file that couldn't be opened.
         """
@@ -161,7 +161,7 @@ class HelperAccess:
             },
             max_fds=OPEN_BATCH,
         )
-        # The helper sends descriptors only for the files it opened, in order.
+        # The access broker sends descriptors only for the files it opened, in order.
         given = iter(fds)
         opened = []
         for result in reply["results"]:
@@ -198,16 +198,16 @@ class HelperAccess:
 
     def begin_write(self, token, resource, parts):
         reply, fds = self.call({"op": "begin_write", "token": token, "path": resource})
-        return HelperWrite(self, token, resource, reply["staging"], fds[0])
+        return BrokerWrite(self, token, resource, reply["staging"], fds[0])
 
     def delete(self, token, resource, parts):
         self.call({"op": "delete", "token": token, "path": resource})
 
 
-class HelperWrite:
-    """Write an upload into the link's staging file; the helper moves it into place on commit."""
+class BrokerWrite:
+    """Write an upload into the link's staging file; the access broker moves it into place on commit."""
 
-    def __init__(self, access: HelperAccess, token: str, resource: str, staging: str, fd: int):
+    def __init__(self, access: BrokerAccess, token: str, resource: str, staging: str, fd: int):
         self.access = access
         self.token = token
         self.resource = resource
@@ -253,7 +253,7 @@ class BatchOpener:
     """
     Open a multi-file download's files a batch at a time, starting from the file the stream reaches.
 
-    The helper then starts one process per batch rather than one per file. Files opened but never
+    The access broker then starts one process per batch rather than one per file. Files opened but never
     sent (the stream ended or stopped early) are closed on exit.
     """
 

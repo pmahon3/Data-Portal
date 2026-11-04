@@ -1,7 +1,7 @@
 """
 Read and write POSIX access lists (ACLs) through an open file descriptor.
 
-Only the privileged helper uses this. Working on a descriptor obtained from the no-follow walk,
+Only the access broker uses this. Working on a descriptor obtained from the no-follow walk,
 never on a path, keeps a swapped-in symlink from redirecting a grant. Linux stores the list in the
 ``system.posix_acl_access`` extended attribute: a version word, then (tag, permissions, id) entries.
 """

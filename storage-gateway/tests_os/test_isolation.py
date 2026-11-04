@@ -32,9 +32,9 @@ if sys.platform != "linux" or os.geteuid() != 0:
     pytest.skip("operating-system boundary tests need Linux and root", allow_module_level=True)
 
 from app import acl  # noqa: E402
-from app.broker import HelperAccess  # noqa: E402
+from app.file_access import BrokerAccess  # noqa: E402
 from app.config import CANARY  # noqa: E402
-from app.helper import HelperSettings, serve  # noqa: E402
+from app.access_broker import BrokerSettings, serve  # noqa: E402
 from tests.tokens import KEY, NS, sign  # noqa: E402
 
 WEB, DATA_OWNER, TRAVERSE, STRANGER = 10001, 10002, 10010, 50000
@@ -72,15 +72,15 @@ def make_env(**overrides):
         os.chown(f, DATA_OWNER, DATA_OWNER)
         os.chmod(f, 0o600)
     (outside / "secret.txt").write_bytes(b"SECRET")
-    options = dict(socket_path=str(base / "helper.sock"), data_root=data, staging_root=staging,
+    options = dict(socket_path=str(base / "broker.sock"), data_root=data, staging_root=staging,
                    state_file=base / "state.json", namespace=NS, jwks_url="unused",
                    client_uids={0, WEB}, id_start=2_000_000, id_count=1000, traverse_gid=TRAVERSE,
                    data_uid=DATA_OWNER, data_gid=DATA_OWNER, quarantine_seconds=3600, sweep_seconds=3600)
-    s = HelperSettings(**(options | overrides))
-    helper, server = serve(s, resolve_key=lambda t: KEY.public_key(), socket_mode=0o666)
+    s = BrokerSettings(**(options | overrides))
+    broker, server = serve(s, resolve_key=lambda t: KEY.public_key(), socket_mode=0o666)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    return {"base": base, "data": data, "staging": staging, "outside": outside, "helper": helper,
-            "access": HelperAccess(s.socket_path), "server": server}
+    return {"base": base, "data": data, "staging": staging, "outside": outside, "broker": broker,
+            "access": BrokerAccess(s.socket_path), "server": server}
 
 
 def close_env(e):
@@ -104,8 +104,8 @@ def small_env():
     close_env(e)
 
 
-def uid_of_only_link(helper):
-    (link,) = helper.ids.state["links"].values()
+def uid_of_only_link(broker):
+    (link,) = broker.ids.state["links"].values()
     return link["uid"]
 
 
@@ -131,7 +131,7 @@ def test_the_web_service_starts_only_when_it_cannot_read_the_data(env):
     code = (f"import sys; sys.path.insert(0, {SERVICE!r}); from pathlib import Path; "
             "from app.config import Settings; from app.main import create_app; "
             f"create_app(Settings(root=Path({str(env['data'])!r}), namespace='{NS}', jwks_url='unused', "
-            f"helper_socket={str(env['base'] / 'helper.sock')!r}), resolve_key=lambda t: None); print('started')")
+            f"broker_socket={str(env['base'] / 'broker.sock')!r}), resolve_key=lambda t: None); print('started')")
     assert as_user(WEB, code)[1].endswith("started")
     returncode, output = as_user(0, code)  # root can read the data: must refuse to start
     assert returncode != 0 and "refusing to start" in output
@@ -139,7 +139,7 @@ def test_the_web_service_starts_only_when_it_cannot_read_the_data(env):
 
 # --- reads: the link's ID, and only it, can read the file ---
 
-def test_a_link_reads_its_file_through_the_helper(env):
+def test_a_link_reads_its_file_through_the_access_broker(env):
     fd, _ = env["access"].open_read(token(f"{NS}/study/a.nii.gz", "read"), f"{NS}/study/a.nii.gz", None)
     assert read_fd(fd) == b"a.nii.gz" * 100
 
@@ -147,7 +147,7 @@ def test_a_link_reads_its_file_through_the_helper(env):
 def test_the_links_id_can_read_its_file_and_nothing_else(env):
     fd, _ = env["access"].open_read(token(f"{NS}/study/a.nii.gz", "read"), f"{NS}/study/a.nii.gz", None)
     os.close(fd)
-    uid = uid_of_only_link(env["helper"])
+    uid = uid_of_only_link(env["broker"])
     assert can_read(uid, env["data"] / "study" / "a.nii.gz", groups=[TRAVERSE])
     assert not can_read(uid, env["data"] / "study" / "b.nii.gz", groups=[TRAVERSE])
     assert as_user(uid, f"import os; os.listdir({str(env['data'] / 'study')!r})", groups=[TRAVERSE])[0] != 0
@@ -158,7 +158,7 @@ def test_two_links_get_two_ids(env):
     for _ in range(2):
         fd, _ = env["access"].open_read(token(f"{NS}/study/a.nii.gz", "read"), f"{NS}/study/a.nii.gz", None)
         os.close(fd)
-    uids = {link["uid"] for link in env["helper"].ids.state["links"].values()}
+    uids = {link["uid"] for link in env["broker"].ids.state["links"].values()}
     assert len(uids) == 2
 
 
@@ -168,11 +168,11 @@ def test_two_links_get_two_ids(env):
     (lambda: token(f"{NS}/study/a.nii.gz", "read", ttl=-5), 401),    # expired
     (lambda: "not-a-token", 401),
 ])
-def test_the_helper_checks_every_token_itself(env, make_token, status):
+def test_the_access_broker_checks_every_token_itself(env, make_token, status):
     with pytest.raises(HTTPException) as refused:
         env["access"].open_read(make_token(), f"{NS}/study/a.nii.gz", None)
     assert refused.value.status_code == status
-    assert env["helper"].ids.state["links"] == {}  # refused before any ID is assigned
+    assert env["broker"].ids.state["links"] == {}  # refused before any ID is assigned
 
 
 def test_symlinks_are_never_granted(env):
@@ -185,15 +185,15 @@ def test_symlinks_are_never_granted(env):
 
 
 def test_clients_other_than_the_web_service_are_refused(env):
-    code = (f"import sys; sys.path.insert(0, {SERVICE!r}); from app.broker import HelperAccess; "
-            f"HelperAccess({str(env['base'] / 'helper.sock')!r}).call({{'op': 'stat', 'token': 'x', 'path': 'y'}})")
+    code = (f"import sys; sys.path.insert(0, {SERVICE!r}); from app.file_access import BrokerAccess; "
+            f"BrokerAccess({str(env['base'] / 'broker.sock')!r}).call({{'op': 'stat', 'token': 'x', 'path': 'y'}})")
     returncode, output = as_user(STRANGER, code)
     assert returncode != 0 and "403" in output
 
 
-def test_an_unreachable_helper_fails_closed(env):
+def test_an_unreachable_access_broker_fails_closed(env):
     with pytest.raises(HTTPException) as refused:
-        HelperAccess(str(env["base"] / "missing.sock")).open_read("t", f"{NS}/study/a.nii.gz", None)
+        BrokerAccess(str(env["base"] / "missing.sock")).open_read("t", f"{NS}/study/a.nii.gz", None)
     assert refused.value.status_code == 503
 
 
@@ -204,19 +204,19 @@ def test_expiry_revokes_access_and_restores_the_file_exactly(env):
     before = os.stat(f)
     t = token(f"{NS}/study/a.nii.gz", "read", ttl=60)
     fd, _ = env["access"].open_read(t, f"{NS}/study/a.nii.gz", None)
-    uid = uid_of_only_link(env["helper"])
+    uid = uid_of_only_link(env["broker"])
     assert can_read(uid, f, groups=[TRAVERSE])
 
-    assert env["helper"].sweep(now=time.time() + 120) == 1
+    assert env["broker"].sweep(now=time.time() + 120) == 1
     assert not can_read(uid, f, groups=[TRAVERSE])
     with pytest.raises(OSError):
         os.getxattr(f, acl.XATTR)
     assert os.stat(f).st_mode == before.st_mode
-    assert str(uid) in env["helper"].ids.state["quarantine"]
+    assert str(uid) in env["broker"].ids.state["quarantine"]
     assert read_fd(fd) == b"a.nii.gz" * 100  # a download already running finishes
 
 
-# --- uploads: staged as the link's ID, placed by the helper ---
+# --- uploads: staged as the link's ID, placed by the access broker ---
 
 def upload(env, path, content):
     t = token(path, "write")
@@ -240,7 +240,7 @@ def test_an_uploading_id_cannot_write_delete_or_replace_in_the_data_tree(env):
     """AC-2."""
     t = token(f"{NS}/study/c.csv", "write")
     pending = env["access"].begin_write(t, f"{NS}/study/c.csv", None)
-    uid = next(iter(env["helper"].ids.state["links"].values()))["uid"]
+    uid = next(iter(env["broker"].ids.state["links"].values()))["uid"]
     study = env["data"] / "study"
     assert as_user(uid, f"open({str(study / 'planted.txt')!r}, 'w')", groups=[TRAVERSE])[0] != 0
     assert as_user(uid, f"import os; os.unlink({str(study / 'b.nii.gz')!r})", groups=[TRAVERSE])[0] != 0
@@ -264,7 +264,7 @@ def test_nothing_in_the_data_tree_is_owned_by_a_temporary_id(env):
         assert not 2_000_000 <= os.lstat(p).st_uid < 3_000_000, p
 
 
-# --- deletes: by the helper after its own check ---
+# --- deletes: by the access broker after its own check ---
 
 def test_delete_needs_a_delete_token(env):
     path = f"{NS}/study/b.nii.gz"
@@ -305,24 +305,24 @@ def test_a_file_moved_on_the_machine_never_reaches_a_reused_id(small_env):
     e = small_env
     fd, _ = e["access"].open_read(token(f"{NS}/study/a.nii.gz", "read", ttl=60), f"{NS}/study/a.nii.gz", None)
     os.close(fd)
-    first = uid_of_only_link(e["helper"])
+    first = uid_of_only_link(e["broker"])
     os.rename(e["data"] / "study" / "a.nii.gz", e["data"] / "study" / "moved.nii.gz")  # scrubbing moves it
 
-    e["helper"].sweep(now=time.time() + 120)
+    e["broker"].sweep(now=time.time() + 120)
     for _ in range(2):  # use up the pool: the ID that may still hold access must never come back
         fd, _ = e["access"].open_read(token(f"{NS}/study/b.nii.gz", "read"), f"{NS}/study/b.nii.gz", None)
         os.close(fd)
-        e["helper"].sweep(now=time.time() + 600)
-    issued = {link["uid"] for link in e["helper"].ids.state["links"].values()}
+        e["broker"].sweep(now=time.time() + 600)
+    issued = {link["uid"] for link in e["broker"].ids.state["links"].values()}
     assert first not in issued
-    assert str(first) in e["helper"].ids.state["retired"]
+    assert str(first) in e["broker"].ids.state["retired"]
 
 
 def test_one_link_that_cannot_be_revoked_does_not_block_the_others(env, monkeypatch):
     for name in ("a.nii.gz", "b.nii.gz"):
         fd, _ = env["access"].open_read(token(f"{NS}/study/{name}", "read", ttl=60), f"{NS}/study/{name}", None)
         os.close(fd)
-    links = env["helper"].ids.state["links"]
+    links = env["broker"].ids.state["links"]
     stuck = next(link["uid"] for link in links.values() if link["files"][0][0] == ["study", "a.nii.gz"])
     real_revoke = acl.revoke_user
 
@@ -332,25 +332,25 @@ def test_one_link_that_cannot_be_revoked_does_not_block_the_others(env, monkeypa
         real_revoke(fd, uid)
 
     monkeypatch.setattr(acl, "revoke_user", failing_revoke)
-    assert env["helper"].sweep(now=time.time() + 120) == 1
-    remaining = {link["uid"] for link in env["helper"].ids.state["links"].values()}
+    assert env["broker"].sweep(now=time.time() + 120) == 1
+    remaining = {link["uid"] for link in env["broker"].ids.state["links"].values()}
     assert remaining == {stuck}  # kept, to retry; its ID is not released
-    assert str(stuck) not in env["helper"].ids.state["quarantine"]
+    assert str(stuck) not in env["broker"].ids.state["quarantine"]
     assert not can_read(next(iter(set(range(2_000_000, 2_000_002)) - {stuck})),
                         env["data"] / "study" / "b.nii.gz", groups=[TRAVERSE])
 
 
 def test_an_upload_replaced_after_placement_is_refused(env, monkeypatch):
-    import app.helper as helper_module
+    import app.access_broker as broker_module
 
-    real_replace = helper_module.os.replace
+    real_replace = broker_module.os.replace
 
     def replace_then_swap(src, dst, *, src_dir_fd=None, dst_dir_fd=None):
         real_replace(src, dst, src_dir_fd=src_dir_fd, dst_dir_fd=dst_dir_fd)
         os.unlink(dst, dir_fd=dst_dir_fd)
         os.close(os.open(dst, os.O_WRONLY | os.O_CREAT, 0o600, dir_fd=dst_dir_fd))  # someone else's file
 
-    monkeypatch.setattr(helper_module.os, "replace", replace_then_swap)
+    monkeypatch.setattr(broker_module.os, "replace", replace_then_swap)
     with pytest.raises(HTTPException) as refused:
         upload(env, f"{NS}/study/swapped.csv", b"x")
     assert refused.value.status_code == 500
@@ -363,7 +363,7 @@ def test_each_temporary_id_is_recorded_with_its_link_and_user(env, caplog):
     t = sign(f"{NS}/study/a.nii.gz", "read", jti="link-1", sub="user-42")
     with caplog.at_level(logging.INFO, logger="storage-gateway.audit"):
         os.close(env["access"].open_read(t, f"{NS}/study/a.nii.gz", None)[0])
-    link = env["helper"].ids.state["links"]["link-1"]
+    link = env["broker"].ids.state["links"]["link-1"]
     assert link["user"] == "user-42"
     assert f"read link=link-1 id={link['uid']} user=user-42 path={NS}/study/a.nii.gz" in caplog.messages
 
@@ -381,7 +381,7 @@ def test_links_of_one_approval_share_one_id_that_reads_only_their_files(env):
     os.chmod(env["data"] / "study" / "c.nii.gz", 0o600)
     for name in ("a.nii.gz", "b.nii.gz", "a.nii.gz"):
         read_with(env, name, grant="approval-1", sub="user-42")
-    uid = uid_of_only_link(env["helper"])
+    uid = uid_of_only_link(env["broker"])
     assert can_read(uid, env["data"] / "study" / "a.nii.gz", groups=[TRAVERSE])
     assert can_read(uid, env["data"] / "study" / "b.nii.gz", groups=[TRAVERSE])
     assert not can_read(uid, env["data"] / "study" / "c.nii.gz", groups=[TRAVERSE])
@@ -390,7 +390,7 @@ def test_links_of_one_approval_share_one_id_that_reads_only_their_files(env):
 def test_two_approvals_get_two_ids(env):
     read_with(env, "a.nii.gz", grant="approval-1", sub="user-42")
     read_with(env, "a.nii.gz", grant="approval-2", sub="user-42")
-    assert len({link["uid"] for link in env["helper"].ids.state["links"].values()}) == 2
+    assert len({link["uid"] for link in env["broker"].ids.state["links"].values()}) == 2
 
 
 def test_an_approval_belongs_to_one_user(env):
@@ -398,32 +398,32 @@ def test_an_approval_belongs_to_one_user(env):
     with pytest.raises(HTTPException) as refused:
         read_with(env, "b.nii.gz", grant="approval-1", sub="someone-else")
     assert refused.value.status_code == 403
-    assert len(env["helper"].ids.state["links"]) == 1
+    assert len(env["broker"].ids.state["links"]) == 1
 
 
 def test_an_approval_lasts_until_its_latest_link_expires(env):
     read_with(env, "a.nii.gz", grant="approval-1", sub="user-42", ttl=60)
     read_with(env, "b.nii.gz", grant="approval-1", sub="user-42", ttl=600)
-    uid = uid_of_only_link(env["helper"])
-    assert env["helper"].sweep(now=time.time() + 120) == 0
+    uid = uid_of_only_link(env["broker"])
+    assert env["broker"].sweep(now=time.time() + 120) == 0
     assert can_read(uid, env["data"] / "study" / "a.nii.gz", groups=[TRAVERSE])
-    assert env["helper"].sweep(now=time.time() + 700) == 1
+    assert env["broker"].sweep(now=time.time() + 700) == 1
     assert not can_read(uid, env["data"] / "study" / "a.nii.gz", groups=[TRAVERSE])
     assert not can_read(uid, env["data"] / "study" / "b.nii.gz", groups=[TRAVERSE])
-    assert str(uid) in env["helper"].ids.state["quarantine"]
+    assert str(uid) in env["broker"].ids.state["quarantine"]
 
 
 def test_a_link_of_an_expired_approval_starts_a_new_id_and_the_old_one_is_still_revoked(env):
     read_with(env, "a.nii.gz", grant="approval-1", sub="user-42", ttl=1)
-    old = uid_of_only_link(env["helper"])
+    old = uid_of_only_link(env["broker"])
     time.sleep(2.1)
     read_with(env, "b.nii.gz", grant="approval-1", sub="user-42", ttl=600)
-    new = env["helper"].ids.state["links"]["approval-1"]["uid"]
+    new = env["broker"].ids.state["links"]["approval-1"]["uid"]
     assert new != old
-    assert env["helper"].sweep(now=time.time() + 30) == 1
+    assert env["broker"].sweep(now=time.time() + 30) == 1
     assert not can_read(old, env["data"] / "study" / "a.nii.gz", groups=[TRAVERSE])
     assert can_read(new, env["data"] / "study" / "b.nii.gz", groups=[TRAVERSE])
-    assert {link["uid"] for link in env["helper"].ids.state["links"].values()} == {new}
+    assert {link["uid"] for link in env["broker"].ids.state["links"].values()} == {new}
 
 
 def test_uploads_of_one_approval_share_its_id(env):
@@ -432,7 +432,7 @@ def test_uploads_of_one_approval_share_its_id(env):
         pending = env["access"].begin_write(token(path, "write", grant="approval-1", sub="user-42"), path, None)
         pending.write(b"1")
         pending.commit()
-    assert len(env["helper"].ids.state["links"]) == 1
+    assert len(env["broker"].ids.state["links"]) == 1
     assert (env["data"] / "up" / "x.csv").read_bytes() == b"1"
 
 
@@ -458,7 +458,7 @@ def test_a_bundle_reads_only_the_files_on_its_list(env):
 
 
 def test_a_bundle_list_other_than_the_signed_one_is_refused(env):
-    """AC-3. The web service can't hand the helper a longer list than the portal approved."""
+    """AC-3. The web service can't hand the access broker a longer list than the portal approved."""
     with pytest.raises(HTTPException) as refused:
         bundle(env, [f"{NS}/study/a.nii.gz", f"{NS}/study/b.nii.gz"], signed_paths=[f"{NS}/study/a.nii.gz"])
     assert refused.value.status_code == 403
@@ -482,11 +482,11 @@ def test_a_bundle_opens_its_files_in_batches_one_process_each(env, monkeypatch):
     tok = bundle(env, files)
     started = []
     real_run = subprocess.run
-    monkeypatch.setattr("app.helper.subprocess.run", lambda *a, **k: started.append(k["user"]) or real_run(*a, **k))
+    monkeypatch.setattr("app.access_broker.subprocess.run", lambda *a, **k: started.append(k["user"]) or real_run(*a, **k))
     opened = env["access"].open_read_many(tok, files[:64], bundle=f"{NS}/g1")
     opened += env["access"].open_read_many(tok, files[64:], bundle=f"{NS}/g1")
     assert [read_fd(fd) for fd in opened] == [f"{i}".encode() for i in range(100)]
-    assert len(started) == 2 and set(started) == {uid_of_only_link(env["helper"])}
+    assert len(started) == 2 and set(started) == {uid_of_only_link(env["broker"])}
 
 
 def test_a_batch_with_a_file_off_the_list_is_refused_whole(env):
@@ -524,8 +524,8 @@ def test_a_batch_is_recorded_with_one_save(env, monkeypatch):
     tok = bundle(env, files)
     env["access"].stat(tok, files[0], None, bundle=f"{NS}/g1")  # the approval's ID is assigned
     saves = []
-    real_save = env["helper"].ids._save
-    monkeypatch.setattr(env["helper"].ids, "_save", lambda: saves.append(1) or real_save())
+    real_save = env["broker"].ids._save
+    monkeypatch.setattr(env["broker"].ids, "_save", lambda: saves.append(1) or real_save())
     stats = env["access"].stat_many(tok, files, bundle=f"{NS}/g1")
     assert [s.st_size for s in stats] == [len(f"{i}") for i in range(64)]
     assert len(saves) == 1

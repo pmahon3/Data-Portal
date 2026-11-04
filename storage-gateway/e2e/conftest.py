@@ -7,7 +7,7 @@ A POSIX instance is created for the session and removed afterwards.
 
 Against another machine's file service, set E2E_GATEWAY_URL, E2E_NAMESPACE and E2E_GATEWAY_CONTAINER, and
 DOCKER_HOST (e.g. ssh://host) so tests can look at the data through that machine's container; the
-fault and account-mode tests need the local stack's extra containers and are left out there.
+fault and shared-account tests need the local stack's extra containers and are left out there.
 
     uv run --no-project --with pytest --with requests pytest storage-gateway/e2e -q
 """

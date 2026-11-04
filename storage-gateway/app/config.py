@@ -6,10 +6,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
-# A file only the data owner can read. The helper writes it; the web service refuses to start if it
+# A file only the data owner can read. The access broker writes it; the web service refuses to start if it
 # can read it (that would mean it isn't isolated from the data).
 CANARY = ".gateway-canary"
-OPEN_BATCH = 64  # files of a multi-file download opened per request to the helper (one process there)
+OPEN_BATCH = 64  # files of a multi-file download opened per request to the access broker (one process there)
 
 
 @dataclass(frozen=True)
@@ -25,10 +25,10 @@ class Settings:
     - ``issuer``: the ``iss`` claim the portal puts in its tokens.
     - ``cors_origins``: browser origins allowed to call the service directly (uploads and downloads).
     - ``chunk_size``: bytes read per chunk when streaming.
-    - ``helper_socket``: the privileged helper's socket. When set, every file operation goes through
-      the helper and this service can't read the data itself.
-    - ``require_isolation``: refuse to start without a helper (set in the deployed container).
-    - ``account_mode``: run without administrator access (``GATEWAY_ACCESS=account``): this service is
+    - ``broker_socket``: the access broker's socket. When set, every file operation goes through
+      the access broker and this service can't read the data itself.
+    - ``require_isolation``: refuse to start without an access broker (set in the deployed container).
+    - ``shared_account``: run without administrator access (``GATEWAY_ACCESS=shared-account``): this service is
       one ordinary account that can read and write the data, and the portal's links alone decide
       access.
     - ``max_downloads``: multi-file downloads streaming at once; extra ones wait for a slot.
@@ -44,9 +44,9 @@ class Settings:
     issuer: str = "inn-portal"
     cors_origins: list[str] = field(default_factory=list)
     chunk_size: int = 1024 * 1024
-    helper_socket: str | None = None
+    broker_socket: str | None = None
     require_isolation: bool = False
-    account_mode: bool = False
+    shared_account: bool = False
     bundle_list_url: str = ""
     max_downloads: int = 8
     download_wait_seconds: int = 300
@@ -73,9 +73,9 @@ class Settings:
             jwks_url=jwks_url,
             issuer=os.getenv("GATEWAY_ISSUER", "inn-portal"),
             cors_origins=[o.strip() for o in origins.split(",") if o.strip()],
-            helper_socket=os.getenv("GATEWAY_HELPER_SOCKET") or None,
+            broker_socket=os.getenv("GATEWAY_BROKER_SOCKET") or None,
             require_isolation=os.getenv("GATEWAY_REQUIRE_ISOLATION", "").lower() in {"1", "true", "yes"},
-            account_mode=os.getenv("GATEWAY_ACCESS", "helper") == "account",
+            shared_account=os.getenv("GATEWAY_ACCESS", "user-per-approval") == "shared-account",
             bundle_list_url=bundle_list_url,
             max_downloads=int(os.getenv("GATEWAY_MAX_DOWNLOADS", "8")),
             download_wait_seconds=int(os.getenv("GATEWAY_DOWNLOAD_WAIT_SECONDS", "300")),

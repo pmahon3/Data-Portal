@@ -301,7 +301,7 @@ A `posix` instance points at a small file service (`storage-gateway/`) on a POSI
 and namespace (used like a bucket name). The backend checks access as for object storage and signs
 short-lived links (keys at `/api/storage-links/jwks.json`); the file service checks each link and
 serves the file, so file contents never pass through the backend. Where INN has administrator access,
-a root helper on the machine also makes the operating system enforce each link's grant through
+a root access broker on the machine also makes the operating system enforce each link's grant through
 temporary user IDs. Everything else, including what administrators may do directly on the machine,
 is in `docs/posix/README.md`.
 
@@ -339,7 +339,7 @@ Backend tests are in `backend/tests/`; frontend tests sit next to the components
 | `test_policy_guide.py` | The policy guide's "Does this policy allow it?" table, row by row, against the decision layer | From a checkout (it reads `docs/`): `pytest tests/test_policy_guide.py`; it skips in the container |
 | frontend | Components | From `frontend/`: `CI=true npm test` |
 | `storage-gateway/tests/` | The POSIX file service: links, ranges, ZIPs, limits, its diagrams against the code | From `storage-gateway/`: `pytest tests` |
-| `storage-gateway/tests_os/` | The operating-system boundary: temporary IDs, ACLs, the helper, direct access alongside the portal | Linux and root only: run in a throwaway privileged container (see `docs/posix/README.md`) |
+| `storage-gateway/tests_os/` | The operating-system boundary: temporary IDs, ACLs, the access broker, direct access alongside the portal | Linux and root only: run in a throwaway privileged container (see `docs/posix/README.md`) |
 | `storage-gateway/e2e/` | The portal and a POSIX file service end to end, including the use case 5.1 walk | Needs the local stack and `local/docker-compose.posix.yaml` up; `pytest e2e` |
 | `backend/tests/test_posix_*.py` | The backend's POSIX connector and its contract with the file service | `pytest tests/test_posix_agent.py tests/test_posix_contract.py` |
 

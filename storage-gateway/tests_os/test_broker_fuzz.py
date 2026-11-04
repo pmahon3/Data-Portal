@@ -1,9 +1,9 @@
 """
-Fuzzing the privileged helper's socket protocol (TESTING-STRATEGY.md, layer 6, for the helper).
+Fuzzing the access broker's socket protocol (TESTING-STRATEGY.md, layer 6, for the broker).
 
 Random sequences of requests (every operation, valid and invalid tokens, hostile paths and staging
 names) are sent over the real socket. Whatever happens:
-- the helper answers every request and never crashes;
+- the access broker answers every request and never crashes;
 - nothing outside the data root is granted, opened, written or removed;
 - after a final sweep, every file in the tree has no ACL and its original mode, and every ID is
   quarantined or retired, never still held.
@@ -85,7 +85,7 @@ def test_any_request_sequence_leaves_the_tree_clean(batch):
         (e["data"] / "study" / "link").symlink_to(e["outside"] / "secret.txt")
         before = {p: os.lstat(p).st_mode for p in e["data"].rglob("*") if not p.is_symlink()}
         for request in batch:
-            reply = send(str(e["base"] / "helper.sock"), request)
+            reply = send(str(e["base"] / "broker.sock"), request)
             assert isinstance(reply, dict) and "ok" in reply
             assert reply.get("status") != 500, (request, reply)
 
@@ -93,8 +93,8 @@ def test_any_request_sequence_leaves_the_tree_clean(batch):
         with pytest.raises(OSError):
             os.getxattr(e["outside"] / "secret.txt", acl.XATTR)
 
-        e["helper"].sweep(now=time.time() + 10_000)
-        assert e["helper"].ids.state["links"] == {}
+        e["broker"].sweep(now=time.time() + 10_000)
+        assert e["broker"].ids.state["links"] == {}
         for p in e["data"].rglob("*"):
             if p.is_symlink() or not p.is_file():
                 continue

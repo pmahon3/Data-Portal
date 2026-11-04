@@ -6,7 +6,7 @@ service's user may use. For every request it checks the portal's signed token it
 web service can't widen a grant. A read is granted to the link's temporary user ID and opened in a
 child process running as that ID, so the operating system decides the open; the web service gets the
 descriptor and never has its own access. Temporary IDs never get write access to data folders: an
-upload goes to a staging file the helper moves into place, and the helper carries out deletes itself
+upload goes to a staging file the access broker moves into place, and the access broker carries out deletes itself
 (POSIX can't grant "delete only this file"). Each operation's method says what it does.
 
 Each approved request gets its own ID from a reserved range on first use (see ``LinkIds``). When a
@@ -41,7 +41,7 @@ from app.auth import bundle_listing, check_token, jwks_key_resolver
 from app.config import CANARY, OPEN_BATCH
 from app.files import BadPath, Root, split_key
 
-logger = logging.getLogger("storage-gateway.helper")
+logger = logging.getLogger("storage-gateway.access_broker")
 # One line per grant, placement, delete and expiry: temporary ID -> link -> portal user.
 audit = logging.getLogger("storage-gateway.audit")
 SERVICE_DIR = str(Path(__file__).resolve().parents[1])
@@ -53,7 +53,7 @@ _OPENER = f"import sys; sys.path.insert(0, {SERVICE_DIR!r}); from app.opener imp
 
 
 @dataclass
-class HelperSettings:
+class BrokerSettings:
     socket_path: str
     data_root: Path
     staging_root: Path
@@ -71,24 +71,24 @@ class HelperSettings:
     sweep_seconds: int = 15
 
     @classmethod
-    def from_env(cls) -> HelperSettings:
+    def from_env(cls) -> BrokerSettings:
         env = os.environ
         return cls(
-            socket_path=env["HELPER_SOCKET"],
+            socket_path=env["BROKER_SOCKET"],
             data_root=Path(env["GATEWAY_ROOT"]),
-            staging_root=Path(env["HELPER_STAGING"]),
-            state_file=Path(env["HELPER_STATE"]),
+            staging_root=Path(env["BROKER_STAGING"]),
+            state_file=Path(env["BROKER_STATE"]),
             namespace=env["GATEWAY_NAMESPACE"],
             jwks_url=env["GATEWAY_JWKS_URL"],
             issuer=env.get("GATEWAY_ISSUER", "inn-portal"),
-            client_uids={int(u) for u in env.get("HELPER_CLIENT_UIDS", "10001").split(",")},
-            id_start=int(env.get("HELPER_ID_START", 2_000_000)),
-            id_count=int(env.get("HELPER_ID_COUNT", 1_000_000)),
-            traverse_gid=int(env.get("HELPER_TRAVERSE_GID", 10010)),
-            data_uid=int(env.get("HELPER_DATA_UID", 10002)),
-            data_gid=int(env.get("HELPER_DATA_GID", 10002)),
-            quarantine_seconds=int(env.get("HELPER_QUARANTINE_SECONDS", 86400)),
-            sweep_seconds=int(env.get("HELPER_SWEEP_SECONDS", 15)),
+            client_uids={int(u) for u in env.get("BROKER_CLIENT_UIDS", "10001").split(",")},
+            id_start=int(env.get("BROKER_ID_START", 2_000_000)),
+            id_count=int(env.get("BROKER_ID_COUNT", 1_000_000)),
+            traverse_gid=int(env.get("BROKER_TRAVERSE_GID", 10010)),
+            data_uid=int(env.get("BROKER_DATA_UID", 10002)),
+            data_gid=int(env.get("BROKER_DATA_GID", 10002)),
+            quarantine_seconds=int(env.get("BROKER_QUARANTINE_SECONDS", 86400)),
+            sweep_seconds=int(env.get("BROKER_SWEEP_SECONDS", 15)),
         )
 
 
@@ -144,7 +144,7 @@ class LinkIds:
     (keyed by ``jti``).
     """
 
-    def __init__(self, settings: HelperSettings):
+    def __init__(self, settings: BrokerSettings):
         self.s = settings
         self.lock = threading.Lock()
         try:
@@ -253,13 +253,13 @@ class LinkIds:
             self._save()
 
 
-# --- the helper ---
+# --- the access broker ---
 
 
-class Helper:
+class Broker:
     """Carry out the web service's requests after checking each link's token."""
 
-    def __init__(self, settings: HelperSettings, resolve_key=None):
+    def __init__(self, settings: BrokerSettings, resolve_key=None):
         self.s = settings
         self.resolve_key = resolve_key or jwks_key_resolver(settings.jwks_url)
         self.ids = LinkIds(settings)
@@ -641,7 +641,7 @@ class Helper:
     # --- deletes ---
 
     def delete(self, token: str, path: str) -> None:
-        """Delete a file after the helper's own token check (POSIX can't grant "delete only this file")."""
+        """Delete a file after the access broker's own token check (POSIX can't grant "delete only this file")."""
         claims, parts = self._verify(token, path, "DELETE")
         audit.info("delete link=%s user=%s path=%s", claims["jti"], claims.get("sub", "-"), path)
         with _refusing():
@@ -780,16 +780,16 @@ def _validated(req) -> dict:
     return req
 
 
-def make_server(helper: Helper) -> socketserver.ThreadingUnixStreamServer:
-    """Return the server that answers the web service's requests on the helper's socket."""
+def make_server(broker: Broker) -> socketserver.ThreadingUnixStreamServer:
+    """Return the server that answers the web service's requests on the access broker's socket."""
 
     class Handler(socketserver.BaseRequestHandler):
         def handle(self):
             sock = self.request
             credentials = sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i"))
             _, uid, _ = struct.unpack("3i", credentials)
-            if uid not in helper.s.client_uids:
-                logger.warning("refused helper connection from uid %s", uid)
+            if uid not in broker.s.client_uids:
+                logger.warning("refused access broker connection from uid %s", uid)
                 sock.sendall(json.dumps({"ok": False, "status": 403}).encode())
                 return
             data = b""
@@ -806,34 +806,34 @@ def make_server(helper: Helper) -> socketserver.ThreadingUnixStreamServer:
                     raise Refused(400) from e
                 op, token, path = req["op"], req["token"], req["path"]
                 if op == "open":
-                    fds = [helper.open_read(token, path, req.get("bundle"))]
+                    fds = [broker.open_read(token, path, req.get("bundle"))]
                     reply = {"ok": True}
                 elif op == "open_many":
-                    results, fds = helper.open_read_many(token, req["paths"], req["bundle"])
+                    results, fds = broker.open_read_many(token, req["paths"], req["bundle"])
                     reply = {"ok": True, "results": results}
                 elif op == "stat_many":
-                    reply = {"ok": True, "results": helper.stat_many(token, req["paths"], req["bundle"])}
+                    reply = {"ok": True, "results": broker.stat_many(token, req["paths"], req["bundle"])}
                 elif op == "stat":
-                    reply = {"ok": True, "stat": helper.stat(token, path, req.get("bundle"))}
+                    reply = {"ok": True, "stat": broker.stat(token, path, req.get("bundle"))}
                 elif op == "bundle":
-                    helper.register_bundle(token, path, req["list"])
+                    broker.register_bundle(token, path, req["list"])
                     reply = {"ok": True}
                 elif op == "begin_write":
-                    name, fd = helper.begin_write(token, path)
+                    name, fd = broker.begin_write(token, path)
                     fds = [fd]
                     reply = {"ok": True, "staging": name}
                 elif op == "commit":
-                    reply = {"ok": True, "stat": helper.commit(token, path, req["staging"])}
+                    reply = {"ok": True, "stat": broker.commit(token, path, req["staging"])}
                 elif op == "abort":
-                    helper.abort(token, path, req["staging"])
+                    broker.abort(token, path, req["staging"])
                     reply = {"ok": True}
                 else:
-                    helper.delete(token, path)
+                    broker.delete(token, path)
                     reply = {"ok": True}
             except Refused as e:
                 reply = {"ok": False, "status": e.status}
             except Exception:
-                logger.exception("helper request failed")
+                logger.exception("access broker request failed")
                 reply = {"ok": False, "status": 500}
             try:
                 if fds:
@@ -845,38 +845,38 @@ def make_server(helper: Helper) -> socketserver.ThreadingUnixStreamServer:
                     os.close(fd)
 
     try:
-        os.unlink(helper.s.socket_path)
+        os.unlink(broker.s.socket_path)
     except FileNotFoundError:
         pass
-    server = _HelperServer(helper.s.socket_path, Handler)
+    server = _BrokerServer(broker.s.socket_path, Handler)
     server.daemon_threads = True
     return server
 
 
-class _HelperServer(socketserver.ThreadingUnixStreamServer):
+class _BrokerServer(socketserver.ThreadingUnixStreamServer):
     # The default backlog is 5, and the file service connects with a timeout, which makes a full
     # backlog refuse at once (EAGAIN) rather than wait: a few downloads at once failed as unavailable.
     request_queue_size = socket.SOMAXCONN
 
 
-# --- starting the helper ---
+# --- starting the access broker ---
 
 
 def serve(
-    settings: HelperSettings,
+    settings: BrokerSettings,
     resolve_key=None,
     socket_mode: int = 0o660,
     socket_gid: int | None = None,
 ):
     """
-    Start the helper: write the canary, sweep, open the socket and start the sweeper thread.
+    Start the access broker: write the canary, sweep, open the socket and start the sweeper thread.
 
-    Return the helper and its server, which isn't serving yet.
+    Return the access broker and its server, which isn't serving yet.
     """
-    helper = Helper(settings, resolve_key)
-    helper.write_canary()
-    helper.sweep()
-    server = make_server(helper)
+    broker = Broker(settings, resolve_key)
+    broker.write_canary()
+    broker.sweep()
+    server = make_server(broker)
     os.chmod(settings.socket_path, socket_mode)
     if socket_gid is not None:
         os.chown(settings.socket_path, 0, socket_gid)
@@ -885,23 +885,23 @@ def serve(
         while True:
             time.sleep(settings.sweep_seconds)
             try:
-                swept = helper.sweep()
+                swept = broker.sweep()
                 if swept:
                     logger.info("revoked %d expired link(s)", swept)
             except Exception:
                 logger.exception("sweep failed")
 
     threading.Thread(target=sweeper, daemon=True).start()
-    return helper, server
+    return broker, server
 
 
 def main() -> None:
     logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
     if os.geteuid() != 0:
-        raise SystemExit("the helper must run as root")
-    settings = HelperSettings.from_env()
-    _, server = serve(settings, socket_gid=int(os.getenv("HELPER_SOCKET_GID", "10001")))
-    logger.info("helper serving %s for namespace %r", settings.socket_path, settings.namespace)
+        raise SystemExit("the access broker must run as root")
+    settings = BrokerSettings.from_env()
+    _, server = serve(settings, socket_gid=int(os.getenv("BROKER_SOCKET_GID", "10001")))
+    logger.info("access broker serving %s for namespace %r", settings.socket_path, settings.namespace)
     server.serve_forever()
 
 

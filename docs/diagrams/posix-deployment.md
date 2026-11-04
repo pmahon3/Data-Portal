@@ -14,25 +14,25 @@ flowchart TB
 
     subgraph container["POSIX machine: file service"]
         web["Web service · process uvicorn · uid 10001 · groups none · port 9100<br/>checks tokens for early refusals; serves HTTPS itself when given a certificate; can't open any data file"]
-        helper["Privileged helper · process app.helper · uid 0<br/>checks every token itself; grants, places, deletes, revokes"]
+        broker["Access broker · process app.access_broker · uid 0<br/>checks every token itself; grants, places, deletes, revokes"]
         opener["Opener · one per request · uid from 2000000 · group 10010<br/>opens files as the link's temporary ID"]
-        sock["socket /run/gateway/helper.sock · mode 0660 · owner 0:10001"]
+        sock["socket /run/gateway/broker.sock · mode 0660 · owner 0:10001"]
         data["path /srv/posix/data · mode 0710 · owner 10002:10010<br/>governed files: owner 10002, mode 0600, plus one ACL entry per live link"]
         staging["path /srv/posix/staging · mode 0711 · owner 0:0<br/>one folder per uploading ID, outside the data tree"]
-        state["path /srv/posix/.helper · mode 0700 · owner 0:0<br/>which IDs hold which grants (survives restarts)"]
+        state["path /srv/posix/.broker · mode 0700 · owner 0:0<br/>which IDs hold which grants (survives restarts)"]
     end
 
     browser -- "HTTPS, signed links" --> web
     web -- "connects" --> sock
-    sock -- "peer must be uid 10001" --> helper
-    helper -- "starts" --> opener
+    sock -- "peer must be uid 10001" --> broker
+    broker -- "starts" --> opener
     opener -- "read (ACL) / create" --> data
     opener -- "create" --> staging
-    helper -- "move into place, delete, ACLs" --> data
-    helper -- "records" --> state
+    broker -- "move into place, delete, ACLs" --> data
+    broker -- "records" --> state
 
     style web fill:#90EE90
-    style helper fill:#FF9900
+    style broker fill:#FF9900
     style opener fill:#FF9900
 ```
 
@@ -44,11 +44,11 @@ flowchart TB
 | `inndata` | 10002 (group 10002) | Owns the governed files. Nothing runs as it. |
 | `posix-traverse` (group) | 10010 | Pass-through permission on data folders. Only openers get it. |
 | temporary IDs | 2000000 + | One per approval (its links share it); no account entry. Read access through one ACL entry per granted file. |
-| root | 0 | The helper. |
+| root | 0 | The access broker. |
 
 ## Startup and failure
 
-- The helper starts first, writes a canary file only `inndata` can read, revokes anything already
+- The access broker starts first, writes a canary file only `inndata` can read, revokes anything already
   expired, and opens its socket.
 - The web service starts as `gateway` with `--no-new-privs`. It tries to read the canary: if it can,
   it refuses to start.
@@ -57,7 +57,7 @@ flowchart TB
   certificate and it serves plain HTTP.
 - With `GATEWAY_STATE_DIR` set, that folder is created for `gateway` if missing; the web service keeps
   ZIP checksums there across restarts.
-- If either process stops, the container stops. If the helper is unreachable, requests get 503;
+- If either process stops, the container stops. If the access broker is unreachable, requests get 503;
   nothing falls back to direct access.
 
 ---

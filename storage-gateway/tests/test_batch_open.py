@@ -1,5 +1,5 @@
 """
-Opening a multi-file download's files in batches: each batch is one request to the helper (one
+Opening a multi-file download's files in batches: each batch is one request to the access broker (one
 process there), files are handed over in the order the stream reaches them, and any opened but not
 sent are closed when the stream ends.
 
@@ -10,7 +10,7 @@ import os
 import pytest
 from fastapi import HTTPException
 
-from app.broker import BatchOpener
+from app.file_access import BatchOpener
 
 
 class FakeAccess:

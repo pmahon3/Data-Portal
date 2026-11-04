@@ -25,7 +25,7 @@ flowchart LR
 
     subgraph machine["POSIX machine (INN, ImageTech)"]
         web["File service: web<br/>unprivileged"]
-        helper["File service: helper<br/>root"]
+        broker["File service: access broker<br/>root"]
         opener["Opener<br/>runs as the link's temporary ID"]
         data[("Governed data")]
     end
@@ -38,10 +38,10 @@ flowchart LR
     backend --- keycloak
     backend --- mongo
     backend --- postgres
-    web -- "Unix socket" --> helper
-    helper -- "starts" --> opener
+    web -- "Unix socket" --> broker
+    broker -- "starts" --> opener
     opener -- "opens" --> data
-    helper -- "places, deletes, ACLs" --> data
+    broker -- "places, deletes, ACLs" --> data
 
     style frontend fill:#61DAFB
     style backend fill:#4A90E2,color:#fff
@@ -49,7 +49,7 @@ flowchart LR
     style mongo fill:#FFD700
     style postgres fill:#4A90E2,color:#fff
     style web fill:#90EE90
-    style helper fill:#FF9900
+    style broker fill:#FF9900
     style opener fill:#FF9900
     style data fill:#FF9900
 ```
@@ -59,8 +59,8 @@ flowchart LR
 ## File Service Modules (checked)
 
 `storage-gateway/app`. Each solid arrow is a Python import, and every import between these modules
-is drawn: a test fails if an arrow is missing or extra. The web side (`main`, `broker`) never imports
-the privileged side (`helper`, `acl`, `opener`, `layout`); import-linter enforces that separately.
+is drawn: a test fails if an arrow is missing or extra. The web side (`main`, `file_access`) never imports
+the privileged side (`access_broker`, `acl`, `opener`, `layout`); import-linter enforces that separately.
 Dotted arrows are runtime relationships, not imports.
 
 ```mermaid
@@ -68,7 +68,7 @@ Dotted arrows are runtime relationships, not imports.
 flowchart TB
     subgraph webside["Web service (uid 10001, can't read the data)"]
         main["app/main<br/>HTTP endpoints, access log, startup check"]
-        broker["app/broker<br/>HelperAccess (deployed), DirectAccess,<br/>batched opens for multi-file downloads"]
+        file_access["app/file_access<br/>BrokerAccess (deployed), DirectAccess,<br/>batched opens for multi-file downloads"]
         zipstream["app/zipstream<br/>ZIP built as it's sent: exact size, any byte range"]
     end
     subgraph shared["Shared"]
@@ -76,34 +76,34 @@ flowchart TB
         config["app/config<br/>settings, canary name, batch size"]
         files["app/files<br/>no-follow walk, byte ranges, validators"]
     end
-    subgraph privileged["Privileged helper (root)"]
-        helper["app/helper<br/>tokens, bundle lists, temporary IDs, grants, staging, sweeper, audit"]
+    subgraph privileged["Access broker (root)"]
+        broker["app/access_broker<br/>tokens, bundle lists, temporary IDs, grants, staging, sweeper, audit"]
         acl["app/acl<br/>POSIX ACLs through descriptors"]
         layout["app/layout<br/>exposed-area rules: check, apply,<br/>uploads and new folders"]
     end
     opener["app/opener<br/>opens files as the link's temporary ID"]
 
     main --> auth
-    main --> broker
+    main --> file_access
     main --> config
     main --> files
     main --> zipstream
+    file_access --> config
+    file_access --> files
+    broker --> acl
+    broker --> auth
     broker --> config
     broker --> files
-    helper --> acl
-    helper --> auth
-    helper --> config
-    helper --> files
-    helper --> layout
+    broker --> layout
     layout --> acl
     opener --> files
 
-    broker -. "Unix socket, one request per connection" .-> helper
-    helper -. "starts as the link's ID" .-> opener
+    file_access -. "Unix socket, one request per connection" .-> broker
+    broker -. "starts as the link's ID" .-> opener
 
     style main fill:#90EE90
-    style broker fill:#90EE90
-    style helper fill:#FF9900
+    style file_access fill:#90EE90
+    style broker fill:#FF9900
     style acl fill:#FF9900
     style layout fill:#FF9900
     style opener fill:#FF9900

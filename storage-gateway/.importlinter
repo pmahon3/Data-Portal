@@ -2,13 +2,13 @@
 root_package = app
 
 [importlinter:contract:web-side-isolated]
-name = The web service never imports the privileged helper's code
+name = The web service never imports the access broker's code
 type = forbidden
 source_modules =
     app.main
-    app.broker
+    app.file_access
 forbidden_modules =
-    app.helper
+    app.access_broker
     app.acl
     app.opener
     app.layout

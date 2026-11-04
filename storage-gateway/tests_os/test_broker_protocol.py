@@ -1,6 +1,6 @@
 """
-The helper's operations and protocol in detail: gaps found by mutation testing of app/helper.py,
-app/broker.py and app/acl.py (TESTING-STRATEGY.md, layer 10). Linux and root only.
+The access broker's operations and protocol in detail: gaps found by mutation testing of app/access_broker.py,
+app/file_access.py and app/acl.py (TESTING-STRATEGY.md, layer 10). Linux and root only.
 
 Verifies: AC-3.
 """
@@ -24,7 +24,7 @@ from tests_os.test_isolation import DATA_OWNER, NS, TRAVERSE, can_read, env, tok
 
 def raw(e, payload: bytes) -> dict:
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
-        sock.connect(str(e["base"] / "helper.sock"))
+        sock.connect(str(e["base"] / "broker.sock"))
         sock.sendall(payload)
         return json.loads(sock.recv(65536))
 
@@ -41,7 +41,7 @@ def test_malformed_requests_get_400(env, payload):
 
 
 @pytest.mark.parametrize("code", [400, 401, 403, 409])
-def test_the_client_passes_the_helpers_status_through(env, code):
+def test_the_client_passes_the_brokers_status_through(env, code):
     path = {400: f"{NS}/study/../x", 409: f"{NS}/study"}.get(code, f"{NS}/study/a.nii.gz")
     tok = {401: "garbage", 403: token(f"{NS}/study/b.nii.gz", "write")}.get(code, token(path, "write"))
     with pytest.raises(HTTPException) as refused:
@@ -59,7 +59,7 @@ def test_stat_reports_the_file_without_granting_anything(env):
     real = os.stat(f)
     assert (st.st_size, st.st_mtime_ns, st.st_ctime_ns, st.st_ino) == (real.st_size, real.st_mtime_ns,
                                                                        real.st_ctime_ns, real.st_ino)
-    assert env["helper"].ids.state["links"] == {}
+    assert env["broker"].ids.state["links"] == {}
     with pytest.raises(OSError):
         os.getxattr(f, acl.XATTR)
 
@@ -91,7 +91,7 @@ def test_abort_removes_the_staging_file(env):
     path = f"{NS}/study/c.csv"
     t = token(path, "write")
     pending = env["access"].begin_write(t, path, None)
-    uid = uid_of_only_link(env["helper"])
+    uid = uid_of_only_link(env["broker"])
     staged = env["staging"] / str(uid) / pending.staging
     assert staged.exists() and os.stat(staged).st_uid == uid
     pending.abort()
@@ -127,7 +127,7 @@ def test_a_staging_file_owned_by_someone_else_is_refused(env):
     path = f"{NS}/study/c.csv"
     t = token(path, "write")
     pending = env["access"].begin_write(t, path, None)
-    uid = uid_of_only_link(env["helper"])
+    uid = uid_of_only_link(env["broker"])
     planted = env["staging"] / str(uid) / ".upload-planted"
     planted.write_bytes(b"not from this link")  # owned by root, not the link's ID
     with pytest.raises(HTTPException) as refused:
@@ -140,7 +140,7 @@ def test_a_symlinked_staging_folder_is_refused(env):
     path = f"{NS}/study/c.csv"
     t = token(path, "write")
     pending = env["access"].begin_write(t, path, None)
-    uid = uid_of_only_link(env["helper"])
+    uid = uid_of_only_link(env["broker"])
     folder = env["staging"] / str(uid)
     os.rename(folder, env["staging"] / "moved")
     folder.symlink_to(env["outside"])
@@ -153,34 +153,34 @@ def test_a_symlinked_staging_folder_is_refused(env):
 
 def test_quarantine_lasts_exactly_the_configured_time(env):
     os.close(env["access"].open_read(token(f"{NS}/study/a.nii.gz", "read", ttl=60), f"{NS}/study/a.nii.gz", None)[0])
-    uid = uid_of_only_link(env["helper"])
+    uid = uid_of_only_link(env["broker"])
     now = time.time() + 120
-    env["helper"].sweep(now=now)
-    assert env["helper"].ids.state["quarantine"][str(uid)] == pytest.approx(now + 3600)
+    env["broker"].sweep(now=now)
+    assert env["broker"].ids.state["quarantine"][str(uid)] == pytest.approx(now + 3600)
 
 
 def test_expiry_removes_an_uploading_links_staging_folder(env):
     path = f"{NS}/study/c.csv"
     env["access"].begin_write(token(path, "write", ttl=60), path, None)
-    uid = uid_of_only_link(env["helper"])
+    uid = uid_of_only_link(env["broker"])
     assert (env["staging"] / str(uid)).is_dir()
-    env["helper"].sweep(now=time.time() + 120)
+    env["broker"].sweep(now=time.time() + 120)
     assert not (env["staging"] / str(uid)).exists()
 
 
 def test_links_that_havent_expired_are_left_alone(env):
     os.close(env["access"].open_read(token(f"{NS}/study/a.nii.gz", "read", ttl=600), f"{NS}/study/a.nii.gz", None)[0])
-    uid = uid_of_only_link(env["helper"])
-    assert env["helper"].sweep(now=time.time() + 60) == 0
+    uid = uid_of_only_link(env["broker"])
+    assert env["broker"].sweep(now=time.time() + 60) == 0
     assert can_read(uid, env["data"] / "study" / "a.nii.gz", groups=[TRAVERSE])
 
 
 def test_state_survives_a_restart_so_grants_are_still_revoked(env):
-    from app.helper import Helper
+    from app.access_broker import Broker
 
     os.close(env["access"].open_read(token(f"{NS}/study/a.nii.gz", "read", ttl=60), f"{NS}/study/a.nii.gz", None)[0])
-    uid = uid_of_only_link(env["helper"])
-    restarted = Helper(env["helper"].s, resolve_key=lambda t: None)
+    uid = uid_of_only_link(env["broker"])
+    restarted = Broker(env["broker"].s, resolve_key=lambda t: None)
     assert restarted.sweep(now=time.time() + 120) == 1
     assert not can_read(uid, env["data"] / "study" / "a.nii.gz", groups=[TRAVERSE])
 

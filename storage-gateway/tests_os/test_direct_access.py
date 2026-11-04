@@ -59,9 +59,9 @@ def test_an_administrators_entries_survive_portal_grants_and_expiry(env):
     f = env["data"] / "study" / "a.nii.gz"
     admin_grants(f, PERSON, acl.READ)
     portal_reads(env, "a.nii.gz")
-    temporary = uid_of_only_link(env["helper"])
+    temporary = uid_of_only_link(env["broker"])
     assert can_read(PERSON, f, groups=[TRAVERSE]) and can_read(temporary, f, groups=[TRAVERSE])
-    env["helper"].sweep(now=time.time() + 10)  # past the link's expiry
+    env["broker"].sweep(now=time.time() + 10)  # past the link's expiry
     assert can_read(PERSON, f, groups=[TRAVERSE]) and not can_read(temporary, f, groups=[TRAVERSE])
 
 
@@ -132,7 +132,7 @@ def test_after_the_layout_a_link_reads_a_researchers_file_and_nothing_else(env):
     os.chown(mine, PERSON, LAB)
     fd, _ = env["access"].open_read(token(f"{NS}/study/mine.csv", "read"), f"{NS}/study/mine.csv", None)
     assert read_fd(fd) == b"m"
-    temporary = uid_of_only_link(env["helper"])
+    temporary = uid_of_only_link(env["broker"])
     assert not can_read(temporary, study / "b.nii.gz", groups=[TRAVERSE])
     assert not can_read(temporary, env["data"] / "study" / "a.nii.gz", groups=[TRAVERSE])
     from tests_os.test_isolation import as_user

@@ -69,7 +69,7 @@ class Root:
     ``path_only`` opens folders with ``O_PATH`` (Linux), so walking needs only permission to pass
     through each folder, not to list it; the opener running as a link's temporary ID uses it.
     ``on_create`` is called with (new folder, parent folder) descriptors when an upload creates a
-    folder, to set its owner and permissions; the helper uses it.
+    folder, to set its owner and permissions; the access broker uses it.
     """
 
     def __init__(

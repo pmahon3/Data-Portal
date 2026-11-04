@@ -15,15 +15,15 @@ RUN groupadd --system --gid 10010 posix-traverse \
  && useradd --system --uid 10002 --gid inndata --no-create-home inndata \
  && mkdir -p /srv/posix/data && chown inndata:inndata /srv/posix/data
 
-# The helper runs as root and drops the web service to 'gateway' (see entrypoint.sh).
+# The access broker runs as root and drops the web service to 'gateway' (see entrypoint.sh).
 ENV GATEWAY_ROOT=/srv/posix/data \
-    HELPER_STAGING=/srv/posix/staging \
-    HELPER_STATE=/srv/posix/.helper/state.json \
-    HELPER_SOCKET=/run/gateway/helper.sock \
-    GATEWAY_HELPER_SOCKET=/run/gateway/helper.sock \
+    BROKER_STAGING=/srv/posix/staging \
+    BROKER_STATE=/srv/posix/.broker/state.json \
+    BROKER_SOCKET=/run/gateway/broker.sock \
+    GATEWAY_BROKER_SOCKET=/run/gateway/broker.sock \
     GATEWAY_REQUIRE_ISOLATION=1 \
-    HELPER_CLIENT_UIDS=10001 \
-    HELPER_SOCKET_GID=10001
+    BROKER_CLIENT_UIDS=10001 \
+    BROKER_SOCKET_GID=10001
 
 EXPOSE 9100
 ENTRYPOINT ["/service/entrypoint.sh"]

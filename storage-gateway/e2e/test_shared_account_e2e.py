@@ -1,6 +1,6 @@
 """
-Through the portal to a file service running without administrator access (GATEWAY_ACCESS=account,
-the posix-gateway-account container): the same flows as the helper mode, with no root anywhere.
+Through the portal to a file service running without administrator access (GATEWAY_ACCESS=shared-account,
+the posix-gateway-shared container): the same flows as the user-per-approval mode, with no root anywhere.
 
 Verifies: PX-8.
 """
@@ -15,9 +15,9 @@ import requests
 
 from portal import BACKEND, TIMEOUT, delete_file, download_url, unique_name, upload
 
-GATEWAY = os.getenv("E2E_GATEWAY_ACCOUNT_URL", "http://posix-gateway-account.localhost:9102")
-CONTAINER = os.getenv("E2E_GATEWAY_ACCOUNT_CONTAINER", "posix-gateway-account")
-NAMESPACE = "inn-posix-account"
+GATEWAY = os.getenv("E2E_GATEWAY_SHARED_URL", "http://posix-gateway-shared.localhost:9102")
+CONTAINER = os.getenv("E2E_GATEWAY_SHARED_CONTAINER", "posix-gateway-shared")
+NAMESPACE = "inn-posix-shared"
 
 
 @pytest.fixture(scope="module")
@@ -25,8 +25,8 @@ def account_instance(admin):
     try:
         requests.get(f"{GATEWAY}/v1/health", timeout=TIMEOUT).raise_for_status()
     except requests.RequestException:
-        pytest.skip("account-mode file service not running")
-    name = f"posix-account-e2e-{uuid.uuid4().hex[:6]}"
+        pytest.skip("shared-account file service not running")
+    name = f"posix-shared-e2e-{uuid.uuid4().hex[:6]}"
     r = requests.post(f"{BACKEND}/api/instances/", headers=admin, timeout=TIMEOUT, json={
         "flavour": "posix", "instance_name": name, "instance_url": GATEWAY, "namespace": NAMESPACE,
         "project_names": []})

@@ -3,7 +3,7 @@ The checked sequence and deployment diagrams against the running local stack
 (docs/diagrams/posix-sequences.md, posix-deployment.md).
 
 Sequences: each test performs one operation through the portal, then reads what the backend, the
-file service and the helper logged during it (docker's timestamps order lines across containers),
+file service and the access broker logged during it (docker's timestamps order lines across containers),
 and compares that with the diagram's solid arrows, in the order the calls finish.
 Deployment: the running container's processes, accounts, paths and socket match the diagram's labels.
 Setup: see conftest.py.
@@ -52,7 +52,7 @@ def events_since(since: float) -> list[tuple[str, str, str | None, int | None]]:
             elif m := re.search(r"storage-gateway\.audit:(\w+) link=", text):
                 if m.group(1) not in AUDIT_OP:
                     continue
-                event = ("Helper", AUDIT_OP[m.group(1)], None, None)
+                event = ("Broker", AUDIT_OP[m.group(1)], None, None)
             else:
                 continue
             if event[2] and IGNORED_PATHS.match(event[2]):
@@ -164,7 +164,7 @@ def test_temporary_ids_come_from_the_documented_range(admin, instance):
     label = next(l for l in doccheck.flowchart_nodes(doccheck.block("diagrams/posix-deployment.md", "deployment")).values()
                  if l.startswith("Opener"))
     start = int(re.search(r"uid from (\d+)", label).group(1))
-    state = _in_container("cat", "/srv/posix/.helper/state.json")
+    state = _in_container("cat", "/srv/posix/.broker/state.json")
     uids = [int(u) for u in re.findall(r'"uid": (\d+)', state)]
     assert uids and all(u >= start for u in uids)
     delete_file(admin, instance, file_id)

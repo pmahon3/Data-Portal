@@ -10,7 +10,7 @@ import zipfile
 
 from fastapi.testclient import TestClient
 
-from app import broker
+from app import file_access
 from app.checksums import ChecksumStore
 from app.config import Settings
 from app.main import create_app
@@ -45,8 +45,8 @@ def test_a_resume_after_a_restart_reads_only_what_is_left(tmp_path, monkeypatch)
     whole = get(serve(root, state))  # sent once: checksums recorded
 
     opened = []
-    real_open = broker.BatchOpener.open
-    monkeypatch.setattr(broker.BatchOpener, "open", lambda self, path: opened.append(path) or real_open(self, path))
+    real_open = file_access.BatchOpener.open
+    monkeypatch.setattr(file_access.BatchOpener, "open", lambda self, path: opened.append(path) or real_open(self, path))
     restarted = serve(root, state)
     with zipfile.ZipFile(io.BytesIO(whole.content)) as z:
         tail = z.getinfo(f"my study/{NS}/study/sub/b.csv").header_offset + 100  # inside the last file
@@ -62,8 +62,8 @@ def test_without_the_store_a_resume_after_a_restart_rereads_earlier_files(tmp_pa
         (tmp_path / key).write_bytes(data)
     whole = get(serve(tmp_path, None))
     opened = []
-    real_open = broker.BatchOpener.open
-    monkeypatch.setattr(broker.BatchOpener, "open", lambda self, path: opened.append(path) or real_open(self, path))
+    real_open = file_access.BatchOpener.open
+    monkeypatch.setattr(file_access.BatchOpener, "open", lambda self, path: opened.append(path) or real_open(self, path))
     with zipfile.ZipFile(io.BytesIO(whole.content)) as z:
         tail = z.getinfo(f"my study/{NS}/study/sub/b.csv").header_offset + 100
     get(serve(tmp_path, None), headers={"Range": f"bytes={tail}-", "If-Range": whole.headers["etag"]})
