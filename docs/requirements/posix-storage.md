@@ -16,7 +16,7 @@ A1 to A3 in Part A, D1 to D9 in Part D.
 | <a id="px-1"></a>PX-1 | Through the portal, a user can browse, download and upload files held on a connected POSIX machine. | 4.1 steps 2–4 | settled |
 | <a id="px-2"></a>PX-2 | Through the portal, a user can delete files held on a connected POSIX machine. | 4.1 | settled |
 | <a id="px-3"></a>PX-3 | A request gets the same answer on a POSIX machine as on object storage: the same access rules, refusals and listings. | 4.1; 5.1 postcondition | settled |
-| <a id="px-4"></a>PX-4 | Identifiable data considered so far is held on the INN and ImageTech machines and scrubbed there. A file leaves a machine through the portal only if the conditions attached to it allow (D3). | 5.1; 4.7 | open |
+| <a id="px-4"></a>PX-4 | Identifiable data is held on the INN and ImageTech machines and scrubbed there; only scrubbed data leaves. A file leaves a machine through the portal only if the conditions attached to it allow (D3). Confirmed by Kelly, 3 November 2026. | 5.1; 4.7 | settled |
 | <a id="px-5"></a>PX-5 | An interrupted download resumes rather than restarts. | 5.8 main flow step 3; 4.1 outcome (large files) | settled |
 | <a id="px-6"></a>PX-6 | A file appears at its path only when its upload is complete, and an upload never replaces an existing file. An interrupted upload resumes rather than restarts; until it finishes it is shown as incomplete, and one left unfinished is cleared after a set time. | 5.1 postcondition | settled |
 | <a id="px-7"></a>PX-7 | File contents move directly between the user and the machine, not through the portal's servers. | 5.8 main flow step 2 | settled |
