@@ -252,7 +252,7 @@ def bundle_request(monkeypatch, signer, file_ids):
 
 
 def test_posix_files_are_never_sent_to_the_bundler(signer, monkeypatch):
-    """PX-14."""
+    """PX-4, PX-14."""
     from fastapi import HTTPException
 
     with pytest.raises(HTTPException) as refused:

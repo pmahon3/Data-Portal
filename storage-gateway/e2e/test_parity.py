@@ -42,9 +42,9 @@ def via_host(url):
     return url, {}
 
 
-def grant(admin, instance, username, action, resource):
+def grant(admin, instance, username, action, resource, **conditions):
     r = requests.post(f"{BACKEND}/api/policies/", headers=admin, timeout=TIMEOUT, json={
-        "username": username, "instance_name": instance, "resource": resource, "action": action})
+        "username": username, "instance_name": instance, "resource": resource, "action": action, **conditions})
     assert r.status_code in (200, 201), r.text
 
 
@@ -170,3 +170,38 @@ def test_posix_follows_the_same_rules_as_object_storage(admin, instance, s3_inst
                    if on_s3.get(k) != on_posix.get(k)}
     assert differences == {}, f"S3 vs POSIX differ: {differences}"
     assert on_posix == EXPECTED
+
+
+CONDITIONED = {"e.nii": b"E" * 10, "f.csv": b"F" * 10, "g.nii": b"G" * 10}
+
+
+def conditioned_downloads(admin, u1, instance, bucket):
+    """A folder policy limited to ".nii" files and leaving g.nii out; what the user can download."""
+    folder = f"{FOLDER}-cond"
+    folder_id = ensure_folder(admin, instance, bucket, folder)
+    ids = {}
+    for name, content in CONDITIONED.items():
+        status, ids[name] = upload_to(admin, instance, bucket, folder_id, name, content)
+        assert status == 200
+    base = f"{bucket}/{folder}"
+    grant(admin, instance, "qa-authz-u1", "read", f"{base}/*", endings=[".nii"], excluded=[f"{base}/g.nii"])
+    result = {}
+    for name in CONDITIONED:
+        r = download_url(u1, instance, ids[name])
+        result[f"download {name}"] = r.status_code
+        if r.status_code == 200:
+            url, host = via_host(r.json()["url"])
+            result[f"bytes {name}"] = requests.get(url, headers=host, timeout=TIMEOUT).content == CONDITIONED[name]
+    for file_id in ids.values():
+        delete_file(admin, instance, file_id)
+    return result
+
+
+def test_a_file_leaves_a_posix_machine_only_as_its_policys_conditions_allow(admin, instance, s3_instance):
+    """PX-4, AC-6, AC-10. A policy's conditions decide what leaves a POSIX machine, as on object storage:
+    a folder policy limited to file endings and leaving a file out gives only the files it allows."""
+    u1 = login("qa-authz-u1")
+    on_s3 = conditioned_downloads(admin, u1, s3_instance, BUCKET)
+    on_posix = conditioned_downloads(admin, u1, instance, NAMESPACE)
+    assert on_posix == on_s3
+    assert on_posix == {"download e.nii": 200, "bytes e.nii": True, "download f.csv": 403, "download g.nii": 403}
