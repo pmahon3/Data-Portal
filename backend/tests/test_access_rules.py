@@ -18,14 +18,17 @@ from pytest_bdd import parsers, scenarios, then, when
 from core.services.policies.rules import (
     Checker,
     Rule,
+    conditions_json,
     covering,
     normalize_rule_path,
     rule_allows,
+    rule_from_stored,
     rule_shows_folder,
     today,
     validate_endings,
     validate_kinds,
     validate_excluded,
+    validate_rule_action,
 )
 
 scenarios("features/access_rules.feature")
@@ -238,3 +241,47 @@ def test_stored_policies_read_back_with_and_without_conditions():
     assert (ended.resource, ended.ends) == ("b/y/*", datetime.date(2027, 6, 30))
     leaving = policy_from_row([user, instance, "b/y/*", "read", '{"except": ["b/y/z/*"], "endings": [".nii"]}'])
     assert (leaving.ends, leaving.excluded, leaving.endings) == (None, ["b/y/z/*"], [".nii"])
+
+
+def test_a_file_one_policy_skips_for_its_ending_is_still_checked_against_a_policy_further_in():
+    """AC-6, AC-10. Policies with conditions at two depths: a file outside the outer one's endings is
+    still allowed by the inner one."""
+    rules = [Rule("study/*", "read", endings=(".nii",)),
+             Rule("study/sub/*", "read", excluded=("study/sub/private.csv",))]
+    assert allows(rules, "study/sub/scan.csv", "read")
+    assert not allows(rules, "study/sub/private.csv", "read")
+    assert not allows(rules, "study/notes.csv", "read")
+
+
+def test_a_policy_names_one_action_or_every_action():
+    """AC-1, AC-5. An action is one word in lower case, or "*" for every action; a pattern such as
+    ".*" (what stored policies used before INN-297) or a list of actions is refused."""
+    assert validate_rule_action(" read ") == "read"
+    assert validate_rule_action("*") == "*"
+    for refused in (".*", "read,write", "Read", "re ad", ""):
+        with pytest.raises(ValueError):
+            validate_rule_action(refused)
+
+
+def test_a_policys_conditions_read_back_as_they_were_saved():
+    """AC-6, AC-8, AC-10. The conditions stored with a policy read back as the same rule."""
+    full = Rule("study/*", "read", datetime.date(2027, 6, 30), ("study/private/*",), (".nii",), ("anat",),
+                "study/", "BIDS")
+    plain = Rule("study/*", "read")
+    for rule in (full, plain, full._replace(kinds=(), dataset="", standard=""), full._replace(ends=None)):
+        assert rule_from_stored(rule.path, rule.action, conditions_json(rule)) == rule
+    assert conditions_json(plain) == ""  # a policy without conditions keeps its four fields
+
+
+def test_a_folder_named_like_the_policys_folder_is_not_inside_it():
+    """AC-10. "study-2/x" starts like "study/*" but isn't inside it, so it can't be left out of it."""
+    assert validate_excluded("study/*", ["study/x"]) == ("study/x",)
+    with pytest.raises(ValueError):
+        validate_excluded("study/*", ["study-2/x"])
+
+
+def test_a_file_ending_is_a_dot_and_at_least_one_character():
+    """AC-6. ".r" is an ending and "." alone isn't; endings are kept in lower case, without blanks or repeats."""
+    assert validate_endings("study/*", [".R", " .r ", "", ".nii"]) == (".r", ".nii")
+    with pytest.raises(ValueError):
+        validate_endings("study/*", ["."])
