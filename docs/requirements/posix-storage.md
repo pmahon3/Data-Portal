@@ -3,8 +3,8 @@
 Testable requirements for working with files held on connected POSIX machines through the portal.
 Each one serves part of the INN Digital Infrastructure Strategy (2026). The access rules themselves
 are in [access-control.md](access-control.md) and apply here unchanged; this register holds only
-what is specific to POSIX machines. How each one is met, and which ones need administrator access on
-a machine, is in the design ([docs/posix/README.md](../posix/README.md)).
+what is specific to POSIX machines. How each one is met is in the
+[decision log](../design/decision-log.md).
 
 Open items name the question that settles them in [*INN use cases: decisions*](../questions/use-cases.md) (27 October 2026):
 [A1](../questions/use-cases.md#a1) to [A3](../questions/use-cases.md#a3) in Part A, [D1](../questions/use-cases.md#d1) to [D9](../questions/use-cases.md#d9) in Part D.
