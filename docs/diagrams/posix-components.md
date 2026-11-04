@@ -1,8 +1,8 @@
 # POSIX Storage: Component Architecture
 
 How the portal reaches data held on POSIX machines (INN and ImageTech). The narrative, decisions and
-limits are in [docs/posix/README.md](../posix/README.md). Diagrams marked **checked** are compared with
-the code by tests; see [How the diagrams are checked](../posix/README.md#how-the-diagrams-are-checked).
+limits are in the [decision log](../design/decision-log.md#posix-storage). Diagrams marked **checked** are compared with
+the code by tests; see [How the diagrams are checked](README.md#how-the-posix-diagrams-are-checked).
 
 ---
 

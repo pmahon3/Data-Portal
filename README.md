@@ -82,7 +82,7 @@ bundler. Details: [component architecture](docs/diagrams/component-architecture.
 | `backend/` | FastAPI application: API routes (`api/`), services, storage agents and database access (`core/`), and the storage-event worker |
 | `frontend/` | React application |
 | `java-bundler/` | Spring Boot service that builds ZIP archives |
-| `storage-gateway/` | File service for POSIX machines: serves files to holders of links the portal signs, and streams multi-file downloads as one ZIP ([docs/posix](docs/posix/README.md)) |
+| `storage-gateway/` | File service for POSIX machines: serves files to holders of links the portal signs, and streams multi-file downloads as one ZIP ([docs/AGENT.md](docs/AGENT.md#posix-storage)) |
 | `local/` | Docker Compose stack for local development |
 | `deployment/` | Production Docker Compose and Nomad configuration |
 | `tools/` | Object-storage notification setup and tests |

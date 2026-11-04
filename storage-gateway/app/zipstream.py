@@ -1,5 +1,5 @@
 """
-Build a ZIP archive on the fly from files on disk (docs/posix/README.md, "Multi-file downloads").
+Build a ZIP archive on the fly from files on disk (DS-posix-stream in docs/design/decision-log.md).
 
 Files are stored, not compressed: imaging data is mostly compressed already, and stored entries make
 every byte's position known before anything is sent. That gives the exact total size up front (a real

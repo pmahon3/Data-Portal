@@ -302,8 +302,8 @@ and namespace (used like a bucket name). The backend checks access as for object
 short-lived links (keys at `/api/storage-links/jwks.json`); the file service checks each link and
 serves the file, so file contents never pass through the backend. Where INN has administrator access,
 a root access broker on the machine also makes the operating system enforce each link's grant through
-temporary user IDs. Everything else, including what administrators may do directly on the machine,
-is in `docs/posix/README.md`.
+temporary user IDs. The design choices are in the decision log (`docs/design/decision-log.md`, the
+DS- entries under POSIX storage); the requirements are PX-n.
 
 Settings for running it on a machine:
 
@@ -313,6 +313,10 @@ Settings for running it on a machine:
 | `STORAGE_LINK_SIGNING_KEY_PREVIOUS` | backend | During a key rotation, the old key's PEM: still published, so links signed with it work until they expire |
 | `GATEWAY_TLS_CERT`, `GATEWAY_TLS_KEY` | file service | With both set, the file service serves HTTPS itself; without them, plain HTTP (local tests only) |
 | `GET /v1/metrics` | file service | Request and error counters (Prometheus text), counted by route, never by file name |
+| `GATEWAY_ACCESS` | file service | `user-per-approval` (default: a root access broker, one temporary ID per approval) or `shared-account` (one account holds the data; run the container as it) |
+| `GATEWAY_STATE_DIR` | file service | Where ZIP checksums are kept across restarts, so a resumed download reads only what's left (in memory if unset) |
+| `GATEWAY_MAX_DOWNLOADS`, `GATEWAY_DOWNLOAD_WAIT_SECONDS`, `GATEWAY_MAX_BUNDLE_FILES` | file service | Multi-file downloads at once (8), how long another waits before a 503 (300 s), and files per download (200,000) |
+| `python -m app.layout --root <area> [--apply]` | file service | Reports (and fixes) what differs from the layout administrators and the portal share: owners and groups kept, closed to everyone else |
 
 The end-to-end tests (`storage-gateway/e2e/`) run against another machine's file service with
 `E2E_GATEWAY_URL`, `E2E_NAMESPACE` and `E2E_GATEWAY_CONTAINER`, with `DOCKER_HOST` (for example
@@ -352,7 +356,7 @@ Backend tests are in `backend/tests/`; frontend tests sit next to the components
 | `test_policy_guide.py` | The policy guide's "Does this policy allow it?" table, row by row, against the decision layer | From a checkout (it reads `docs/`): `pytest tests/test_policy_guide.py`; it skips in the container |
 | frontend | Components | From `frontend/`: `CI=true npm test` |
 | `storage-gateway/tests/` | The POSIX file service: links, ranges, ZIPs, limits, its diagrams against the code | From `storage-gateway/`: `pytest tests` |
-| `storage-gateway/tests_os/` | The operating-system boundary: temporary IDs, ACLs, the access broker, direct access alongside the portal | Linux and root only: run in a throwaway privileged container (see `docs/posix/README.md`) |
+| `storage-gateway/tests_os/` | The operating-system boundary: temporary IDs, ACLs, the access broker, direct access alongside the portal | Linux and root only: from `storage-gateway/`, `docker run --rm --privileged -v "$PWD/..:/repo" -w /repo/storage-gateway python:3.12-slim sh -c "pip install -r requirements-test.txt && pytest tests_os"` |
 | `storage-gateway/e2e/` | The portal and a POSIX file service end to end, including the use case 5.1 walk | Needs the local stack and `local/docker-compose.posix.yaml` up; `pytest e2e` |
 | `backend/tests/test_posix_*.py` | The backend's POSIX connector and its contract with the file service | `pytest tests/test_posix_agent.py tests/test_posix_contract.py` |
 

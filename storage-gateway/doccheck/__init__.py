@@ -1,6 +1,6 @@
 """
 Read the Mermaid diagrams in docs/, so tests can check them against the code and the running system.
-What each kind of arrow claims: docs/posix/README.md, "How the diagrams are checked".
+What each kind of arrow claims: docs/diagrams/README.md, "How the POSIX diagrams are checked".
 """
 from __future__ import annotations
 

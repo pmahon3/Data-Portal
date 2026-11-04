@@ -42,8 +42,8 @@ Storage operations and access control:
 - Access control patterns
 
 ### 🗄️ POSIX Storage
-Access to data on researcher-owned POSIX machines; overview and decisions in [docs/posix](../posix/README.md).
-Diagrams marked *checked* are verified against the build by tests.
+Access to data on researcher-owned POSIX machines; decisions in the [decision log](../design/decision-log.md#posix-storage).
+Diagrams marked *checked* are verified against the build by tests ([how](#how-the-posix-diagrams-are-checked)).
 - [Components](./posix-components.md): system overview; file service and backend modules (checked)
 - [Deployment](./posix-deployment.md): processes, accounts and permissions on the machine (checked)
 - [Sequences](./posix-sequences.md): download, resume, upload, delete (checked); expiry
@@ -72,3 +72,24 @@ These diagrams are written in **Mermaid** syntax and render automatically in:
 
 **Last Updated:** 2025-10-23
 **Branch:** backend-containerization
+
+## How the POSIX diagrams are checked
+
+Only Mermaid blocks whose first line is `%% check: <name>` are checked; others are explanation.
+
+- **Module diagrams** (flowcharts): each node's label starts with the module's path in its component
+  (`app/access_broker`, `core/storage_agents/posix_agent`). A plain solid arrow `A --> B` claims "A imports B".
+  The test reads the imports from the source and fails if an arrow is missing or extra. Labelled or
+  dotted arrows are runtime relationships and aren't import claims.
+- **Deployment** (flowchart): labels state facts in a fixed form (`process uvicorn · uid 10001 · groups
+  none`, `path /srv/posix/data · mode 0710 · owner 10002:10010`). They're compared with the Dockerfile and
+  entrypoint, and with the running container.
+- **Sequences**: a solid arrow `A->>B: METHOD /path → status` or `A->>Broker: op` is a claim.
+  `{id}` and `{path}` stand for any ID or path; text in parentheses is explanation. The end-to-end test
+  performs the operation and reads what the backend, file service and access broker logged; since each logs a
+  call when it finishes, the expected order is the diagram's completion order (a call made during
+  another call finishes first). Dashed replies, async arrows and notes aren't checked.
+- **Lifecycle** (state diagram): every `S1 --> S2` must be observed when the access broker is driven through
+  each case, and nothing else may occur.
+
+When the code changes, a test fails until the diagram is updated, and the other way round.

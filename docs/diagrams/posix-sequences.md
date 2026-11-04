@@ -2,7 +2,7 @@
 
 What happens, in order, for each operation on a POSIX instance. Each **checked** diagram is replayed
 by an end-to-end test against the local stack; see
-[How the diagrams are checked](../posix/README.md#how-the-diagrams-are-checked).
+[How the diagrams are checked](README.md#how-the-posix-diagrams-are-checked).
 
 Participants: **Backend** is the portal backend; **FileService** is the file service's web process
 (uid 10001, can't read data); **Broker** is its access broker (root); **Opener** is a short-lived

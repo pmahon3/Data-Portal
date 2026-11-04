@@ -16,7 +16,7 @@ if [ -n "${GATEWAY_TLS_CERT:-}${GATEWAY_TLS_KEY:-}" ]; then
 fi
 
 # Without administrator access (GATEWAY_ACCESS=shared-account): no root, no access broker. The web service runs as
-# the container's user, which must hold the data (docs/posix/README.md, "Administrator access").
+# the container's user, which must hold the data (DS-admin-where-needed in docs/design/decision-log.md).
 if [ "${GATEWAY_ACCESS:-user-per-approval}" = shared-account ]; then
   unset GATEWAY_BROKER_SOCKET
   export GATEWAY_REQUIRE_ISOLATION=0
