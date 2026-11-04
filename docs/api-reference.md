@@ -117,20 +117,12 @@ datatypes); a folder outside such a dataset, or a kind the standard doesn't defi
 ## Storage Links
 
 For POSIX file services, not browsers. File URLs for a POSIX instance are links to its file service,
-<<<<<<< HEAD
-signed by the backend.
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/storage-links/jwks.json` | Public keys the file services verify links with. |
-=======
-signed by the backend; see [POSIX Storage](./posix/README.md).
+signed by the backend; the settings are in [AGENT.md](./AGENT.md#posix-storage).
 
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/api/storage-links/jwks.json` | Public keys the file services verify links with (during a key rotation, the old and the new). |
 | `GET` | `/api/storage-links/bundles/{grant}` | The file list approved for a multi-file download, for the file service presenting that download's link. |
->>>>>>> 1b66801 (docs(posix): project docs cover POSIX instances, the file service and storage links)
 
 ## Projects
 

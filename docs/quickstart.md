@@ -86,11 +86,7 @@ docker compose -p ams-posix -f local/docker-compose.posix.yaml up -d --build
 ```
 
 Then create a `posix` instance with URL `http://posix-gateway.localhost:9100` and namespace
-<<<<<<< HEAD
 `inn-posix`.
-=======
-`inn-posix`. See [POSIX Storage](./posix/README.md).
->>>>>>> 1b66801 (docs(posix): project docs cover POSIX instances, the file service and storage links)
 
 ## More guides
 
