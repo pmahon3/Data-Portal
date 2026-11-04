@@ -38,3 +38,16 @@ download can run for hours, up to a day. Options:
 For the system administrators: the host, port and sender address of a mail relay the portal can send
 through. The email channel for notifications ([NT-1](../requirements/notifications.md#nt-1)) stays off
 until there is one.
+
+### <a id="ac-owner"></a>AC-OWNER. Who counts as a data owner?
+
+Access records are readable by data owners for their own data
+([AC-9](../requirements/access-control.md#ac-9), [PX-10](../requirements/posix-storage.md#px-10)).
+Decided by Kelly and Patrick, 2026-11-04: a project's manager is its data owner in practice, or acts
+as the data owner's assigned delegate.
+
+### <a id="ac-policy-scope"></a>AC-POLICY-SCOPE. Does the portal regulate what a person does with the access a policy gives?
+
+Decided by Kelly and Patrick, 2026-11-04: no. The portal gives people the policies that let them do
+what they have agreed to do, and enforces those; what they do with the data afterwards is theirs to
+answer for under their agreement.
