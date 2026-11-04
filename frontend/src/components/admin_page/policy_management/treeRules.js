@@ -1,12 +1,14 @@
 /**
- * Turning a selection in the file tree into policy rules (requirements AC-4, AC-5).
+ * Turn a selection in the file tree into policy rules (requirements AC-4, AC-5, AC-10).
  *
  * The rules are the ones typing would make, with no conversion beyond them:
- *   - a folder the admin ticked, with no filter active: `bucket/folder/*` (covers files added later)
+ *   - a folder the admin ticked, with no filter active: `bucket/folder/*` (covers files added later),
+ *     leaving out whatever was then unticked inside it (AC-10)
  *   - a ticked file: `bucket/path/file.ext`, never collapsed into its folder
  *   - under a filter: one rule per file the filter shows
  * A folder becomes a folder rule only when it was ticked itself (a "folder grant"); the tree's
- * own selection can't tell that apart from a folder whose files were all ticked.
+ * own selection can't tell that apart from a folder whose files were all ticked. Each rule is
+ * `{ resource, excluded }`, as the policy API takes it.
  */
 
 const isFile = (id) => String(id).startsWith("file-");
@@ -33,23 +35,24 @@ function hasAncestorIn(id, set, byId) {
   return false;
 }
 
-function everythingLoadedIsSelected(id, selected, children) {
-  return (children.get(id) || []).every(
-    (child) => selected.has(child) && everythingLoadedIsSelected(child, selected, children),
-  );
+function anythingSelected(id, selected, children) {
+  if (selected.has(id)) return true;
+  const inside = children.get(id) || [];
+  return inside.some((child) => anythingSelected(child, selected, children));
 }
 
 /**
- * The folder grants after a change in the tree's selection. A folder newly selected with no
+ * Return the folder grants after a change in the tree's selection. A folder newly selected with no
  * filter active was ticked itself; one selected under a filter only stands for the files the
- * filter shows. A grant lapses once its folder, or anything loaded under it, is unticked, or
- * once the selection was cleared from outside (a search starting).
+ * filter shows. A grant lasts while anything in it stays ticked (what's unticked inside it is left
+ * out), and lapses once nothing in it is, or once the selection was cleared from outside (a search
+ * starting).
  */
 export function nextFolderGrants(grants, previous, next, nodes, filterActive) {
   const { children } = index(nodes);
   const result = new Set(
     [...grants].filter(
-      (id) => previous.has(id) && next.has(id) && everythingLoadedIsSelected(id, next, children),
+      (id) => anythingSelected(id, previous, children) && anythingSelected(id, next, children),
     ),
   );
   if (!filterActive) {
@@ -60,7 +63,10 @@ export function nextFolderGrants(grants, previous, next, nodes, filterActive) {
   return result;
 }
 
-/** A folder's rule: its bucket and path, then "*". The bucket itself is `bucket/*`. */
+/**
+ * Return a folder's rule: its bucket and path, then "*". The bucket itself is `bucket/*`.
+ * Example: bucket "study", full_path "/sub-01" -> "study/sub-01/*"
+ */
 export function folderRule(node) {
   const attrs = node.li_attr || {};
   let path = String(attrs.full_path || "/");
@@ -69,39 +75,115 @@ export function folderRule(node) {
   return `${attrs.bucket}${path.replace(/\/{2,}/g, "/")}*`;
 }
 
-/** A file's rule: its bucket and key. */
+/**
+ * Return a file's rule: its bucket and key.
+ * Example: bucket "study", key "sub-01/anat/t1.nii" -> "study/sub-01/anat/t1.nii"
+ */
 export function fileRule(node) {
   const attrs = node.li_attr || {};
   return `${attrs.bucket}/${String(attrs.key || "").replace(/^\/+/, "")}`;
 }
 
-/** The rules for a selection, in tree order: folder grants first unless under another, then files. */
+/**
+ * Return what a folder grant leaves out: the largest unticked parts loaded inside it. A folder with
+ * nothing ticked in it is left out whole (`folder/*`, so files added there later stay out too);
+ * one with some things ticked is looked into; an unticked file is left out by name.
+ */
+function leftOut(id, selected, children, byId) {
+  const out = [];
+  for (const child of children.get(id) || []) {
+    if (selected.has(child)) continue;
+    if (isFile(child)) {
+      out.push(fileRule(byId.get(child)));
+    } else if (anythingSelected(child, selected, children)) {
+      out.push(...leftOut(child, selected, children, byId));
+    } else {
+      out.push(folderRule(byId.get(child)));
+    }
+  }
+  return out;
+}
+
+/** Return the rules for a selection, in tree order: folder grants (unless under another), then files. */
 export function rulesFromSelection(nodes, selected, grants) {
-  const { byId } = index(nodes);
+  const { byId, children } = index(nodes);
   const rules = [];
   for (const node of nodes) {
     const id = String(node.id);
-    if (!selected.has(id) || hasAncestorIn(id, grants, byId)) continue;
-    if (isFile(id)) rules.push(fileRule(node));
-    else if (grants.has(id)) rules.push(folderRule(node));
+    if (hasAncestorIn(id, grants, byId)) continue;
+    if (grants.has(id) && anythingSelected(id, selected, children)) {
+      rules.push({ resource: folderRule(node), excluded: leftOut(id, selected, children, byId) });
+    } else if (isFile(id) && selected.has(id)) {
+      rules.push({ resource: fileRule(node), excluded: [] });
+    }
   }
   return rules;
 }
 
+/**
+ * Return a rule as one line of text, for keys and tests.
+ * Example: "study/*" or "study/* leaving out study/sub-03/*"
+ */
+export function ruleText(rule) {
+  if (!rule.excluded.length) return rule.resource;
+  return `${rule.resource} leaving out ${rule.excluded.join(", ")}`;
+}
+
 const VERBS = { read: "read", write: "write to", delete: "delete", admin: "administer" };
 
-/** The rules in plain words, one line each: "everything in study/patient-7/, including files added later". */
+/** Return an action as a verb in a sentence. Example: "write" -> "write to" */
+export function verbFor(action) {
+  return VERBS[action] || action;
+}
+
+const asWords = (path) => (path.endsWith("/*") ? path.slice(0, -1) : path);
+
+/**
+ * Return a rule in plain words.
+ * Example: "everything in study/patient-7/ except study/patient-7/notes.txt, including files added later"
+ */
 export function describeRule(rule) {
-  return rule.endsWith("/*")
-    ? `everything in ${rule.slice(0, -1)}, including files added later`
-    : rule;
+  if (!rule.resource.endsWith("/*") && rule.resource !== "*") return rule.resource;
+  let what = `everything in ${asWords(rule.resource)}`;
+  if (rule.resource === "*") what = "everything on the instance";
+  let except = "";
+  if (rule.excluded.length) except = ` except ${rule.excluded.map(asWords).join(", ")}`;
+  return `${what}${except}, including files added later`;
 }
 
-/** "alice can read:" for the preview's heading. */
+/** Return the preview's heading. Example: "alice can read:" */
 export function describeWho(username, action) {
-  return `${username || "This user"} can ${VERBS[action] || action}:`;
+  return `${username || "This user"} can ${verbFor(action)}:`;
 }
 
+/** Return how many rules there are. Example: "2 rules." */
 export function describeCount(rules) {
   return `${rules.length} ${rules.length === 1 ? "rule" : "rules"}.`;
+}
+
+/**
+ * Return a warning when a policy path covers the whole instance or a whole bucket, else null
+ * (DS-broad-grant-warning).
+ * Example: "study/*" -> "This covers the whole bucket study, including files added later."
+ */
+export function broadExtent(resource) {
+  if (resource === "*") return "This covers the whole instance, including files added later.";
+  const bucket = resource.match(/^([^/]+)\/\*$/);
+  if (bucket) return `This covers the whole bucket ${bucket[1]}, including files added later.`;
+  return null;
+}
+
+// Example: ["a", "b", "c"] -> "a, b or c"
+const joinOr = (items) => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} or ${items.at(-1)}`);
+
+/**
+ * Return a typed policy's conditions in words, one sentence each (AC-6, AC-8).
+ * Example: { endings: [".nii"], kinds: [], ends: "" } -> ["Only files ending in .nii."]
+ */
+export function describeConditions({ endings, kinds, ends }) {
+  const sentences = [];
+  if (endings.length) sentences.push(`Only files ending in ${joinOr(endings)}.`);
+  if (kinds.length) sentences.push(`Only ${joinOr(kinds)} data.`);
+  if (ends) sentences.push(`Until the end of ${ends}, then nothing.`);
+  return sentences;
 }

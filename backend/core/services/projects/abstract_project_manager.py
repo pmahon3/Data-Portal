@@ -143,6 +143,16 @@ class AbstractProjectManager(ABC):
         pass
 
     @abstractmethod
+    def managed_projects(self, current_user: dict) -> set[str]:
+        """
+        Return the names of the projects the signed-in user manages.
+
+        Every check of a manager's reach asks this, so where membership comes from (Keycloak groups
+        today) stays inside the implementation.
+        """
+        pass
+
+    @abstractmethod
     def can_manage_instance_for_user(self, current_user: dict, target_username: str, instance_uuid: UUID) -> bool:
         """
         Determine whether the current user has permission to manage a storage

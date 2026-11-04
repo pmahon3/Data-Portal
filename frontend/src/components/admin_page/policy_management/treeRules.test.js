@@ -1,4 +1,4 @@
-import { describeRule, fileRule, folderRule, nextFolderGrants, rulesFromSelection } from './treeRules';
+import { broadExtent, describeConditions, describeRule, fileRule, folderRule, nextFolderGrants, rulesFromSelection } from './treeRules';
 
 // AC-5: the rules the picker makes are the ones typing would: a file, or a folder and everything in it.
 const nodes = [
@@ -15,8 +15,9 @@ test('rule paths have the form the policy API accepts', () => {
 });
 
 test('a folder rule is described as covering files added later', () => {
-  expect(describeRule('study/patient-7/*')).toBe('everything in study/patient-7/, including files added later');
-  expect(describeRule('study/patient-7/scan.nii')).toBe('study/patient-7/scan.nii');
+  expect(describeRule({ resource: 'study/patient-7/*', excluded: [] })).toBe('everything in study/patient-7/, including files added later');
+  expect(describeRule({ resource: 'study/patient-7/scan.nii', excluded: [] })).toBe('study/patient-7/scan.nii');
+  expect(describeRule({ resource: 'study/*', excluded: ['study/sub-03/*'] })).toBe('everything in study/ except study/sub-03/, including files added later');
 });
 
 // AC-4: a folder selected under a filter stands only for the files the filter shows.
@@ -26,5 +27,23 @@ test('a folder grant made before the selection was cleared does not come back un
   expect(grants).toEqual(new Set(['2']));
   // A search clears the selection; the folder is then selected again under the filter.
   const after = nextFolderGrants(grants, new Set(), ticked, nodes, true);
-  expect(rulesFromSelection(nodes, ticked, after)).toEqual(['study/patient-7/scan.nii']);
+  expect(rulesFromSelection(nodes, ticked, after)).toEqual([{ resource: 'study/patient-7/scan.nii', excluded: [] }]);
+});
+
+// AC-5: a policy on the whole instance or a whole bucket is named as such before it's saved.
+test('a policy on the whole instance or a whole bucket is called broad', () => {
+  expect(broadExtent('*')).toBe('This covers the whole instance, including files added later.');
+  expect(broadExtent('study/*')).toBe('This covers the whole bucket study, including files added later.');
+  expect(broadExtent('study/patient-7/*')).toBeNull();
+  expect(broadExtent('study/protocol.pdf')).toBeNull();
+  expect(broadExtent('')).toBeNull();
+});
+
+// AC-6, AC-8: a typed policy's conditions are said in words before it's saved.
+test('a typed policy\'s conditions are described in words', () => {
+  expect(describeConditions({ endings: ['.nii', '.nii.gz'], kinds: [], ends: '' })).toEqual(
+    ['Only files ending in .nii or .nii.gz.']);
+  expect(describeConditions({ endings: [], kinds: ['anat', 'func', 'dwi'], ends: '2026-12-31' })).toEqual(
+    ['Only anat, func or dwi data.', 'Until the end of 2026-12-31, then nothing.']);
+  expect(describeConditions({ endings: [], kinds: [], ends: '' })).toEqual([]);
 });

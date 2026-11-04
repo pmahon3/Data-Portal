@@ -66,7 +66,7 @@ storage, and the browser downloads them from the presigned URL.
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/users/` | List users *(admin or project manager)*. |
+| `GET` | `/api/users/` | List users: every user for an admin; the members and managers of their own projects for a project manager. |
 | `POST` | `/api/users/` | Create a user *(admin or project manager)*. |
 | `GET` | `/api/users/me` | Get the current user's profile. |
 | `GET` | `/api/users/{username}` | Get a user profile *(owner or admin)*. |
@@ -82,14 +82,20 @@ they manage.
 |---|---|---|
 | `GET` | `/api/policies/me` | List the current user's policies. |
 | `GET` | `/api/policies/` | List or filter policies *(admin or project manager)*. |
+| `GET` | `/api/policies/check` | May a person do an action on a path, and which of their policies allows it? Takes `username`, `instance_name`, `resource` and `action`; returns `allowed`, `because` (the policies) and, for a folder path ending in `/`, `shown` *(admin, or project manager for people in their projects)*. |
 | `POST` | `/api/policies/` | Add a policy *(admin or project manager)*. |
 | `DELETE` | `/api/policies/` | Remove a policy *(admin or project manager)*. |
-| `POST` | `/api/policies/validate` | Test a policy without adding it *(admin)*. |
 
 `GET /api/policies/` filters by `username` or `instance_name` as well as by UUID. A policy's
 `resource` is a literal path: `bucket/path/file.txt` (that file), `bucket/folder/*` (that folder and
 everything in it) or `*` (the whole instance). Its `action` is one action (`read`, `write`, `delete`, `admin`) or `*`.
-Other forms are refused (400).
+Other forms are refused (400). An optional `ends` (an ISO date, e.g. `2027-06-30`) is the last day
+the policy applies; from the next day (UTC) it allows nothing. A date already past is refused (400),
+and policies are listed with their `ends`. An optional `excluded` lists paths inside a folder policy
+(or `*`) that it leaves out, written like policy paths; anything outside the folder is refused (400). An optional `endings` (e.g. `[".nii", ".nii.gz"]`)
+limits a folder policy to files whose names end in one, in any case; each must start with `.`. An optional `kinds` (e.g. `["anat"]`) limits a folder policy
+inside a dataset that declares a standard to those kinds of data as the standard defines them (BIDS:
+datatypes); a folder outside such a dataset, or a kind the standard doesn't define, is refused (400).
 
 ## Notifications
 

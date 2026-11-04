@@ -1,4 +1,4 @@
-@AC-4 @AC-5 @UC-5.1
+@AC-4 @AC-5 @AC-10 @UC-5.1
 Feature: Granting access by choosing from the file tree
   An administrator can grant access by ticking items in the file tree instead of typing paths.
   The selection becomes the same rules typing would make (AC-5: a file, or a folder and
@@ -35,11 +35,17 @@ Feature: Granting access by choosing from the file tree
     And the admin ticks "scan.nii"
     Then the rules are exactly "study/patient-8/scan.nii"
 
-  Scenario: A partly ticked folder grants the ticked files
+  Scenario: A folder with a file unticked inside it leaves that file out
     When the admin ticks "patient-7/"
     And the admin expands "patient-7/"
     And the admin ticks "notes.txt"
-    Then the rules are exactly "study/patient-7/scan.nii"
+    Then the rules are exactly "study/patient-7/* leaving out study/patient-7/notes.txt"
+    And the preview says "everything in study/patient-7/ except study/patient-7/notes.txt, including files added later"
+
+  Scenario: A folder with a folder unticked inside it leaves that folder out
+    When the admin ticks "study"
+    And the admin ticks "patient-8/"
+    Then the rules are exactly "study/* leaving out study/patient-8/*"
 
   Scenario: The bucket itself grants everything in it
     When the admin ticks "study"

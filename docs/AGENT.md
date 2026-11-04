@@ -77,7 +77,7 @@ Main backend route groups:
 
 - `/api/auth` for token validation
 - `/api/users` for user CRUD and instance listing
-- `/api/policies` for policy CRUD
+- `/api/policies` for policy CRUD, and `/api/policies/check` to check a person's access
 - `/api/instances` for storage instance CRUD
 - `/api/tree` for DB-backed file tree endpoints
 - `/api/notifications` for the current user's notifications
@@ -99,7 +99,11 @@ Different kinds of data are persisted in different systems. This is important an
 
 - Keycloak stores users, credentials, and realm role assignments.
 - MongoDB stores storage instance configurations, notifications (`notifications`), bundle owners (`bundle-owners`), and dataset check results (`dataset-checks`).
-- Casbin policies are persisted through the MongoDB Casbin adapter.
+- Casbin policies are persisted in MongoDB (`casbin_rule`) in the Casbin adapter's format. The
+  backend reads and writes those rows directly (`CasbinPolicyManager._stored`), never Casbin's
+  in-memory copy: each backend process loads that copy once, so it misses changes made through
+  another process, and it misreads paths containing `[`. Decisions are made in
+  `core/services/policies/rules.py`.
 - PostgreSQL stores folder and file tree metadata used by the newer tree endpoints.
 - Object storage stores the actual data files.
 
@@ -124,7 +128,7 @@ Storage instances are managed through the backend `InstanceManager`.
 
 - Instance definitions are loaded from MongoDB at startup.
 - A storage agent is created in memory for each configured instance.
-- The instance UUID is stable and derived from the instance name.
+- An instance gets a random UUID when it is created; policies name the UUID, so renaming an instance keeps its policies.
 - The backend supports `s3`, `posix` and `dummy` flavours in code.
 - The admin UI creates `s3` and `posix` instances.
 
@@ -228,7 +232,7 @@ The frontend is a React app using `@react-keycloak/web`.
 Current admin pages:
 
 - `user_management` for Keycloak user CRUD
-- `policy_management` for Casbin policy CRUD; a policy's resource can be typed or chosen from the instance's file tree (`TreePicker.js`, rules in `treeRules.js`)
+- `policy_management` for Casbin policy CRUD; a policy's resource can be typed or chosen from the instance's file tree (`TreePicker.js`, rules in `treeRules.js`), and a person's access can be checked (`CheckAccess.js`)
 - `asset_management` for per-instance tree and asset actions
 - `storage_management` for instance CRUD
 
@@ -274,6 +278,11 @@ Completing an upload records a notification for the user (MongoDB `notifications
 files, since file names can identify participants. See `docs/diagrams/notifications.md` and [NT-1](requirements/notifications.md#nt-1) in
 `docs/requirements/notifications.md`.
 
+Policies with an end date ([AC-8](requirements/access-control.md#ac-8)) raise reminders too: the backend checks hourly
+(`core/services/policies/end_reminders.py`) and notifies the administrators and the managers of the
+instance's projects `POLICY_END_REMINDER_DAYS` (14) days before and on the day, once each.
+`POLICY_END_REMINDERS=false` turns this off.
+
 ## Data Standards
 
 A folder holding a standard's marker file at its root declares that standard (BIDS:
@@ -281,7 +290,9 @@ A folder holding a standard's marker file at its root declares that standard (BI
 declared dataset it touched, as a whole, by file names and layout from the PostgreSQL tree (no file
 contents). A failure puts the dataset in quarantine (MongoDB `dataset-checks`) and the upload response
 lists the problems in `checks`. Quarantine is recorded only, until what it holds back is decided.
-Standards plug in as validators; `DATA_STANDARDS` chooses them (default `bids`). See
+Standards plug in as validators; `DATA_STANDARDS` chooses them (default `bids`). Each also names the
+kinds of data it defines and a file's kind from its path (`kind_of`; BIDS: the datatype folder), which
+policies limited to kinds use ([AC-6](requirements/access-control.md#ac-6)). See
 `docs/diagrams/data-standards.md` and `docs/requirements/data-standards.md`.
 
 ## POSIX Storage
@@ -361,7 +372,10 @@ it serves, and whether it's settled, proposed or open.
   The system overview (`docs/diagrams/component-architecture.md`) shows only what's merged; an MR
   adds itself there once the MRs it would clash with are merged.
 - Stacked MRs (one built on another) say what they're based on, and merge in that order.
-- User-facing docs (`docs/user-guide/`) mark what each section states with hidden comments:
+- User-facing docs (`docs/user-guide/`, published as the wiki) follow
+  [Writing the user guide](writing-the-user-guide.md): task pages in one shape, exact UI labels,
+  screenshots from `docs/images/capture.py`. A change users can see updates the guide in the same MR.
+  They mark what each section states with hidden comments:
   `<!-- claim: AC-5; tests: test_... -->`, or `<!-- planned: AC-7 -->` for what isn't settled. A table
   marked `<!-- check: ... -->` is executed by the test it names, so change the table and the rules together.
 

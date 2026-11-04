@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Any, Dict, Type, Literal, Union, Annotated, Optional
 from uuid import UUID
 
@@ -52,6 +53,25 @@ class AddPolicyRequest(BaseModel):
     instance_name: str = Field(..., description="The name of the instance.")
     resource: str = Field(..., description="The resource to be accessed.")
     action: str = Field(..., description="The action to be performed on the resource.")
+    ends: Optional[date] = Field(
+        default=None,
+        description="The last day the policy applies (AC-8); omit for no end.",
+    )
+    excluded: list[str] = Field(
+        default_factory=list,
+        description="Paths inside a folder policy that it leaves out (AC-10).",
+    )
+    endings: list[str] = Field(
+        default_factory=list,
+        description="If given, a folder policy covers only files ending in one, e.g. '.nii' (AC-6).",
+    )
+    kinds: list[str] = Field(
+        default_factory=list,
+        description=(
+            "If given, a folder policy inside a dataset that declares a standard covers only these "
+            "kinds of data, e.g. 'anat' (AC-6)."
+        ),
+    )
 
 
 class AddPolicyResponse(BaseModel):
@@ -80,6 +100,15 @@ class RemovePolicyResponse(BaseModel):
 class GetPolicyResponse(BaseModel):
     success: bool = Field(..., description="Indicates whether the policies were successfully retrieved.")
     details: list[Policy] = Field(..., description="The details of the policies that were retrieved.")
+
+
+class CheckAccessResponse(BaseModel):
+    allowed: bool = Field(..., description="Whether the person may do the action on the path today.")
+    shown: Optional[bool] = Field(
+        default=None,
+        description="For a folder (a path ending in '/'): whether it appears in the person's tree.",
+    )
+    because: list[Policy] = Field(..., description="The person's policies that allow it; empty when refused.")
 
 
 class ProjectResponse(BaseModel):

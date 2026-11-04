@@ -59,6 +59,48 @@ async function chooseFromTree() {
   await screen.findByText('patient-7', { selector: '.tree-node-text' });
 }
 
+// AC-10: unticking something inside a ticked folder leaves it out of that folder's policy.
+test('the tree help says unticking inside a ticked folder leaves it out', async () => {
+  await chooseFromTree();
+  const help = screen.getByText(/A ticked folder covers everything in it/);
+  expect(help).toHaveTextContent('Untick something inside a ticked folder to leave it out');
+});
+
+// AC-5: a typed policy on a whole bucket or the whole instance says so before it's saved.
+test('a typed policy on a whole bucket is called broad, and one on a folder is not', async () => {
+  render(<PolicyManagement />);
+  const field = await screen.findByPlaceholderText('bucket/folder/* or bucket/path/file.ext');
+  fireEvent.change(field, { target: { value: 'study/*' } });
+  expect(screen.getByRole('status')).toHaveTextContent('This covers the whole bucket study, including files added later.');
+  fireEvent.change(field, { target: { value: '*' } });
+  expect(screen.getByRole('status')).toHaveTextContent('This covers the whole instance, including files added later.');
+  fireEvent.change(field, { target: { value: 'study/patient-7/*' } });
+  expect(screen.queryByRole('status')).toBeNull();
+});
+
+// AC-5: ticking a whole bucket in the tree says so too.
+test('a bucket ticked in the tree is called broad', async () => {
+  await chooseFromTree();
+  expect(screen.queryByRole('status')).toBeNull();
+  fireEvent.click(rowFor('study'));
+  expect(screen.getByRole('status')).toHaveTextContent('This covers the whole bucket study, including files added later.');
+});
+
+// AC-5, AC-6, AC-10: a typed policy is said in plain words before it's saved, as the tree's are.
+test('a typed policy is previewed in plain words', async () => {
+  render(<PolicyManagement />);
+  fireEvent.change(screen.getByPlaceholderText('alice'), { target: { value: 'alice' } });
+  const field = await screen.findByPlaceholderText('bucket/folder/* or bucket/path/file.ext');
+  expect(screen.queryByRole('region', { name: 'Policy to create' })).toBeNull();
+  fireEvent.change(field, { target: { value: 'study/*' } });
+  fireEvent.change(screen.getByLabelText(/^Leave out/), { target: { value: 'study/sub-03/*' } });
+  fireEvent.change(screen.getByLabelText(/^Only files ending in/), { target: { value: '.nii, .nii.gz' } });
+  const preview = screen.getByRole('region', { name: 'Policy to create' });
+  expect(preview).toHaveTextContent('alice can read:');
+  expect(preview).toHaveTextContent('everything in study/ except study/sub-03/, including files added later');
+  expect(preview).toHaveTextContent('Only files ending in .nii or .nii.gz.');
+});
+
 // AC-5, AC-4: rules chosen from the tree are saved through the policy API, one policy each.
 test('a selection from the tree creates one policy per rule', async () => {
   mockPost.mockResolvedValue({ data: {} });
@@ -83,4 +125,64 @@ test('a rule the API refuses is named, and the others are still created', async 
   fireEvent.click(screen.getByRole('button', { name: 'Create 2 Policies' }));
   expect(await screen.findByText(/Not created: study\/protocol.pdf/)).toBeInTheDocument();
   expect(mockPost).toHaveBeenCalledTimes(2);
+});
+
+// AC-8: a policy can be given an end date, sent with it when it's saved.
+test('a typed policy is saved with its end date', async () => {
+  mockPost.mockResolvedValue({ data: {} });
+  render(<PolicyManagement />);
+  fireEvent.change(screen.getByPlaceholderText('alice'), { target: { value: 'alice' } });
+  await screen.findByRole('option', { name: 'demo' });
+  fireEvent.change(screen.getByRole('combobox', { name: /Instance/ }), { target: { value: 'demo' } });
+  fireEvent.change(screen.getByPlaceholderText('bucket/folder/* or bucket/path/file.ext'), { target: { value: 'study/*' } });
+  fireEvent.change(screen.getByLabelText(/^Ends/), { target: { value: '2999-12-31' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Create Policy' }));
+  await waitFor(() => expect(mockPost).toHaveBeenCalled());
+  expect(mockPost.mock.calls[0][1]).toEqual(
+    { username: 'alice', instance_name: 'demo', resource: 'study/*', action: 'read', ends: '2999-12-31' });
+});
+
+// AC-10: a typed folder policy can leave out paths inside it, one per line.
+test('a typed folder policy is saved with what it leaves out', async () => {
+  mockPost.mockResolvedValue({ data: {} });
+  render(<PolicyManagement />);
+  fireEvent.change(screen.getByPlaceholderText('alice'), { target: { value: 'alice' } });
+  await screen.findByRole('option', { name: 'demo' });
+  fireEvent.change(screen.getByRole('combobox', { name: /Instance/ }), { target: { value: 'demo' } });
+  fireEvent.change(screen.getByPlaceholderText('bucket/folder/* or bucket/path/file.ext'), { target: { value: 'study/*' } });
+  fireEvent.change(screen.getByLabelText(/^Leave out/), { target: { value: 'study/sub-03/*\n study/notes.txt \n' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Create Policy' }));
+  await waitFor(() => expect(mockPost).toHaveBeenCalled());
+  expect(mockPost.mock.calls[0][1]).toEqual({ username: 'alice', instance_name: 'demo', resource: 'study/*',
+    action: 'read', excluded: ['study/sub-03/*', 'study/notes.txt'] });
+});
+
+// AC-6: a typed folder policy can be limited to file endings.
+test('a typed folder policy is saved with its file endings', async () => {
+  mockPost.mockResolvedValue({ data: {} });
+  render(<PolicyManagement />);
+  fireEvent.change(screen.getByPlaceholderText('alice'), { target: { value: 'alice' } });
+  await screen.findByRole('option', { name: 'demo' });
+  fireEvent.change(screen.getByRole('combobox', { name: /Instance/ }), { target: { value: 'demo' } });
+  fireEvent.change(screen.getByPlaceholderText('bucket/folder/* or bucket/path/file.ext'), { target: { value: 'study/*' } });
+  fireEvent.change(screen.getByLabelText(/^Only files ending in/), { target: { value: '.nii, .nii.gz' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Create Policy' }));
+  await waitFor(() => expect(mockPost).toHaveBeenCalled());
+  expect(mockPost.mock.calls[0][1]).toEqual({ username: 'alice', instance_name: 'demo', resource: 'study/*',
+    action: 'read', endings: ['.nii', '.nii.gz'] });
+});
+
+// AC-6: a typed folder policy can be limited to kinds of data.
+test('a typed folder policy is saved with its kinds of data', async () => {
+  mockPost.mockResolvedValue({ data: {} });
+  render(<PolicyManagement />);
+  fireEvent.change(screen.getByPlaceholderText('alice'), { target: { value: 'alice' } });
+  await screen.findByRole('option', { name: 'demo' });
+  fireEvent.change(screen.getByRole('combobox', { name: /Instance/ }), { target: { value: 'demo' } });
+  fireEvent.change(screen.getByPlaceholderText('bucket/folder/* or bucket/path/file.ext'), { target: { value: 'study/*' } });
+  fireEvent.change(screen.getByLabelText(/^Only kinds of data/), { target: { value: 'anat, func' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Create Policy' }));
+  await waitFor(() => expect(mockPost).toHaveBeenCalled());
+  expect(mockPost.mock.calls[0][1]).toEqual({ username: 'alice', instance_name: 'demo', resource: 'study/*',
+    action: 'read', kinds: ['anat', 'func'] });
 });

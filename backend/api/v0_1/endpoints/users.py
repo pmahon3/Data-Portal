@@ -16,9 +16,10 @@ from api.v0_1.common.auth_dependencies import (
     require_admin_or_manager,
     require_user_owner_or_admin,
 )
-from core.services.injectors import get_user_manager, get_policy_manager, get_instance_manager
+from core.services.injectors import get_user_manager, get_policy_manager, get_instance_manager, get_project_manager
 from core.services.instances import AbstractInstanceManager
 from core.services.policies import CasbinPolicyManager
+from core.services.projects import AbstractProjectManager
 from core.services.users import (
     AbstractUserManager,
     InvalidUserEmailError,
@@ -38,15 +39,26 @@ logger = logging.getLogger("api.endpoints")
 @users_router.get(
     "/",
     response_model=list[User],
-    summary="List all users",
-    description="Retrieve list of all users in the system. Requires admin or project manager privileges."
+    summary="List users",
+    description=(
+        "Administrators see every user; a project manager sees the members and managers of the "
+        "projects they manage."
+    ),
 )
 async def list_users(
     current_user: dict = Depends(require_admin_or_manager),
-    user_manager: AbstractUserManager = Depends(get_user_manager)
+    user_manager: AbstractUserManager = Depends(get_user_manager),
+    project_manager: AbstractProjectManager = Depends(get_project_manager),
 ) -> list[User]:
-    """Get list of all users (admin or project manager)."""
-    return user_manager.get_all_users()
+    """List users: everyone for an administrator, a manager's own projects' people otherwise."""
+    users = user_manager.get_all_users()
+    if is_user_admin(current_user):
+        return users
+    visible = set()
+    for project_name in project_manager.managed_projects(current_user):
+        visible.update(project_manager.get_project_users(project_name))
+        visible.update(project_manager.get_project_managers(project_name))
+    return [user for user in users if user.username in visible]
 
 
 @users_router.get(
@@ -188,7 +200,7 @@ async def create_user(
             f"Invalid role(s) for user '{user_data.username}': {e.invalid_roles}"
         )
         raise HTTPException(
-            status_code=400,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
                 f"Unknown role(s): {', '.join(e.invalid_roles)}. "
                 "Check the role names and try again."
@@ -197,7 +209,7 @@ async def create_user(
     except Exception as e:
         logger.exception(f"Failed to create user '{user_data.username}': {e}")
         raise HTTPException(
-            status_code=500,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create user due to an internal error."
         )
 

@@ -1,5 +1,5 @@
 """
-The policy guide's "Does this policy allow it?" table (docs/user-guide/policies.md) is what the
+The "Does this policy allow it?" table in the user guide (docs/user-guide/how-access-works.md) is what the
 portal decides: each row is evaluated with the decision layer itself, so the table people read and
 the rules the portal applies can't drift apart.
 
@@ -13,7 +13,7 @@ import pytest
 from core.services.policies.rules import Rule, normalize_rule_path, rule_allows, rule_shows_folder, \
     validate_rule_action
 
-GUIDE = Path(__file__).resolve().parents[2] / "docs" / "user-guide" / "policies.md"
+GUIDE = Path(__file__).resolve().parents[2] / "docs" / "user-guide" / "how-access-works.md"
 
 
 KNOWN_FAILING: dict[str, str] = {}  # policy path -> reason, while the portal and the guide disagree

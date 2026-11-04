@@ -10,20 +10,32 @@ import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import JSONResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.v0_1.common.auth_dependencies import get_current_user, is_user_admin, require_admin, require_admin_or_manager
+from api.v0_1.common.auth_dependencies import get_current_user, is_user_admin, require_admin_or_manager
 from api.v0_1.startup import init_db_roots
 from core.services.injectors import get_user_manager, get_policy_manager, get_instance_manager, get_project_manager
 from core.services.instances import AbstractInstanceManager
 from core.services.policies import CasbinPolicyManager
 from core.services.policies import Policy
-from core.services.policies.rules import normalize_rule_path, validate_rule_action
+from core.db.postgres.session import get_session
+from core.services import standards
+from core.services.filetree.file_service import FileService
+from core.services.policies.rules import (
+    Checker,
+    covering,
+    normalize_rule_path,
+    today,
+    validate_endings,
+    validate_excluded,
+    validate_kinds,
+    validate_rule_action,
+)
 from core.services.projects import AbstractProjectManager
 from core.services.users import AbstractUserManager
 from api.v0_1.common.models import (
     GetPolicyResponse, AddPolicyResponse, AddPolicyRequest,
-    RemovePolicyRequest, RemovePolicyResponse
+    RemovePolicyRequest, RemovePolicyResponse, CheckAccessResponse,
 )
 
 policies_router = APIRouter(prefix='/policies', tags=["Policy Management"])
@@ -104,8 +116,8 @@ async def get_policies(
             policy_filter.user_uuid = user_manager.get_user_uuid(policy_filter.username)
         if policy_filter.instance_name:
             policy_filter.instance_uuid = instance_manager.get_instance_uuid(policy_filter.instance_name)
-    except KeyError:
-        raise HTTPException(status_code=404, detail="User or instance not found")
+    except KeyError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User or instance not found") from e
 
     policies = policy_manager.filter_policies(policy_filter)
     if policies is None:
@@ -155,6 +167,89 @@ async def get_policies(
     return GetPolicyResponse(success=True, details=policies)
 
 
+@policies_router.get(
+    "/check",
+    response_model=CheckAccessResponse,
+    summary="Check a person's access",
+    description=(
+        "May this person do this action on this path, and which of their policies allows it? "
+        "Administrators may check anyone; project managers, people in the projects they manage."
+    ),
+)
+async def check_access(
+    username: str,
+    instance_name: str,
+    resource: str,
+    action: str,
+    current_user: dict = Depends(require_admin_or_manager),
+    user_manager: AbstractUserManager = Depends(get_user_manager),
+    project_manager: AbstractProjectManager = Depends(get_project_manager),
+    policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
+    instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
+) -> CheckAccessResponse:
+    """
+    Answer as a request would be decided today: allowed or not, and the person's policies that allow
+    it. For a folder (a path ending in "/"), also whether it appears in their tree (DS-check-access;
+    AC-1, AC-3).
+    """
+    try:
+        user_uuid = user_manager.get_user_uuid(username)
+        instance_uuid = instance_manager.get_instance_uuid(instance_name)
+    except KeyError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User or instance not found") from e
+    if not is_user_admin(current_user) and not project_manager.can_manage_instance_for_user(
+        current_user,
+        username,
+        instance_uuid,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: user and instance must belong to a project you manage",
+        )
+
+    # Example: "/study//sub-01/" -> "study/sub-01/"
+    path = resource.strip()
+    while "//" in path:
+        path = path.replace("//", "/")
+    path = path.lstrip("/")
+
+    rules = policy_manager.rules_for(user_uuid, instance_uuid)
+    because = []
+    for rule in covering(rules, path, action):
+        because.append(Policy(
+            username=username,
+            instance_name=instance_name,
+            resource=rule.path,
+            action=rule.action,
+            ends=rule.ends,
+            excluded=list(rule.excluded),
+            endings=list(rule.endings),
+            kinds=list(rule.kinds),
+        ))
+    shown = None
+    if path.endswith("/"):
+        shown = Checker(rules).shows_folder(path, action)
+    return CheckAccessResponse(allowed=bool(because), shown=shown, because=because)
+
+
+async def dataset_of(session: AsyncSession, resource: str) -> tuple[str | None, str]:
+    """
+    Return the root ("bucket/folder/") and standard of the nearest dataset a folder policy is in, or
+    None and "" if it's in none.
+
+    Example: "study/sub-01/*" in a BIDS dataset at "study/" -> ("study/", "BIDS")
+    """
+    bucket, _, rest = resource.partition("/")
+    folder = rest[:-1] if rest.endswith("*") else rest
+    tree = FileService(session)
+    for validator in standards.VALIDATORS:
+        # a stand-in file name, so the folder itself is among the folders searched
+        roots = await standards.declared_roots(tree, bucket, [folder + "_"], validator.marker)
+        if roots:
+            return f"{bucket}/{roots.pop()}", validator.standard
+    return None, ""
+
+
 @policies_router.post(
     "/",
     response_model=AddPolicyResponse,
@@ -169,6 +264,7 @@ async def create_policy(
     project_manager: AbstractProjectManager = Depends(get_project_manager),
     policy_manager: CasbinPolicyManager = Depends(get_policy_manager),
     instance_manager: AbstractInstanceManager = Depends(get_instance_manager),
+    session: AsyncSession = Depends(get_session),
 ) -> AddPolicyResponse:
     """
     Create a new access policy.
@@ -179,7 +275,8 @@ async def create_policy(
         user_manager: User manager dependency
         policy_manager: Policy manager dependency
         instance_manager: Instance manager dependency
-        
+        session: Database session, to find the dataset a policy limited to kinds of data is in
+
     Returns:
         AddPolicyResponse: Success status and created policy details
         
@@ -191,8 +288,26 @@ async def create_policy(
     try:
         new_policy.resource = normalize_rule_path(new_policy.resource)
         new_policy.action = validate_rule_action(new_policy.action)
+        new_policy.excluded = list(validate_excluded(new_policy.resource, new_policy.excluded))
+        new_policy.endings = list(validate_endings(new_policy.resource, new_policy.endings))
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+    # Kinds of data are as the policy's dataset's standard defines them (AC-6)
+    dataset, standard = None, ""
+    if new_policy.kinds:
+        dataset, standard = await dataset_of(session, new_policy.resource)
+    try:
+        new_policy.kinds = list(validate_kinds(new_policy.resource, new_policy.kinds, dataset, standard))
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+    # A policy can end on a date (AC-8), but not one already past: it would allow nothing.
+    if new_policy.ends is not None and new_policy.ends < today():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"The end date {new_policy.ends} has already passed.",
+        )
 
     # Get user and instance UUIDs
     try:
@@ -223,7 +338,13 @@ async def create_policy(
         user_uuid=user_uuid,
         instance_uuid=instance_uuid,
         resource=new_policy.resource,
-        action=new_policy.action
+        action=new_policy.action,
+        ends=new_policy.ends,
+        excluded=new_policy.excluded,
+        endings=new_policy.endings,
+        kinds=new_policy.kinds,
+        dataset=dataset if new_policy.kinds else None,
+        standard=standard if new_policy.kinds else None,
     )
 
     # Validate user and instance exist
@@ -328,41 +449,3 @@ async def delete_policy(
 
     logger.info(f"Deleted policy for user UUID '{user_uuid}' on instance UUID '{instance_uuid}' with action '{old_policy.action}' on resource '{old_policy.resource}'")
     return RemovePolicyResponse(success=True, details=[policy])
-
-
-@policies_router.post(
-    "/validate",
-    summary="Validate a policy",
-    description="Check if a specific policy would be allowed by the current policy configuration."
-)
-async def validate_policy(
-    policy_data: Policy,
-    admin_user: dict = Depends(require_admin),
-    policy_manager: CasbinPolicyManager = Depends(get_policy_manager)
-) -> JSONResponse:
-    """
-    Validate if a policy would be allowed (admin only).
-    
-    Useful for testing policy configurations before applying them.
-    
-    Args:
-        policy_data: Policy to validate
-        admin_user: Current user (must have admin privileges)
-        policy_manager: Policy manager dependency
-        
-    Returns:
-        JSONResponse: Validation result
-    """
-    is_valid = policy_manager.validate_policy(policy_data)
-    return JSONResponse(
-        status_code=200,
-        content={
-            "valid": is_valid,
-            "policy": {
-                "user_uuid": str(policy_data.user_uuid),
-                "instance_uuid": str(policy_data.instance_uuid),
-                "resource": policy_data.resource,
-                "action": policy_data.action
-            }
-        }
-    )

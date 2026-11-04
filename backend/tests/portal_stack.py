@@ -9,7 +9,9 @@ Tests and their setup reach the portal through:
   - the object store behind the test instance, to create the test files and to see what
     happened to them.
 Nothing here imports backend code or reads the portal's databases, so the same tests run
-unchanged against any version of the backend.
+unchanged against any version of the backend. One exception: ``store_policy_as_another_backend``
+writes a policy row straight into the policy store, in Casbin's storage format, to stand in for a
+second backend process (production runs two).
 
 Settings come from the environment. The defaults fit the local docker stack (local/), so
 sourcing local/.env is enough there:
@@ -23,6 +25,8 @@ sourcing local/.env is enough there:
   TEST_INSTANCE                           storage instance to test on (qa-instance)
   TEST_S3_URL                             object store behind it (http://localhost:9000)
   MINIO_ROOT_USER, MINIO_ROOT_PASSWORD    object store credentials
+  TEST_MONGO_URL                          policy store (mongodb://localhost:27017), with
+  MONGO_INITDB_ROOT_USERNAME/_PASSWORD     its credentials, and MONGO_DB (ams_portal)
 """
 import os
 import time
@@ -179,24 +183,52 @@ class Portal:
 
     # ---------------------------------------------------------------- policies
 
-    def grant(self, user: "User", resource: str, action: str) -> str:
-        """Add a policy through the policy API, as an administrator would. Returns the
-        resource as the portal stored it."""
-        stored = self.try_grant(user, resource, action)
+    def grant(self, user: "User", resource: str, action: str, ends: str | None = None,
+              excluded: list[str] = (), endings: list[str] = (), kinds: list[str] = ()) -> str:
+        """Add a policy through the policy API, as an administrator would, ending on `ends`
+        (an ISO date) and leaving out `excluded` if given. Returns the resource as stored."""
+        stored = self.try_grant(user, resource, action, ends, excluded, endings, kinds)
         assert stored is not None, f"the portal refused a grant of {action} on {resource!r}"
         return stored
 
-    def try_grant(self, user: "User", resource: str, action: str) -> str | None:
+    def try_grant(self, user: "User", resource: str, action: str, ends: str | None = None,
+                  excluded: list[str] = (), endings: list[str] = (), kinds: list[str] = ()) -> str | None:
         """Like grant, but returns None if the portal refuses the policy."""
         r = requests.post(f"{self.backend}/api/policies/", headers=self.admin_headers(), timeout=TIMEOUT, json={
-            "username": user.username, "instance_name": self.instance,
-            "resource": resource, "action": action})
+            "username": user.username, "instance_name": self.instance, "resource": resource, "action": action,
+            **({"ends": ends} if ends else {}), **({"excluded": list(excluded)} if excluded else {}),
+            **({"endings": list(endings)} if endings else {}), **({"kinds": list(kinds)} if kinds else {})})
         if r.status_code not in (200, 201):
             print(f"policy refused: {action} on {resource!r}: {r.status_code} {r.text}")
             return None
         stored = r.json()["details"][0]["resource"]
         user.grants.append((stored, action))
         return stored
+
+    def store_policy_as_another_backend(self, user: "User", resource: str, action: str) -> None:
+        """
+        Save a policy the way a second backend process would: straight into the policy store, so
+        this backend never sees the change happen. Removed again by ``unstore_policy``.
+        """
+        import pymongo  # only these tests need it
+
+        client = pymongo.MongoClient(
+            setting("TEST_MONGO_URL", "mongodb://localhost:27017"),
+            username=setting("MONGO_INITDB_ROOT_USERNAME"),
+            password=setting("MONGO_INITDB_ROOT_PASSWORD"),
+        )
+        self._rules = client[setting("MONGO_DB", "ams_portal")]["casbin_rule"]
+        self._rules.insert_one({
+            "ptype": "p",
+            "v0": user.uuid,
+            "v1": self.instance_uuid,
+            "v2": resource,
+            "v3": action,
+        })
+
+    def unstore_policy(self, user: "User", resource: str, action: str) -> None:
+        """Remove a row ``store_policy_as_another_backend`` wrote, if it's still there."""
+        self._rules.delete_many({"ptype": "p", "v0": user.uuid, "v2": resource, "v3": action})
 
     def revoke(self, user: "User", resource: str, action: str) -> None:
         requests.delete(f"{self.backend}/api/policies/", headers=self.admin_headers(), timeout=TIMEOUT, json={
@@ -230,6 +262,12 @@ class User:
 
     def root(self) -> requests.Response:
         return self._call("GET", "/root", params=self._where)
+
+    def my_policies(self) -> list[dict]:
+        """The user's own policies, as the My Policies page shows them."""
+        r = requests.get(f"{self.portal.backend}/api/policies/me", headers=self._headers, timeout=TIMEOUT)
+        r.raise_for_status()
+        return r.json()["details"]
 
     def list_folder(self, folder_id: int, access: str = "read") -> requests.Response:
         return self._call("GET", f"/{folder_id}", params={**self._where, "access": access})

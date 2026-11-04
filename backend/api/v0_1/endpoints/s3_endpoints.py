@@ -9,6 +9,7 @@ import httpx
 import logging
 from datetime import datetime
 from typing import Literal
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -233,7 +234,7 @@ def allowed_or_403(check: Checker, resource: str, action: str) -> None:
 
 
 def folder_shown_or_403(check: Checker, resource: str, action: str) -> None:
-    """Raise 403 unless the user holds the action on the folder or something inside it (browsing only)."""
+    """Raise 403 unless the user holds `action` on the folder or something inside it (browsing only)."""
     if not check.shows_folder(resource, action):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied by policy")
 
@@ -331,7 +332,8 @@ async def get_root(
     """Return the root folder for a bucket (creating it if needed)."""
     user_uuid = user_manager.get_user_uuid(user["preferred_username"])
     instance_uuid, _agent = get_instance_agent(instance_manager, q.instance_name)
-    folder_shown_or_403(policy_manager.checker(user_uuid, instance_uuid), resource_for_folder(q.bucket, "/"), q.access)
+    check = policy_manager.checker(user_uuid, instance_uuid)
+    folder_shown_or_403(check, resource_for_folder(q.bucket, "/"), q.access)
 
     tree_svc = TreeService(session)
     root = await tree_svc.get_root(q.bucket)
@@ -361,7 +363,10 @@ async def list_children(
     tree_svc = TreeService(session)
     folders, files = await tree_svc.list_children(q.bucket, folder_id)
     # Only list what the user can see for this action: folders on the way to their files, and their files
-    folders = [sub for sub in folders if check.shows_folder(resource_for_folder(q.bucket, sub.full_path), q.access)]
+    folders = [
+        sub for sub in folders
+        if check.shows_folder(resource_for_folder(q.bucket, sub.full_path), q.access)
+    ]
     files = [file for file in files if check.allows(resource_for_key(q.bucket, file.key), q.access)]
 
     return {
@@ -707,9 +712,14 @@ async def folder_upload_complete(
         completed,
         len(failed),
     )
-    if skip_head_file_ids or head_updates or failed:  # something happened this time: tell the researcher once
-        notifications.folder_stored(str(user_uuid), folder_id=files[0].folder_id if files else None,
-                                    completed=completed, failed=len(failed))
+    # Tell the researcher once: only when something happened in this call
+    if skip_head_file_ids or head_updates or failed:
+        notifications.folder_stored(
+            str(user_uuid),
+            folder_id=files[0].folder_id if files else None,
+            completed=completed,
+            failed=len(failed),
+        )
 
     return FolderUploadCompleteOut(completed=completed, failed=failed, checks=checks)
 
@@ -742,7 +752,12 @@ async def upload_init(
             detail=f"File '{payload.filename}' already exists in folder",
         )
 
-    urls, _paths = agent.generate_access_link(resource_for_key(payload.bucket, key), "write", 900, subject=str(user_uuid))
+    urls, _paths = agent.generate_access_link(
+        resource_for_key(payload.bucket, key),
+        "write",
+        900,
+        subject=str(user_uuid),
+    )
     return UploadInitOut(file_id=file.id, key=key, url=urls[0])
 
 #################################################################################### it verifies the upload succeeded and syncs metadata into the DB.
@@ -775,7 +790,8 @@ async def upload_complete(
     # Mark ancestor folders status from pending to complete because upload finished
     tree_svc = TreeService(session)
     await tree_svc.mark_folder_ancestors_complete(file.bucket, file.folder_id)
-    if newly_stored:  # completing twice tells the researcher once
+    # Completing twice tells the researcher once
+    if newly_stored:
         notifications.file_stored(str(user_uuid), file.id, file.name)
     checks = await standards.check_upload(file_svc, file.bucket, [file.key])
     return {"status": "ok", "checks": checks}
@@ -804,7 +820,12 @@ async def download_url(
     policy = Policy(user_uuid=user_uuid, instance_uuid=instance_uuid, resource=resource_for_key(file.bucket, file.key), action="read")
     policy_or_403(policy_manager, policy)
 
-    urls, _paths = agent.generate_access_link(resource_for_key(file.bucket, file.key), "read", 900, subject=str(user_uuid))
+    urls, _paths = agent.generate_access_link(
+        resource_for_key(file.bucket, file.key),
+        "read",
+        900,
+        subject=str(user_uuid),
+    )
     return {"url": urls[0]}
 
 #################################################################################### It deletes the object from S3 and then deletes the DB row
@@ -1094,9 +1115,17 @@ async def create_asset_bundle(
 
     # Only the user who asked for a bundle may check or fetch it (require_bundle_owner)
     # and only while they can still read every file in it (recheck_bundle_access).
-    bundled_file_ids = [f.id for f in files_to_bundle.values() if check.allows(resource_for_key(f.bucket, f.key), "read")]
-    get_bundle_owner_collection().insert_one({"_id": bundle_id, "owner": str(user_uuid), "created_at": datetime.utcnow(),
-                                              "instance_name": request.instance_name, "file_ids": bundled_file_ids})
+    bundled_file_ids = [
+        f.id for f in files_to_bundle.values()
+        if check.allows(resource_for_key(f.bucket, f.key), "read")
+    ]
+    get_bundle_owner_collection().insert_one({
+        "_id": bundle_id,
+        "owner": str(user_uuid),
+        "created_at": datetime.utcnow(),
+        "instance_name": request.instance_name,
+        "file_ids": bundled_file_ids,
+    })
 
     # Send bundle id and status back to client
     return BundleCreateResponse(bundle_id=bundle_id, status="processing", folder_name=folder_name)
@@ -1110,14 +1139,20 @@ def require_bundle_owner(bundle_id: str, user: dict, user_manager: AbstractUserM
     the same 404 as a bundle that doesn't exist, so the answer doesn't confirm which ids exist.
     """
     record = get_bundle_owner_collection().find_one({"_id": bundle_id})
-    if record is None or record["owner"] != str(user_manager.get_user_uuid(user["preferred_username"])):
+    asker = str(user_manager.get_user_uuid(user["preferred_username"]))
+    if record is None or record["owner"] != asker:
         logger.warning(f"Bundle {bundle_id} refused to '{user['preferred_username']}': not their bundle")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
     return record
 
 
-async def recheck_bundle_access(record: dict, user_uuid, session: AsyncSession, policy_manager: CasbinPolicyManager,
-                                instance_manager: AbstractInstanceManager) -> None:
+async def recheck_bundle_access(
+    record: dict,
+    user_uuid: UUID,
+    session: AsyncSession,
+    policy_manager: CasbinPolicyManager,
+    instance_manager: AbstractInstanceManager,
+) -> None:
     """
     Refuse a bundle whose owner can no longer read every file in it, or one of whose files is gone:
     the archive was built from what they could read when they asked, and access can be revoked
@@ -1129,11 +1164,14 @@ async def recheck_bundle_access(record: dict, user_uuid, session: AsyncSession, 
     instance_uuid, _agent = get_instance_agent(instance_manager, record["instance_name"])
     files = await FileService(session).get_files(record["file_ids"])
     check = policy_manager.checker(user_uuid, instance_uuid)
-    if len(files) != len(set(record["file_ids"])) or not all(
-            check.allows(resource_for_key(f.bucket, f.key), "read") for f in files):
+    some_gone = len(files) != len(set(record["file_ids"]))
+    some_denied = any(not check.allows(resource_for_key(f.bucket, f.key), "read") for f in files)
+    if some_gone or some_denied:
         logger.warning(f"Bundle {record['_id']} refused: its owner can no longer read every file in it")
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
-                            detail="You no longer have access to every file in this ZIP archive.")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You no longer have access to every file in this ZIP archive.",
+        )
 
 
 @router.get(
@@ -1196,8 +1234,13 @@ async def get_bundle_download_url(
 ):
     # Bundles are downloaded from object storage; this endpoint returns a presigned URL, not ZIP bytes.
     record = require_bundle_owner(bundle_id, user, user_manager, "This ZIP archive is not available.")
-    await recheck_bundle_access(record, user_manager.get_user_uuid(user["preferred_username"]), session,
-                                policy_manager, instance_manager)
+    await recheck_bundle_access(
+        record,
+        user_manager.get_user_uuid(user["preferred_username"]),
+        session,
+        policy_manager,
+        instance_manager,
+    )
     try:
         url_res = await bundler_client.get(f"{JAVA_BUNDLER_URL}/bundles/{bundle_id}/download", timeout=5.0)
     except httpx.RequestError as e:

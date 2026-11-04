@@ -17,12 +17,15 @@ From backend/, after `set -a; . ../local/.env; set +a`:
 Each run creates its own bucket, and each test its own users with only the grants it names,
 removed afterwards. Grants name single files, or folders as "folder/*".
 """
+import datetime
 import time
 import uuid
+from urllib.parse import parse_qs, urlsplit, urlunsplit
 
 import pytest
+import requests
 
-from portal_stack import Portal, StackUnavailable, Tree, browsed, key_in_url, listed
+from portal_stack import Portal, StackUnavailable, Tree, browsed, key_in_url, listed, setting
 
 
 # Every file in the test bucket. Tests that change files work in a folder of their own.
@@ -54,6 +57,13 @@ FILES = [
     "box/a.txt",
     "box/c.txt",
     "box/sub/b.txt",
+    "bids/dataset_description.json",
+    "bids/sub-01/anat/sub-01_T1w.nii.gz",
+    "bids/sub-01/func/sub-01_task-rest_bold.nii.gz",
+    "ren/results/a.txt",
+    "mov/in/x.txt",
+    "mov/out/keep.txt",
+    "link/a.txt",
 ]
 # The browsing user never lists brackets/: on the current code that listing fails (INN-289).
 BROWSABLE = [key for key in FILES if not key.startswith("brackets/") or key == "brackets/ok.txt"]
@@ -373,3 +383,299 @@ def test_a_listing_for_an_action_shows_what_the_user_may_do_it_to(make_user, tre
     assert r.status_code == 200, r.text
     assert listed(r) == ({"/study/patient-7/"}, set())
     assert user.list_folder(folder).status_code == 403
+
+
+# --------------------------------------------------------------------------- end dates
+
+def utc_day(offset: int) -> str:
+    return (datetime.datetime.now(datetime.timezone.utc).date() + datetime.timedelta(days=offset)).isoformat()
+
+
+def test_a_policy_with_an_end_date_gives_access_until_then(portal, make_user, tree):
+    """AC-8. A policy ending tomorrow gives access today, and the person sees when it ends."""
+    user = make_user()
+    portal.grant(user, portal.resource("study/scan-042.nii"), "read", ends=utc_day(1))
+    assert user.download_url(tree.file("study/scan-042.nii")).status_code == 200
+    assert [p.get("ends") for p in user.my_policies()] == [utc_day(1)]
+
+
+def test_a_policy_cannot_end_on_a_date_already_past(portal, make_user):
+    """AC-8. It would allow nothing, so the portal refuses it."""
+    user = make_user()
+    assert portal.try_grant(user, portal.resource("study/scan-042.nii"), "read", ends=utc_day(-1)) is None
+
+
+# --------------------------------------------------------------------------- exclusions
+
+def test_a_folder_policy_leaves_out_what_it_excludes(portal, make_user, tree):
+    """AC-10. Read on study/ leaving out patient-7/: the scans are readable and listed; patient-7/
+    and its files aren't."""
+    user = make_user()
+    portal.grant(user, portal.resource("study/*"), "read", excluded=[portal.resource("study/patient-7/*")])
+    assert user.download_url(tree.file("study/scan-042.nii")).status_code == 200
+    assert user.download_url(tree.file("study/patient-7/summary.csv")).status_code == 403
+    r = user.list_folder(tree.folder("study/"))
+    assert r.status_code == 200, r.text
+    assert listed(r) == (set(), {"study/scan-042.nii", "study/scan-043.nii"})
+    assert [p.get("excluded") for p in user.my_policies()] == [[portal.resource("study/patient-7/*")]]
+
+
+def test_only_paths_inside_a_folder_policy_can_be_left_out(portal, make_user):
+    """AC-10. Leaving out something outside the policy's folder is refused."""
+    user = make_user()
+    assert portal.try_grant(user, portal.resource("study/*"), "read", excluded=[portal.resource("other/*")]) is None
+
+
+# --------------------------------------------------------------------------- file types
+
+def test_a_folder_policy_limited_to_file_endings_covers_only_those_files(portal, make_user, tree):
+    """AC-6. Read on study/ for .nii files: the scans are readable and listed; the CSVs in patient-7/
+    aren't, though the folder can still be browsed."""
+    user = make_user()
+    portal.grant(user, portal.resource("study/*"), "read", endings=[".NII"])
+    assert user.download_url(tree.file("study/scan-042.nii")).status_code == 200
+    assert user.download_url(tree.file("study/patient-7/summary.csv")).status_code == 403
+    r = user.list_folder(tree.folder("study/patient-7/"))
+    assert r.status_code == 200, r.text
+    assert listed(r) == (set(), set())
+    assert [p.get("endings") for p in user.my_policies()] == [[".nii"]]
+
+
+def test_only_a_folder_policy_can_be_limited_to_file_endings(portal, make_user):
+    """AC-6."""
+    user = make_user()
+    assert portal.try_grant(user, portal.resource("study/scan-042.nii"), "read", endings=[".nii"]) is None
+
+
+def test_a_folder_policy_limited_to_kinds_of_data_covers_only_those_kinds(portal, make_user, tree):
+    """AC-6. Read on a BIDS dataset for anatomical scans: the T1w is readable, the functional run isn't."""
+    user = make_user()
+    portal.grant(user, portal.resource("bids/*"), "read", kinds=["anat"])
+    assert user.download_url(tree.file("bids/sub-01/anat/sub-01_T1w.nii.gz")).status_code == 200
+    assert user.download_url(tree.file("bids/sub-01/func/sub-01_task-rest_bold.nii.gz")).status_code == 403
+    assert [p.get("kinds") for p in user.my_policies()] == [["anat"]]
+
+
+def test_kinds_of_data_need_a_dataset_that_declares_a_standard(portal, make_user):
+    """AC-6. study/ isn't a BIDS dataset, so it has no kinds of data."""
+    user = make_user()
+    assert portal.try_grant(user, portal.resource("study/*"), "read", kinds=["anat"]) is None
+
+
+# ------------------------------------------------------- access is by name; links run out
+
+def move_in_storage(portal, old, new):
+    """Rename or move a file the way it happens outside the portal: in the object store itself."""
+    portal.s3.copy_object(Bucket=portal.bucket, CopySource={"Bucket": portal.bucket, "Key": old}, Key=new)
+    portal.s3.delete_object(Bucket=portal.bucket, Key=old)
+    synced(portal)
+
+
+def synced(portal):
+    """Have the portal pick up what changed in the object store, as put_files does."""
+    portal.admin("POST", f"/api/instances/{portal.instance_uuid}/sync", timeout=300).raise_for_status()
+
+
+def fetch_link(url):
+    """
+    Fetch a presigned link from the test runner. The link names the storage instance's own address
+    (e.g. minio:9000), which only the stack's containers resolve, so the request goes to the store's
+    local address with the signed Host header kept, and the signature still holds.
+    """
+    signed = urlsplit(url)
+    local = urlsplit(setting("TEST_S3_URL", "http://localhost:9000"))
+    return requests.get(urlunsplit(signed._replace(netloc=local.netloc)), headers={"Host": signed.netloc},
+                        timeout=10)
+
+
+def test_renaming_a_folder_leaves_its_policy_on_the_old_name(make_user, tree, portal):
+    """AC-5. Renaming results/ to results-2025/ leaves a policy on results/* behind, and a new file
+    at the old path is covered by it again."""
+    user = make_user(("read", "ren/results/*"))
+    finder = make_user(("read", "ren/*"))
+    assert user.download_url(tree.file("ren/results/a.txt")).status_code == 200
+
+    move_in_storage(portal, "ren/results/a.txt", "ren/results-2025/a.txt")
+    renamed = Tree(finder).file("ren/results-2025/a.txt")
+    assert user.download_url(renamed).status_code == 403
+    assert portal.resource("ren/results/*") in {p["resource"] for p in user.my_policies()}
+
+    portal.s3.put_object(Bucket=portal.bucket, Key="ren/results/a.txt", Body=b"new\n")
+    synced(portal)
+    again = Tree(finder).file("ren/results/a.txt")
+    assert user.download_url(again).status_code == 200
+
+
+def test_moving_a_file_puts_it_under_the_policies_of_its_new_path(make_user, portal):
+    """AC-5. A moved file leaves the reach of policies on its old path and comes under those on its new one."""
+    before = make_user(("read", "mov/in/*"))
+    after = make_user(("read", "mov/out/*"))
+    finder = make_user(("read", "mov/*"))
+
+    move_in_storage(portal, "mov/in/x.txt", "mov/out/x.txt")
+    moved = Tree(finder).file("mov/out/x.txt")
+    assert before.download_url(moved).status_code == 403
+    assert after.download_url(moved).status_code == 200
+
+
+def test_a_download_link_lasts_at_most_15_minutes(make_user, tree):
+    """AC-3. A link handed out for one file expires within 15 minutes."""
+    user = make_user(("read", "link/a.txt"))
+    url = user.download_url(tree.file("link/a.txt")).json()["url"]
+    expires = parse_qs(urlsplit(url).query)["X-Amz-Expires"]
+    assert 0 < int(expires[0]) <= 15 * 60
+
+
+def test_a_link_handed_out_keeps_working_after_its_policy_is_removed(make_user, tree, portal):
+    """AC-3. Removing a policy stops new links at once; a link given before still works until it expires."""
+    user = make_user(("read", "link/a.txt"))
+    url = user.download_url(tree.file("link/a.txt")).json()["url"]
+    portal.revoke(user, portal.resource("link/a.txt"), "read")
+
+    assert user.download_url(tree.file("link/a.txt")).status_code == 403
+    fetched = fetch_link(url)
+    assert fetched.status_code == 200
+    assert fetched.content == b"link/a.txt\n"
+
+
+# ---------------------------------- two backend processes: policies are read from the store
+# Production runs two backend processes. A policy saved through one must be listed, refused as a
+# duplicate and removable through the other. Access decisions already read the store each request;
+# the policy pages and the duplicate check read the store too, and a change reloads the
+# enforcer's copy first.
+
+def test_a_policy_saved_through_another_backend_is_listed(make_user, portal):
+    """AC-8. The policies table, the user's own list, and so end-date reminders, read what's stored."""
+    user = make_user()
+    portal.store_policy_as_another_backend(user, portal.resource("shared/notes.txt"), "read")
+    try:
+        listed_for_admin = portal.admin("GET", "/api/policies/", params={"username": user.username}).json()
+        assert portal.resource("shared/notes.txt") in {p["resource"] for p in listed_for_admin["details"]}
+        assert portal.resource("shared/notes.txt") in {p["resource"] for p in user.my_policies()}
+    finally:
+        portal.unstore_policy(user, portal.resource("shared/notes.txt"), "read")
+
+
+def test_a_policy_saved_through_another_backend_is_refused_as_a_duplicate(make_user, portal):
+    """AC-5. One policy per person, instance, path and action."""
+    user = make_user()
+    portal.store_policy_as_another_backend(user, portal.resource("shared/notes.txt"), "read")
+    try:
+        assert portal.try_grant(user, portal.resource("shared/notes.txt"), "read") is None
+    finally:
+        portal.unstore_policy(user, portal.resource("shared/notes.txt"), "read")
+
+
+def test_a_policy_saved_through_another_backend_can_be_removed(make_user, portal):
+    """AC-3. Removing a policy works whichever process saved it, and access ends."""
+    user = make_user()
+    portal.store_policy_as_another_backend(user, portal.resource("shared/notes.txt"), "read")
+    try:
+        r = portal.admin("DELETE", "/api/policies/", json={
+            "user_uuid": user.uuid,
+            "instance_uuid": portal.instance_uuid,
+            "resource": portal.resource("shared/notes.txt"),
+            "action": "read",
+        })
+        assert r.status_code == 200, r.text
+        assert portal.resource("shared/notes.txt") not in {p["resource"] for p in user.my_policies()}
+    finally:
+        portal.unstore_policy(user, portal.resource("shared/notes.txt"), "read")
+
+
+def test_a_policy_on_a_path_with_a_bracket_is_listed_and_removed(make_user, portal):
+    """AC-5. Paths are literal: a policy on brackets/a[b.bin is listed like any other, and removing
+    it works."""
+    user = make_user(("read", "brackets/a[b.bin"))
+    listed_for_admin = portal.admin("GET", "/api/policies/", params={"username": user.username})
+    assert listed_for_admin.status_code == 200, listed_for_admin.text
+    assert portal.resource("brackets/a[b.bin") in {p["resource"] for p in listed_for_admin.json()["details"]}
+
+    r = requests.delete(f"{portal.backend}/api/policies/", headers=portal.admin_headers(), timeout=30, json={
+        "user_uuid": user.uuid,
+        "instance_uuid": portal.instance_uuid,
+        "resource": portal.resource("brackets/a[b.bin"),
+        "action": "read",
+    })
+    assert r.status_code == 200, r.text
+    assert user.my_policies() == []
+
+
+# --------------------------------------------- check access: the answer and the reason
+
+def check(caller_headers, portal, user, key, action):
+    return requests.get(f"{portal.backend}/api/policies/check", headers=caller_headers, timeout=30, params={
+        "username": user.username,
+        "instance_name": portal.instance,
+        "resource": portal.resource(key),
+        "action": action,
+    })
+
+
+def test_check_access_names_the_policy_that_allows_it(make_user, portal):
+    """AC-3. Allowed, because of the folder policy that covers the file."""
+    user = make_user(("read", "study/*"))
+    answer = check(portal.admin_headers(), portal, user, "study/scan-042.nii", "read").json()
+    assert answer["allowed"] is True
+    assert [(p["resource"], p["action"]) for p in answer["because"]] == [(portal.resource("study/*"), "read")]
+
+
+def test_check_access_refuses_with_no_reason(make_user, portal):
+    """AC-3. Refused: none of the person's policies allows it, and nothing else is listed."""
+    user = make_user(("read", "study/*"))
+    answer = check(portal.admin_headers(), portal, user, "other/unrelated.txt", "read").json()
+    assert answer == {"allowed": False, "shown": None, "because": []}
+
+
+def test_check_access_says_a_folder_is_shown_without_being_allowed(make_user, portal):
+    """AC-1. A folder on the way to a file the person holds is shown in their tree, not allowed."""
+    user = make_user(("read", "study/patient-7/summary.csv"))
+    answer = check(portal.admin_headers(), portal, user, "study/", "read").json()
+    assert (answer["allowed"], answer["shown"]) == (False, True)
+
+
+def test_check_access_is_refused_to_an_ordinary_user(make_user, portal):
+    """AC-3. Only administrators and project managers may check someone's access."""
+    user = make_user(("read", "study/*"))
+    asker = make_user()
+    assert check(asker._headers, portal, user, "study/scan-042.nii", "read").status_code == 403
+
+
+def test_a_manager_may_check_only_people_in_their_projects(make_user, portal):
+    """AC-3. A project manager checks people in a project they manage, on its instances, and no one else."""
+    member = make_user(("read", "study/*"))
+    outsider = make_user(("read", "study/*"))
+    manager = make_user()
+    project = f"acl-test-{uuid.uuid4().hex[:8]}"
+    portal.admin("POST", "/api/projects", json={"name": project}).raise_for_status()
+    try:
+        portal.admin("POST", f"/api/projects/{project}/storage-instances", json={"instance_name": portal.instance})
+        portal.admin("POST", f"/api/projects/{project}/users", json={"username": member.username})
+        portal.admin("POST", f"/api/projects/{project}/managers", json={"username": manager.username})
+        assert check(manager._headers, portal, member, "study/scan-042.nii", "read").status_code == 200
+        assert check(manager._headers, portal, outsider, "study/scan-042.nii", "read").status_code == 403
+    finally:
+        portal.admin("DELETE", f"/api/projects/{project}")
+
+
+# ------------------------------------------- administration scope: what a manager may see
+
+def test_a_manager_lists_only_people_in_their_projects(make_user, portal):
+    """AC-3. A project manager sees the people in the projects they manage, not everyone's names."""
+    member = make_user()
+    outsider = make_user()
+    manager = make_user()
+    project = f"acl-test-{uuid.uuid4().hex[:8]}"
+    portal.admin("POST", "/api/projects", json={"name": project})
+    try:
+        portal.admin("POST", f"/api/projects/{project}/users", json={"username": member.username})
+        portal.admin("POST", f"/api/projects/{project}/managers", json={"username": manager.username})
+        listed = requests.get(f"{portal.backend}/api/users/", headers=manager._headers, timeout=30)
+        assert listed.status_code == 200, listed.text
+        names = {u["username"] for u in listed.json()}
+        assert member.username in names
+        assert outsider.username not in names
+        everyone = {u["username"] for u in portal.admin("GET", "/api/users/").json()}
+        assert {member.username, outsider.username} <= everyone
+    finally:
+        portal.admin("DELETE", f"/api/projects/{project}")

@@ -1,5 +1,5 @@
 """
-One-off conversion of stored policies from regular expressions to literal paths (INN-297).
+Convert stored policies from regular expressions to literal paths, once (INN-297).
 
 Report first (changes nothing):
     python -m core.services.policies.convert_paths
@@ -9,6 +9,8 @@ Then, after the report has been reviewed, apply the automatic conversions:
 Only rows whose meaning is clear are changed. Rows that would grant new access, or whose
 meaning is ambiguous, are listed and left as they are for an administrator to fix by hand.
 """
+from __future__ import annotations
+
 import argparse
 from collections import Counter
 from typing import NamedTuple
@@ -19,10 +21,10 @@ from core.services.policies.rules import ALL
 # literally, and reading it literally only narrows what the policy matched.
 PATTERN_CHARACTERS = set("^$*+?()[]{}|\\")
 
-CONVERT = "convert"      # applied by --apply
+CONVERT = "convert"  # applied by --apply
 UNCHANGED = "unchanged"  # already literal; nothing to write
-NARROWS = "narrows"      # stays as it is, but now matches less than before (no new access)
-REVIEW = "review"        # left as it is; an administrator decides
+NARROWS = "narrows"  # stays as it is, but now matches less than before (no new access)
+REVIEW = "review"  # left as it is; an administrator decides
 
 
 class Conversion(NamedTuple):
@@ -33,7 +35,11 @@ class Conversion(NamedTuple):
 
 
 def convert(path: str, action: str) -> Conversion:
-    """How one stored policy's path and action convert."""
+    """
+    Return how one stored policy's path and action convert.
+
+    Example: "study/.*", "read" -> convert to "study/*", "read"
+    """
     if _already_literal(path, action):
         return Conversion(UNCHANGED, path, action, "already in the literal format")
     new_action, action_note = _convert_action(action)
@@ -71,15 +77,18 @@ def convert(path: str, action: str) -> Conversion:
 
 
 def _already_literal(path: str, action: str) -> bool:
-    """A row this script has already converted: "*", or a folder path ending in "/*" with no
-    other pattern characters, and an action that is "*" or a plain name. So the script can
-    be run again safely."""
+    """
+    Return whether this script has already converted the row: "*", or a folder path ending in "/*"
+    with no other pattern characters, and an action that is "*" or a plain name. So the script can be
+    run again safely.
+    """
     path_literal = path == ALL or (path.endswith("/*") and not PATTERN_CHARACTERS & set(path[:-1]))
     action_literal = action == ALL or (action.isalpha() and action.islower())
     return path_literal and action_literal
 
 
 def _convert_action(action: str) -> tuple[str | None, str]:
+    """Return the literal action and a note, or None and why it can't be converted."""
     if action in (".*", ALL):
         return ALL, "every action"
     if PATTERN_CHARACTERS & set(action) or "." in action:
@@ -88,9 +97,13 @@ def _convert_action(action: str) -> tuple[str | None, str]:
 
 
 def main() -> None:
+    # imported here so the conversion rules above can be tested without a database client
     from core.db.mongodb.mongo_client import get_policy_rule_collection
 
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument("--apply", action="store_true", help="write the automatic conversions")
     args = parser.parse_args()
 
@@ -99,17 +112,25 @@ def main() -> None:
     for row in collection.find({"ptype": "p"}):
         result = convert(row.get("v2", ""), row.get("v3", ""))
         counts[result.kind] += 1
-        print(f"{result.kind:9}  user {row.get('v0')}  instance {row.get('v1')}  "
-              f"{row.get('v2')!r} {row.get('v3')!r} -> {result.path!r} {result.action!r}  ({result.note})")
+        print(
+            f"{result.kind:9}  user {row.get('v0')}  instance {row.get('v1')}  "
+            f"{row.get('v2')!r} {row.get('v3')!r} -> {result.path!r} {result.action!r}  ({result.note})"
+        )
         if args.apply and result.kind == CONVERT:
             duplicate = collection.find_one({
-                "ptype": "p", "v0": row.get("v0"), "v1": row.get("v1"),
-                "v2": result.path, "v3": result.action,
+                "ptype": "p",
+                "v0": row.get("v0"),
+                "v1": row.get("v1"),
+                "v2": result.path,
+                "v3": result.action,
             })
             if duplicate:
                 collection.delete_one({"_id": row["_id"]})
             else:
-                collection.update_one({"_id": row["_id"]}, {"$set": {"v2": result.path, "v3": result.action}})
+                collection.update_one(
+                    {"_id": row["_id"]},
+                    {"$set": {"v2": result.path, "v3": result.action}},
+                )
 
     print("\n" + ", ".join(f"{kind}: {n}" for kind, n in sorted(counts.items())))
     if not args.apply:

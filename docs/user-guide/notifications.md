@@ -14,3 +14,13 @@ notifications are new; open it to see them, newest first.
 
 If the portal has email set up, you're also sent an email. It never names your files, since file
 names can identify participants; it says how many were stored and links to the portal.
+
+## For administrators and project managers
+<!-- claim: AC-8; tests: test_administrators_and_the_instances_project_managers_are_reminded, test_each_reminder_is_sent_once_however_often_the_job_runs, test_a_reminder_email_names_no_files -->
+
+You're also told two weeks before a policy you manage ends, and on the day, so you can renew or let
+it end. See [Giving people access](policies.md).
+
+## Related
+
+- [Uploading files and folders](uploading.md)

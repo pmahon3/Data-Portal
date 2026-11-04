@@ -1,0 +1,10 @@
+# Markdown structure checks for the user guide. Run: docs/check-docs.sh
+config:
+  default: true
+  MD013: false          # lines are wrapped by hand; tables run long
+  MD033: false          # HTML comments carry the claim markers
+  MD041: true           # each page starts with a top-level heading
+  MD024: { siblings_only: true }
+globs:
+  - "docs/user-guide/*.md"
+  - "docs/writing-the-user-guide.md"

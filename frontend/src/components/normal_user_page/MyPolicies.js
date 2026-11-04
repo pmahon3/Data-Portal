@@ -5,6 +5,7 @@ import { CircularProgress } from "@mui/material";
 import { DataGrid } from "@mui/x-data-grid";
 import { formatError } from "../../utils/errorUtils";
 import { getAuthHeaders } from "../../utils/authUtils";
+import { describeEnds } from "../../utils/policyEnds";
 
 const http = axios.create({ baseURL: "/api" });
 
@@ -47,6 +48,9 @@ export default function MyPolicies() {
     { field: "instance_name", headerName: "Instance Name", flex: 1, minWidth: 180 },
     { field: "resource", headerName: "Resource", flex: 1.5, minWidth: 220 },
     { field: "action", headerName: "Action", width: 120 },
+    { field: "endings", headerName: "File types", width: 140, valueGetter: (value, row) => [...(value || []), ...(row.kinds || [])].join(", ") },
+    { field: "excluded", headerName: "Leaves out", flex: 1, minWidth: 180, valueGetter: (value) => (value || []).join(", ") },
+    { field: "ends", headerName: "Ends", width: 160, valueGetter: (value) => describeEnds(value) },
   ], []);
 
   return (

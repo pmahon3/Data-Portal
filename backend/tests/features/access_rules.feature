@@ -95,3 +95,133 @@ Feature: What a policy allows
       | qa-bucket/fold*       |
       | qa-bucket/fold/*.csv  |
       | /                     |
+
+  @AC-8
+  Scenario Outline: A policy allows nothing after its end date
+    Given the user holds "read" on "qa-bucket/fold/*" until "<ends>"
+    Then the user <may> "read" "qa-bucket/fold/a.txt"
+    And the folder "qa-bucket/fold/" is <shown> when browsing to "read"
+
+    Examples:
+      | ends       | may     | shown     |
+      | 2000-01-01 | may not | not shown |
+      | today      | may     | shown     |
+      | 2999-12-31 | may     | shown     |
+
+  @AC-8
+  Scenario: An ended policy leaves the user's other policies working
+    Given the user holds "read" on "qa-bucket/fold/*" until "2000-01-01"
+    And the user holds "read" on "qa-bucket/fold/a.txt"
+    Then the user may "read" "qa-bucket/fold/a.txt"
+    And the user may not "read" "qa-bucket/fold/b.txt"
+
+  @AC-10
+  Scenario Outline: A folder policy leaves out what it excludes
+    Given the user holds "read" on "qa-bucket/study/*" leaving out "qa-bucket/study/sub-03/*, qa-bucket/study/notes.txt"
+    Then the user <may> "read" "<path>"
+
+    Examples:
+      | path                                 | may     |
+      | qa-bucket/study/sub-01/scan.nii      | may     |
+      | qa-bucket/study/sub-03/scan.nii      | may not |
+      | qa-bucket/study/sub-03/later/new.nii | may not |
+      | qa-bucket/study/sub-03/              | may not |
+      | qa-bucket/study/notes.txt            | may not |
+      | qa-bucket/study/notes.txt.bak        | may     |
+
+  @AC-10
+  Scenario Outline: An excluded folder isn't shown unless something else shows it
+    Given the user holds "read" on "qa-bucket/study/*" leaving out "qa-bucket/study/sub-03/*"
+    Then the folder "<folder>" is <shown> when browsing to "read"
+
+    Examples:
+      | folder                    | shown     |
+      | qa-bucket/study/          | shown     |
+      | qa-bucket/study/sub-01/   | shown     |
+      | qa-bucket/study/sub-03/   | not shown |
+      | qa-bucket/study/sub-03/a/ | not shown |
+
+  @AC-10
+  Scenario: Another policy can still give what one policy leaves out
+    Given the user holds "read" on "qa-bucket/study/*" leaving out "qa-bucket/study/sub-03/*"
+    And the user holds "read" on "qa-bucket/study/sub-03/scan.nii"
+    Then the user may "read" "qa-bucket/study/sub-03/scan.nii"
+    And the folder "qa-bucket/study/sub-03/" is shown when browsing to "read"
+    And the user may not "read" "qa-bucket/study/sub-03/other.nii"
+
+  @AC-10
+  Scenario Outline: Only paths inside a folder policy can be left out
+    When an administrator saves a policy on "<policy>" leaving out "<excluded>"
+    Then it is <outcome>
+
+    Examples:
+      | policy            | excluded                    | outcome                                  |
+      | qa-bucket/study/* | qa-bucket/study/sub-03/*    | saved leaving out qa-bucket/study/sub-03/* |
+      | *                 | qa-bucket/study/*           | saved leaving out qa-bucket/study/*      |
+      | qa-bucket/study/* | qa-bucket/other/*           | refused                                  |
+      | qa-bucket/study/* | qa-bucket/study/*           | refused                                  |
+      | qa-bucket/a.txt   | qa-bucket/a.txt             | refused                                  |
+      | qa-bucket/study/* | qa-bucket/study/sub-0*/x    | refused                                  |
+
+  @AC-6
+  Scenario Outline: A folder policy limited to file endings covers only those files
+    Given the user holds "read" on "qa-bucket/study/*" for files ending in ".nii, .nii.gz"
+    Then the user <may> "read" "<path>"
+
+    Examples:
+      | path                              | may     |
+      | qa-bucket/study/sub-01/scan.nii   | may     |
+      | qa-bucket/study/sub-01/SCAN.NII   | may     |
+      | qa-bucket/study/sub-01/scan.nii.gz| may     |
+      | qa-bucket/study/sub-01/notes.txt  | may not |
+      | qa-bucket/study/sub-01/scan.nii.bak | may not |
+      | qa-bucket/other/scan.nii          | may not |
+      | qa-bucket/study/sub-01/           | may     |
+
+  @AC-6
+  Scenario: Endings and exclusions apply together
+    Given the user holds "read" on "qa-bucket/study/*" for files ending in ".nii" leaving out "qa-bucket/study/sub-03/*"
+    Then the user may "read" "qa-bucket/study/sub-01/scan.nii"
+    And the user may not "read" "qa-bucket/study/sub-03/scan.nii"
+    And the user may not "read" "qa-bucket/study/sub-01/notes.txt"
+
+  @AC-6
+  Scenario Outline: Endings are checked when a policy is saved
+    When an administrator saves a policy on "<policy>" for files ending in "<endings>"
+    Then it is <outcome>
+
+    Examples:
+      | policy            | endings      | outcome                          |
+      | qa-bucket/study/* | .NII, .nii.gz | saved for endings .nii, .nii.gz |
+      | qa-bucket/a.txt   | .txt         | refused                          |
+      | qa-bucket/study/* | nii          | refused                          |
+      | qa-bucket/study/* | .n*i         | refused                          |
+      | qa-bucket/study/* | ./x          | refused                          |
+
+  @AC-6
+  Scenario Outline: A folder policy limited to kinds of data covers only those kinds
+    Given the user holds "read" on "qa-bucket/study/*" for kinds "anat" of the BIDS dataset at "qa-bucket/study/"
+    Then the user <may> "read" "<path>"
+
+    Examples:
+      | path                                                 | may     |
+      | qa-bucket/study/sub-01/anat/sub-01_T1w.nii.gz        | may     |
+      | qa-bucket/study/sub-01/anat/sub-01_T1w.json          | may     |
+      | qa-bucket/study/sub-01/ses-1/anat/sub-01_ses-1_T1w.nii.gz | may |
+      | qa-bucket/study/sub-01/func/sub-01_task-rest_bold.nii.gz | may not |
+      | qa-bucket/study/participants.tsv                     | may not |
+      | qa-bucket/study/sub-01/                              | may     |
+
+  @AC-6
+  Scenario Outline: Kinds are checked when a policy is saved
+    When an administrator saves a policy on "<policy>" for kinds "<kinds>" of the BIDS dataset at "<dataset>"
+    Then it is <outcome>
+
+    Examples:
+      | policy                   | kinds      | dataset          | outcome                   |
+      | qa-bucket/study/*        | anat, func | qa-bucket/study/ | saved for kinds anat, func |
+      | qa-bucket/study/sub-01/* | anat       | qa-bucket/study/ | saved for kinds anat      |
+      | qa-bucket/study/*        | scans      | qa-bucket/study/ | refused                   |
+      | qa-bucket/*              | anat       | qa-bucket/study/ | refused                   |
+      | qa-bucket/study/a.nii    | anat       | qa-bucket/study/ | refused                   |
+      | qa-bucket/study/*        | anat       |                  | refused                   |

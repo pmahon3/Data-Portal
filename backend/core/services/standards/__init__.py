@@ -1,14 +1,19 @@
 """
-Datasets checked against the standard they declare (STD-1). A folder declares a standard by holding
-that standard's marker file at its root (BIDS: ``dataset_description.json``), so files placed on a
-machine directly declare it the same way as an upload. When an upload completes, every declared
-dataset it touched is checked as a whole; a failure puts the dataset in quarantine, a later pass
-takes it out, and the researcher is told what failed in the upload's response.
+Check datasets against the standard they declare (STD-1).
 
-What quarantine holds back is an open question (N-QUARANTINE), so here it's only recorded. Which
-standards the portal checks is another (E-STD): each plugs in a ``Validator`` (``VALIDATORS``).
-Checks read names and layout from the file tree, never file contents.
+A folder declares a standard by holding that standard's marker file at its root (BIDS:
+``dataset_description.json``), so files placed on a machine directly declare it the same way as an
+upload. When an upload completes, every declared dataset it touched is checked as a whole; a failure
+puts the dataset in quarantine, a later pass takes it out, and the response tells the researcher what
+failed. Checks read names and layout from the file tree, never file contents.
+
+What quarantine holds back is open (STD-QUARANTINE), so here it's only recorded. Which standards are
+checked is open too (STD-WHICH): each plugs in a ``Validator``. A standard also names the kinds of data it
+defines (BIDS: ``anat``, ``func``, ...) and a file's kind from its path, for policies (AC-6).
 """
+from __future__ import annotations
+
+import importlib
 import logging
 import os
 from dataclasses import dataclass
@@ -32,8 +37,13 @@ class Validator(Protocol):
     standard: str  # e.g. "BIDS"
     marker: str  # file at a dataset's root that declares the standard
 
+    kinds: frozenset[str]  # the kinds of data it defines
+
     def check(self, paths: list[str]) -> list[Finding]:
-        """Every file in the dataset, relative to its root with a leading "/"; returns what fails."""
+        """Check every file in the dataset (relative to its root, with a leading "/"); return what fails."""
+
+    def kind_of(self, path: str) -> str | None:
+        """Return a file's kind, from its path relative to the dataset's root with a leading "/"."""
 
 
 class Tree(Protocol):
@@ -45,31 +55,61 @@ VALIDATORS: list[Validator] = []
 
 
 def _plug_in() -> None:
-    """The standards named in DATA_STANDARDS (comma-separated; "" for none)."""
+    """Plug in the standards named in ``DATA_STANDARDS`` (comma-separated; "" for none)."""
     available = {"bids": "core.services.standards.bids:BIDS"}
-    for name in filter(None, (s.strip().lower() for s in os.getenv("DATA_STANDARDS", "bids").split(","))):
+    for name in os.getenv("DATA_STANDARDS", "bids").split(","):
+        name = name.strip().lower()
+        if not name:
+            continue
         if name not in available:
             logger.warning("DATA_STANDARDS names %r, which isn't available", name)
             continue
-        module, cls = available[name].split(":")
-        VALIDATORS.append(getattr(__import__(module, fromlist=[cls]), cls)())
+        # imported by name, so a standard's library loads only when it's plugged in
+        module_name, class_name = available[name].split(":")
+        module = importlib.import_module(module_name)
+        VALIDATORS.append(getattr(module, class_name)())
+
+
+def standard(name: str) -> Validator | None:
+    """Return the plugged-in standard with that name (e.g. "BIDS"), or None."""
+    for validator in VALIDATORS:
+        if validator.standard == name:
+            return validator
+    return None
+
+
+def kind_of(name: str, path: str) -> str | None:
+    """Return a file's kind as standard ``name`` defines it; None if it has none or isn't plugged in."""
+    found = standard(name)
+    if found is None:
+        return None
+    return found.kind_of(path)
 
 
 def ancestors(key: str) -> list[str]:
-    """Folder prefixes of an object key, nearest first: "a/b/c.nii" gives "a/b/", "a/", ""."""
+    """
+    Return the folder prefixes of an object key, nearest first.
+
+    Example: "a/b/c.nii" -> ["a/b/", "a/", ""]
+    """
     parts = key.split("/")[:-1]
-    return ["/".join(parts[:i]) + "/" if i else "" for i in range(len(parts), -1, -1)]
+    prefixes = []
+    for i in range(len(parts), 0, -1):
+        prefixes.append("/".join(parts[:i]) + "/")
+    prefixes.append("")
+    return prefixes
 
 
 async def declared_roots(tree: Tree, bucket: str, keys: list[str], marker: str) -> set[str]:
-    """The nearest folder declaring the standard above each key (none if no folder does)."""
+    """Return the nearest folder declaring the standard above each key (none if no folder does)."""
     candidates = {a for k in keys for a in ancestors(k)}
     markers = await tree.complete_keys(bucket, [c + marker for c in candidates])
     roots = set()
     for k in keys:
-        nearest = next((a for a in ancestors(k) if a + marker in markers), None)
-        if nearest is not None:
-            roots.add(nearest)
+        for folder in ancestors(k):
+            if folder + marker in markers:
+                roots.add(folder)
+                break
     return roots
 
 
@@ -89,11 +129,17 @@ def _collection():
 
 
 def record(bucket: str, root: str, standard: str, findings: list[Finding]) -> dict:
-    """The latest result for one dataset and standard, replacing the one before."""
-    result = {"_id": f"{bucket}:{root}:{standard}", "bucket": bucket, "root": root, "standard": standard,
-              "quarantined": bool(findings), "problems": len(findings),
-              "findings": [{"path": f.path, "problem": f.problem} for f in findings[:REPORTED]],
-              "checked_at": datetime.utcnow()}
+    """Record the latest result for one dataset and standard, replacing the one before."""
+    result = {
+        "_id": f"{bucket}:{root}:{standard}",
+        "bucket": bucket,
+        "root": root,
+        "standard": standard,
+        "quarantined": bool(findings),
+        "problems": len(findings),
+        "findings": [{"path": f.path, "problem": f.problem} for f in findings[:REPORTED]],
+        "checked_at": datetime.utcnow(),
+    }
     _collection().replace_one({"_id": result["_id"]}, result, upsert=True)
     if findings:
         logger.info("dataset %s/%s quarantined: %s %s problem(s)", bucket, root, standard, len(findings))
@@ -101,7 +147,7 @@ def record(bucket: str, root: str, standard: str, findings: list[Finding]) -> di
 
 
 def quarantined(bucket: str, root: str) -> list[dict]:
-    """The standards a dataset currently fails."""
+    """Return the standards a dataset currently fails."""
     return list(_collection().find({"bucket": bucket, "root": root, "quarantined": True}))
 
 
