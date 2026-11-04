@@ -121,7 +121,7 @@ signed by the backend.
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/storage-links/jwks.json` | Public keys the file services verify links with. |
+| `GET` | `/api/storage-links/jwks.json` | Public keys the file services verify links with (during a key rotation, the old and the new). |
 
 ## Projects
 

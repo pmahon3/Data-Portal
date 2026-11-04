@@ -305,6 +305,18 @@ ordinary account that can read and write the data; it never follows symbolic lin
 in `docs/requirements/posix-storage.md` (PX-n); `storage-gateway/contract/` holds the link format both
 sides test against, and `local/docker-compose.posix.yaml` runs it locally.
 
+Settings for running it on a machine:
+
+| Setting | Where | What it does |
+|---|---|---|
+| `STORAGE_LINK_SIGNING_KEY` (or `_FILE`) | backend | The RSA key links are signed with |
+| `STORAGE_LINK_SIGNING_KEY_PREVIOUS` | backend | During a key rotation, the old key's PEM: still published, so links signed with it work until they expire |
+| `GATEWAY_TLS_CERT`, `GATEWAY_TLS_KEY` | file service | With both set, the file service serves HTTPS itself; without them, plain HTTP (local tests only) |
+| `GET /v1/metrics` | file service | Request and error counters (Prometheus text), counted by route, never by file name |
+
+The end-to-end tests (`storage-gateway/e2e/`) run against another machine's file service with
+`E2E_GATEWAY_URL`, `E2E_NAMESPACE` and `E2E_GATEWAY_DATA` (that machine's data folder, mounted here).
+
 ## Known Transitional Areas
 
 Some parts of the repository are clearly in transition and should be handled carefully.
