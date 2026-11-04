@@ -3,33 +3,36 @@
 Testable requirements for working with files held on connected POSIX machines through the portal.
 Each one serves part of the INN Digital Infrastructure Strategy (2026). The access rules themselves
 are in [access-control.md](access-control.md) and apply here unchanged; this register holds only
-what is specific to POSIX machines.
+what is specific to POSIX machines. How each one is met is in the
+[decision log](../design/decision-log.md).
 
-Open items name the question that settles them in *INN use cases: decisions* (27 October 2026):
-A1 to A3 in Part A, D1 to D9 in Part D.
+Open items name the question that settles them in [*INN use cases: decisions*](../questions/use-cases.md) (27 October 2026):
+[A1](../questions/use-cases.md#a1) to [A3](../questions/use-cases.md#a3) in Part A, [D1](../questions/use-cases.md#d1) to [D9](../questions/use-cases.md#d9) in Part D.
 
 **Status:** *settled* (agreed; tests required), *proposed* (awaiting a functional decision),
 *open* (needed by the strategy, not yet decided; no tests yet).
 
 | ID | Requirement | Serves (strategy) | Status |
 |------|----------------------------------------------|-------------------------|--------|
-| <a id="px-1"></a>PX-1 | Through the portal, a user can browse, download and upload files held on a connected POSIX machine. | 4.1 steps 2–4 | settled |
-| <a id="px-2"></a>PX-2 | Through the portal, a user can delete files held on a connected POSIX machine. | 4.1 | settled |
-| <a id="px-3"></a>PX-3 | A request gets the same answer on a POSIX machine as on object storage: the same access rules, refusals and listings. | 4.1; 5.1 postcondition | settled |
-| <a id="px-4"></a>PX-4 | Identifiable data considered so far is held on the INN and ImageTech machines and scrubbed there. A file leaves a machine through the portal only if the conditions attached to it allow (D3). | 5.1; 4.7 | open |
-| <a id="px-5"></a>PX-5 | An interrupted download resumes rather than restarts. | 5.8 main flow step 3; 4.1 outcome (large files) | settled |
-| <a id="px-6"></a>PX-6 | A file appears at its path only when its upload is complete, and an upload never replaces an existing file. An interrupted upload resumes rather than restarts; until it finishes it is shown as incomplete, and one left unfinished is cleared after a set time. | 5.1 postcondition | settled |
-| <a id="px-7"></a>PX-7 | File contents move directly between the user and the machine, not through the portal's servers. | 5.8 main flow step 2 | settled |
+| <a id="px-1"></a>PX-1 | Through the portal, a user can browse, download and upload files held on a connected POSIX machine. | [4.1](../strategy/inn-digital-infrastructure-strategy-2026.md#s4-1) steps 2–4 | settled |
+| <a id="px-2"></a>PX-2 | Through the portal, a user can delete files held on a connected POSIX machine. | [4.1](../strategy/inn-digital-infrastructure-strategy-2026.md#s4-1) | settled |
+| <a id="px-3"></a>PX-3 | A request gets the same answer on a POSIX machine as on object storage: the same access rules, refusals and listings. | [4.1](../strategy/inn-digital-infrastructure-strategy-2026.md#s4-1); [5.1](../strategy/inn-digital-infrastructure-strategy-2026.md#s5-1) postcondition | settled |
+| <a id="px-4"></a>PX-4 | Identifiable data is held on the INN and ImageTech machines and scrubbed there; only scrubbed data leaves. A file leaves a machine through the portal only if the conditions attached to it allow ([D3](../questions/use-cases.md#d3)). Confirmed by Kelly, 3 November 2026. | [5.1](../strategy/inn-digital-infrastructure-strategy-2026.md#s5-1); [4.7](../strategy/inn-digital-infrastructure-strategy-2026.md#s4-7) | settled |
+| <a id="px-5"></a>PX-5 | An interrupted download resumes rather than restarts. | [5.8](../strategy/inn-digital-infrastructure-strategy-2026.md#s5-8) main flow step 3; [4.1](../strategy/inn-digital-infrastructure-strategy-2026.md#s4-1) outcome (large files) | settled |
+| <a id="px-6"></a>PX-6 | A file appears at its path only when it has been wholly uploaded, and an upload never replaces an existing file. A file only partly received is never shown and is removed. When an upload of several files stops partway, the files wholly received stay, and the user is told how many of the upload's files arrived and which did not, so they never have to check file by file ([NT-1](notifications.md#nt-1)). An interrupted file upload resumes rather than restarts. | [5.1](../strategy/inn-digital-infrastructure-strategy-2026.md#s5-1) postcondition | settled |
+| <a id="px-7"></a>PX-7 | File contents move directly between the user and the machine, not through the portal's servers. | [5.8](../strategy/inn-digital-infrastructure-strategy-2026.md#s5-8) main flow step 2 | settled |
 | <a id="px-8"></a>PX-8 | It works on a machine where INN has no administrator access. Where INN has it, it is used only where another requirement needs it. | decisions Part A (the setup balance) | proposed |
-| <a id="px-9"></a>PX-9 | On each machine, its system administrators and project managers manage direct access to the governed files by hand (A1); the portal governs only access through itself. | 5.1 postcondition | proposed |
-| <a id="px-10"></a>PX-10 | Activity on POSIX data is recorded for all data on the machines: access through the portal (as [AC-9](access-control.md#ac-9)), and who changes and who reads files directly on the machine (A2). | 4.1 outcome (transparent logging); 5.1 non-functional requirements | open |
-| <a id="px-11"></a>PX-11 | Files created, changed or deleted directly on a machine appear in the portal within a few minutes, or when someone refreshes (A3). Until that is built, within a few hours or on refresh, with an email confirming each upload, is acceptable. | 4.1 step 2 | open |
-| <a id="px-12"></a>PX-12 | Identifiable data can move between the INN and ImageTech machines three ways (D1): machine to machine, started through the portal; by staff outside the portal; and through the portal by download and upload. Each machine has a staging area and a pipeline-outputs area, with written rules for its administrators on which direct changes the portal handles and which carry no guarantees. | 5.1; 4.7 | open |
-| <a id="px-13"></a>PX-13 | A user can download several files at once as one archive, and an interrupted download resumes rather than restarts. | 4.1 steps 3–4; 5.8 main flow step 3 | settled |
-| <a id="px-14"></a>PX-14 | Downloading several files leaves no copy of them anywhere but the machine: nothing is built ahead or kept afterwards. | 5.1 postcondition; 4.7 (as [PX-4](#px-4)) | proposed |
-| <a id="px-15"></a>PX-15 | An upload of a study-sized file (100 GB or more) completes through the portal, however long it takes. | 4.1 outcome (large files) | settled |
+| <a id="px-9"></a>PX-9 | On each machine, its system administrators and project managers manage direct access to the governed files by hand ([A1](../questions/use-cases.md#a1)); the portal governs only access through itself. | [5.1](../strategy/inn-digital-infrastructure-strategy-2026.md#s5-1) postcondition | proposed |
+| <a id="px-10"></a>PX-10 | Each access to identifiable data on a machine is recorded on that machine: who, which file, when, and which operation ([A2](../questions/use-cases.md#a2)). Administrators, and the data owner for their own data ([AC-OWNER](../questions/portal.md#ac-owner)), can read the records in the portal, alongside the portal's own records ([AC-9](access-control.md#ac-9)). | [4.1](../strategy/inn-digital-infrastructure-strategy-2026.md#s4-1) outcome (transparent logging); [5.1](../strategy/inn-digital-infrastructure-strategy-2026.md#s5-1) non-functional requirements | open |
+| <a id="px-11"></a>PX-11 | A file added, changed or deleted on a machine, directly or through the portal, shows in the portal within two days at most; it need not show at once ([A3](../questions/use-cases.md#a3)). Someone who uploads through the portal is told when the upload has been received ([NT-1](notifications.md#nt-1)). | [4.1](../strategy/inn-digital-infrastructure-strategy-2026.md#s4-1) step 2 | open |
+| <a id="px-12"></a>PX-12 | Identifiable data moves between the INN and ImageTech machines through the portal, by download and upload, and by staff outside the portal ([D1](../questions/use-cases.md#d1)). Moving it directly from one machine to the other is for later, not this release. Each machine has a staging area and a pipeline-outputs area, with written rules for its administrators on which direct changes the portal handles and which carry no guarantees. | [5.1](../strategy/inn-digital-infrastructure-strategy-2026.md#s5-1); [4.7](../strategy/inn-digital-infrastructure-strategy-2026.md#s4-7) | open |
+| <a id="px-13"></a>PX-13 | A user can download several files at once as one archive, and an interrupted download resumes rather than restarts. | [4.1](../strategy/inn-digital-infrastructure-strategy-2026.md#s4-1) steps 3–4; [5.8](../strategy/inn-digital-infrastructure-strategy-2026.md#s5-8) main flow step 3 | settled |
+| <a id="px-14"></a>PX-14 | Downloading several files leaves no copy of them anywhere but the machine: nothing is built ahead or kept afterwards. | [5.1](../strategy/inn-digital-infrastructure-strategy-2026.md#s5-1) postcondition; [4.7](../strategy/inn-digital-infrastructure-strategy-2026.md#s4-7) (as [PX-4](#px-4)) | proposed |
+| <a id="px-15"></a>PX-15 | An upload of a study-sized file (100 GB or more) completes through the portal, however long it takes. | [4.1](../strategy/inn-digital-infrastructure-strategy-2026.md#s4-1) outcome (large files) | settled |
 
 [PX-1](#px-1) and [PX-3](#px-3) come from the decisions document's settled list. Patrick settled the rest
-on 1 November 2026, answering A2, A3, D1 and D3 and confirming [PX-2](#px-2), [PX-5](#px-5) to [PX-7](#px-7), [PX-13](#px-13) and [PX-15](#px-15)
+on 1 November 2026, answering [A2](../questions/use-cases.md#a2), [A3](../questions/use-cases.md#a3), [D1](../questions/use-cases.md#d1) and [D3](../questions/use-cases.md#d3) and confirming [PX-2](#px-2), [PX-5](#px-5) to [PX-7](#px-7), [PX-13](#px-13) and [PX-15](#px-15)
 ([PX-6](#px-6) extended to resumable uploads). [PX-8](#px-8) states the aim of the setup balance in Part A.
 [PX-15](#px-15) records a known gap: today an upload must finish within its link's lifetime (15 minutes).
+
+Patrick and Kelly revised [PX-6](#px-6) and [PX-10](#px-10) to [PX-12](#px-12) on 4 November 2026 ([A2](../questions/use-cases.md#a2), [A3](../questions/use-cases.md#a3), [D1](../questions/use-cases.md#d1)). A partial upload keeps what arrived whole; access records cover identifiable data; files show within two days; machine-to-machine transfer waits. A policy gives a person what they have agreed to do; the portal doesn't regulate what they do with it afterwards ([AC-POLICY-SCOPE](../questions/portal.md#ac-policy-scope)).
