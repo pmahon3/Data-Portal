@@ -2,7 +2,17 @@
 
 Visual documentation of the AMS Data Portal system architecture using Mermaid diagrams.
 
-## Available Diagrams
+## Generated from the code
+
+Drawn by `docs/diagrams/generate.py` from the imports, the Compose files and the Nomad jobs; a check
+fails when the code and these differ ([list](generated/README.md)):
+
+- [Backend packages](generated/backend.md), boxed by layer
+- [File service modules](generated/file-service.md)
+- [Data standards](generated/data-standards.md) and [notifications](generated/notifications.md): each package, what uses it and what it uses
+- [Deployment](generated/deployment.md): local and production services, and the Nomad jobs
+
+## Drawn by hand
 
 ### 📐 [Component Architecture](./component-architecture.md)
 System structure and component relationships:
@@ -11,11 +21,6 @@ System structure and component relationships:
 - Storage agent architecture
 - Policy management
 - Data flow
-
-### ✅ [Data Standards](./data-standards.md)
-How uploaded datasets are checked against the standard they declare:
-- Declaring a standard
-- Checking on upload, and quarantine
 
 ### 🔐 [Authentication Sequences](./sequence-authentication.md)
 Authentication and authorization flows:
@@ -26,11 +31,6 @@ Authentication and authorization flows:
 - Service account flow
 - User management
 - Logout flow
-
-### 🔔 [Notifications](./notifications.md)
-How researchers are told their upload is stored:
-- In the portal (navbar bell)
-- By email, through a mail relay
 
 ### 💾 [Storage Access Sequences](./sequence-storage-access.md)
 Storage operations and access control:

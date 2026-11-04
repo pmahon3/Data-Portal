@@ -207,8 +207,8 @@ graph LR
 - Storage agent coordination (factory pattern)
 - User and instance management
 - File-tree metadata service (PostgreSQL)
-- Notifications to researchers, in the portal and by email ([Notifications](./notifications.md))
-- Dataset checks against declared standards such as BIDS ([Data Standards](./data-standards.md))
+- Notifications to researchers, in the portal and by email ([Notifications](generated/notifications.md))
+- Dataset checks against declared standards such as BIDS ([Data Standards](generated/data-standards.md))
 
 ### Keycloak
 - User authentication (OIDC)

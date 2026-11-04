@@ -358,6 +358,14 @@ link to its anchor.
   (`Accepts: UC-5.1.`). Steps not built yet are known-failing, each naming what it waits on.
 - When a test shows a requirement is wrong, change the requirement first, then the code.
 
+## Diagrams
+
+`docs/diagrams/generated/` is drawn from the code by `docs/diagrams/generate.py`: package and module
+imports (backend, file service), the data-standards and notifications packages with what uses them,
+and deployment from the Compose files and Nomad jobs. After changing imports, Compose or Nomad files,
+run `uv run --no-project --with pyyaml python docs/diagrams/generate.py` and commit the result;
+`--check` (and `docs/diagrams/test_generate.py`) fails when they differ. Don't edit generated pages.
+
 ## Bug Fixes
 
 - Write the test that shows the bug first, in its own commit, marked known-failing:
