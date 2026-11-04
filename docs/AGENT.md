@@ -275,7 +275,7 @@ Current flow:
 Completing an upload records a notification for the user (MongoDB `notifications`), listed at
 `GET /api/notifications/` and in the navbar bell. Each notification also goes to every channel in
 `core/services/notifications`; email is the only one, off until `SMTP_HOST` is set, and never names
-files, since file names can identify participants. See `docs/diagrams/notifications.md` and [NT-1](requirements/notifications.md#nt-1) in
+files, since file names can identify participants. See [NT-1](requirements/notifications.md#nt-1) in
 `docs/requirements/notifications.md`.
 
 Policies with an end date ([AC-8](requirements/access-control.md#ac-8)) raise reminders too: the backend checks hourly
@@ -293,7 +293,7 @@ lists the problems in `checks`. Quarantine is recorded only, until what it holds
 Standards plug in as validators; `DATA_STANDARDS` chooses them (default `bids`). Each also names the
 kinds of data it defines and a file's kind from its path (`kind_of`; BIDS: the datatype folder), which
 policies limited to kinds use ([AC-6](requirements/access-control.md#ac-6)). See
-`docs/diagrams/data-standards.md` and `docs/requirements/data-standards.md`.
+`docs/requirements/data-standards.md`.
 
 ## POSIX Storage
 
@@ -348,7 +348,7 @@ What the system must do is written down in `docs/requirements/`: access control 
 (NT-n), data standards (STD-n), POSIX storage (PX-n). Each entry says which part of the INN Digital
 Infrastructure Strategy it serves (`docs/strategy/`, one anchor per section: `#s5-1`), and whether
 it's settled, proposed or open. The questions that settle entries are in `docs/questions/` (one
-anchor per question: `use-cases.md#c4`), designs in `docs/design/`, and features in
+anchor per question: `use-cases.md#c4`), design choices in `docs/design/decision-log.md` (one anchor each), and features in
 `docs/features.md`; `docs/README.md` says how they fit. Cite a question, section or requirement as a
 link to its anchor.
 

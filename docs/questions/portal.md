@@ -30,7 +30,7 @@ From strategy [5.7](../strategy/inn-digital-infrastructure-strategy-2026.md#s5-7
 [4.7](../strategy/inn-digital-infrastructure-strategy-2026.md#s4-7). Studies of 10 to 100 GB mean a
 download can run for hours, up to a day. Options:
 
-- No: a started download finishes, as decided on 2026-10-22 ([streaming spec](../design/streaming-spec.md)), within a limit.
+- No: a started download finishes, as decided on 2026-10-22 ([DS-link-reuse](../design/decision-log.md#ds-link-reuse)), within a limit.
 - Yes: withdrawal stops running downloads straight away.
 
 ### <a id="sa-mail"></a>SA-MAIL. A mail relay the portal can send through
@@ -51,3 +51,43 @@ as the data owner's assigned delegate.
 Decided by Kelly and Patrick, 2026-11-04: no. The portal gives people the policies that let them do
 what they have agreed to do, and enforces those; what they do with the data afterwards is theirs to
 answer for under their agreement.
+
+### <a id="ar-scope"></a>AR-SCOPE. Besides reading and changing data, are browsing and changes to access recorded?
+
+For leadership ([AC-9](../requirements/access-control.md#ac-9)). Browsing shows file names, which may
+contain participant IDs, and multiplies the records; changes to access (who gave or removed which
+policy) are cheap. Until answered, each is a setting: browsing off, changes to access on.
+
+### <a id="ar-retain"></a>AR-RETAIN. How long are access records kept?
+
+For privacy. Until answered, records are kept (a setting, `ACCESS_RECORDS_KEEP_MONTHS`).
+
+### <a id="ar-anchor"></a>AR-ANCHOR. Where can the records' latest chain value be kept out of reach of the database's administrators?
+
+For the system administrators. Any change to the records must be detectable
+([C2](use-cases.md#c2)); that needs the chain's latest value kept somewhere the database's
+administrators can't rewrite. Until answered, it is sent to administrators in a message.
+
+### <a id="ar-ceph-get"></a>AR-CEPH-GET. Can Ceph's operations log record each read, with the signed link's ID?
+
+For the system administrators. Until answered, reads from object storage are recorded as the links
+the portal issued.
+
+### <a id="rel-membership-access"></a>REL-MEMBERSHIP-ACCESS. Does project membership confer access, and who may create a project's grants?
+
+For leadership ([AC-12](../requirements/access-control.md#ac-12)). Options: administrators or data
+stewards only create a project's grants, and managers manage its membership; or managers create
+grants too, within what the project holds.
+
+### <a id="rel-removal-latency"></a>REL-REMOVAL-LATENCY. How soon must removing someone from a project end their access?
+
+For privacy ([AC-12](../requirements/access-control.md#ac-12)).
+
+### <a id="rel-project-name"></a>REL-PROJECT-NAME. Project, study, or both?
+
+For Patrick: what the portal calls a research group that holds access, "project", "study", or a
+study inside a project.
+
+### <a id="rel-membership-store"></a>REL-MEMBERSHIP-STORE. Where does membership live once it needs roles, dates or approval?
+
+For the team; deferred until membership needs more than a list of people.

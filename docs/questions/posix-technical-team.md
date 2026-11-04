@@ -8,7 +8,7 @@ A draft of POSIX access through the portal is built and tested locally (GitHub b
 
 Some parts can't go further without decisions that belong to the technical team, or facts only it has. Those are below. Where an answer isn't clear yet, a best guess and a note are more useful than a blank.
 
-Background for every item: docs/posix/README.md and docs/diagrams/posix-*.md on branch posix/stack, and [the file service contract](../design/streaming-spec.md).
+Background for every item: the POSIX entries in the [decision log](../design/decision-log.md#posix-storage) and the POSIX diagrams (`docs/diagrams/posix-*.md`).
 
 ### <a id="r-track"></a>R-TRACK. How should POSIX files get into the portal's file tree?
 
@@ -78,7 +78,7 @@ Options:
 - **No: each top-level folder on the machine acts as a bucket.** *In practice:* Mirrors S3 more closely. A new folder silently becomes a new 'bucket'; names can clash with S3 buckets.
 - **Something else (say what in the notes).**
 
-Where this comes from: [the file service contract](../design/streaming-spec.md)
+Where this comes from: [DS-namespace](../design/decision-log.md#ds-namespace)
 
 #### Found while building: should each be a ticket?
 

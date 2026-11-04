@@ -6,7 +6,7 @@ The questions as put on 27 October 2026 to whoever has access to the portal's pr
 
 One piece of work is waiting on data only production access can provide. It changes nothing in production: it only reads.
 
-Background for every item: docs/posix/README.md and docs/diagrams/posix-*.md on branch posix/stack, and [the file service contract](../design/streaming-spec.md).
+Background for every item: the POSIX entries in the [decision log](../design/decision-log.md#posix-storage) and the POSIX diagrams (`docs/diagrams/posix-*.md`).
 
 ### <a id="pr-1"></a>PR-1. Report how the stored access rules would convert (access-control rework, !166)
 

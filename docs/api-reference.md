@@ -41,7 +41,7 @@ Completing an upload checks every dataset it belongs to that declares a standard
 `dataset_description.json` at the dataset's root) by file names and layout. `checks` lists one entry
 per dataset and standard: `root`, `standard`, `quarantined`, `problems` (the count) and `findings`
 (the first 100, each `path` and `problem`). A failing dataset is held in quarantine until a later
-upload makes it pass. See [Data Standards](./diagrams/data-standards.md).
+upload makes it pass.
 
 The old `/api/assets/...` routes are no longer available. Use `/api/tree/...`
 for all file and folder operations.

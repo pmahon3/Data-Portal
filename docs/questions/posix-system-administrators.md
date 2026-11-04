@@ -8,7 +8,7 @@ The portal will serve files on these machines through a small file service. Each
 
 That design depends on facts about the machines. Answers per machine are fine; 'don't know' is a useful answer too.
 
-Background for every item: docs/posix/README.md and docs/diagrams/posix-*.md on branch posix/stack, and [the file service contract](../design/streaming-spec.md).
+Background for every item: the POSIX entries in the [decision log](../design/decision-log.md#posix-storage) and the POSIX diagrams (`docs/diagrams/posix-*.md`).
 
 ### <a id="sa-1"></a>SA-1. Which filesystem is the governed data on (ext4, XFS, ZFS, GPFS/Storage Scale, Lustre, an NFS mount)?
 
