@@ -68,3 +68,57 @@ Seen on site by Patrick, 2026-10-31. A technician uploads from a desktop connect
 machine, where scans land. It has internet access over HTTPS, possibly through a VPN. The POSIX
 machine for identifiable data is in SFU's data centre, so uploads leave the hospital network. Routing
 into the POSIX machine is for the system administrators.
+
+## POSIX storage
+
+### <a id="ds-namespace"></a>DS-namespace. One namespace per POSIX instance
+
+Proposed by Patrick, 2026-10-22; not yet confirmed (R-NAMESPACE). Each POSIX instance has one
+namespace, used like a bucket name in paths, policies and the file tree.
+
+### <a id="ds-link-reuse"></a>DS-link-reuse. Links are reusable until they expire
+
+Decided by Patrick, 2026-10-22. A link can be used again until it expires, so a download can resume
+([PX-5](../requirements/posix-storage.md#px-5)); expiry is checked when a download starts or resumes.
+Built in `posix/base`.
+
+### <a id="ds-admin-where-needed"></a>DS-admin-where-needed. Administrator access only where a requirement needs it
+
+Proposed by Patrick, 2026-10-28 ([PX-8](../requirements/posix-storage.md#px-8)). One build runs
+without administrator access (the file service runs as one account that holds the data, and the
+portal's links alone decide access) or with it (temporary IDs, DS-temp-ids). Scouting
+(`posix/scout`).
+
+### <a id="ds-temp-ids"></a>DS-temp-ids. With administrator access, the operating system enforces each grant
+
+Decided by Patrick, 2026-10-23. The web-facing service can't open data files; a root access broker
+opens each requested file as a temporary user ID with one ACL entry on that file, so the operating
+system enforces each grant. Uploads are staged outside the data tree and placed by the broker;
+symbolic links are never followed. Scouting (`posix/scout`).
+
+### <a id="ds-grant-per-approval"></a>DS-grant-per-approval. One temporary ID per approval, not per link
+
+Decided by Patrick, 2026-10-27, replacing one per link. The links of one approved request share an
+approval ID, so a 10,000-file download uses one temporary ID. The approval lasts until its latest link
+expires; the ID is then cleared and quarantined before reuse. Scouting (`posix/scout`).
+
+### <a id="ds-default-access-mode"></a>DS-default-access-mode. A machine runs user-per-approval unless set otherwise
+
+Decided by Patrick, 2026-11-04. `GATEWAY_ACCESS` chooses the mode per machine: `user-per-approval`
+(the default; DS-temp-ids) or `shared-account` (one account holds the data). Scouting
+(`posix/scout`).
+
+### <a id="ds-os-audit"></a>DS-os-audit. The machine's own records trace each temporary ID to a person
+
+Proposed by Patrick, 2026-10-23 ([PX-10](../requirements/posix-storage.md#px-10)). With administrator
+access, the access broker writes one line per operation (link, temporary ID, portal user, path,
+approval), so the operating system's audit records trace to a person. File names in these lines may
+identify participants ([D7](../questions/use-cases.md#d7)). Scouting (`posix/scout`).
+
+### <a id="ds-data-owner"></a>DS-data-owner. The exposed area keeps owners and groups, closed to everyone else
+
+Decided by Patrick, 2026-10-31, replacing the data-owner layout of 2026-10-23. Administrators grant
+direct access with groups or ACL entries ([PX-9](../requirements/posix-storage.md#px-9)); the
+portal never changes owners or groups and adds only temporary-ID entries. New files and uploads take
+the folder's group and default entries. The layout tool (`python -m app.layout`) reports and fixes
+what differs. Scouting (`posix/scout`).
