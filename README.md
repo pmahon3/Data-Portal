@@ -50,7 +50,7 @@ are for local development only.
 | Researchers and administrators using the portal | [User guide](https://github.com/pmahon3/Data-Portal/wiki) (source: [`docs/user-guide/`](docs/user-guide/README.md)) |
 | Running the portal locally | [Quickstart](docs/quickstart.md), [local development](local/README.md) |
 | Developers | [Architecture diagrams](docs/diagrams/README.md), [frontend](docs/frontend/architecture.md), [API reference](docs/api-reference.md) |
-| What the portal must do | [Requirements](docs/requirements/) |
+| What the portal must do, and why | [How the documents fit](docs/README.md): the [strategy](docs/strategy/inn-digital-infrastructure-strategy-2026.md), [questions](docs/questions/use-cases.md), [requirements](docs/requirements/), [features](docs/features.md) and [designs](docs/design/README.md) |
 | AI coding agents | [`AGENTS.md`](AGENTS.md) |
 
 The running backend also serves its OpenAPI description at `/docs`.
@@ -86,7 +86,7 @@ bundler. Details: [component architecture](docs/diagrams/component-architecture.
 | `local/` | Docker Compose stack for local development |
 | `deployment/` | Production Docker Compose and Nomad configuration |
 | `tools/` | Object-storage notification setup and tests |
-| `docs/` | User guide, requirements, diagrams, frontend and API docs; `docs/images/` holds the UI screenshots and the script that retakes them |
+| `docs/` | User guide, strategy, questions, requirements, features, designs, diagrams, frontend and API docs ([how they fit](docs/README.md)); `docs/images/` holds the UI screenshots and the script that retakes them |
 
 ## Deployment
 

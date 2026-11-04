@@ -345,8 +345,12 @@ Backend tests are in `backend/tests/`; frontend tests sit next to the components
 ## Requirements and Tests
 
 What the system must do is written down in `docs/requirements/`: access control (AC-n), notifications
-(NT-n), data standards (STD-n). Each entry says which part of the INN Digital Infrastructure Strategy
-it serves, and whether it's settled, proposed or open.
+(NT-n), data standards (STD-n), POSIX storage (PX-n). Each entry says which part of the INN Digital
+Infrastructure Strategy it serves (`docs/strategy/`, one anchor per section: `#s5-1`), and whether
+it's settled, proposed or open. The questions that settle entries are in `docs/questions/` (one
+anchor per question: `use-cases.md#c4`), designs in `docs/design/`, and features in
+`docs/features.md`; `docs/README.md` says how they fit. Cite a question, section or requirement as a
+link to its anchor.
 
 - Each test names the requirement it checks: its docstring starts with the ID (`"""AC-3. ..."""`), or
   the module docstring has a `Verifies: AC-1, AC-3` line covering every test in the file.
