@@ -32,3 +32,9 @@ download can run for hours, up to a day. Options:
 
 - No: a started download finishes, as decided on 2026-10-22 ([streaming spec](../design/streaming-spec.md)), within a limit.
 - Yes: withdrawal stops running downloads straight away.
+
+### <a id="sa-mail"></a>SA-MAIL. A mail relay the portal can send through
+
+For the system administrators: the host, port and sender address of a mail relay the portal can send
+through. The email channel for notifications ([NT-1](../requirements/notifications.md#nt-1)) stays off
+until there is one.
