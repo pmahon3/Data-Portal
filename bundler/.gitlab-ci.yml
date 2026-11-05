@@ -82,9 +82,9 @@ test:
     PYTEST_ADDOPTS: "--junit-xml=junit.xml --cov-report=xml:coverage.xml"
   before_script:
     - apt-get update -qq
-    - apt-get install -y -qq --no-install-recommends ca-certificates curl xz-utils openjdk-17-jre-headless
+    - apt-get install -y -qq --no-install-recommends ca-certificates curl xz-utils openjdk-17-jre-headless libatomic1
     # Bookworm's nodejs package is 18. openapi-generator-cli 2.42 requires Node >= 22.12.
-    # 26.13.0 is the current stable release.
+    # 26.13.0 is the current stable release. The official tarball needs libatomic.so.1.
     - |
       case "$(uname -m)" in
         x86_64) node_arch=x64 ;;
