@@ -12,9 +12,9 @@ resource.
 | Resource | Bucket, folder, subtree pattern, or exact file path. |
 | Action | `read`, `write`, `delete`, or `admin`. |
 
-Resource formatting matters. A policy may use a pattern such as
-`/bucket/prefix/.*` or an exact object path. The backend and Casbin interpret the
-resource and decide whether a request is allowed.
+Resource paths are literal: `bucket/path/file.txt` for one file, `bucket/folder/*` for a
+folder and everything in it, or `*` for everything. No character is a regular expression, so
+names with brackets or dots mean exactly what they say (INN-297).
 
 ## Page flow
 

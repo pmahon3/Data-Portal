@@ -223,8 +223,11 @@ class CasbinPolicyManager:
         for p in policies:
             p_sub, p_dom, p_obj, p_act = p[0], p[1], p[2], p[3]
             
-            # Pattern matching for resource: (regexMatch(r.obj, p.obj) || regexMatch(p.obj, r.obj + ".*"))
-            if casbin.util.regex_match(resource, p_obj) or casbin.util.regex_match(p_obj, resource + ".*"):
+            # The same rule as model.conf: the policy covers the resource, or the resource is a folder
+            # on the way to something the policy covers. Paths are literal (INN-297).
+            if casbin.util.key_match(resource, p_obj) or (
+                resource.endswith("/") and casbin.util.key_match(p_obj, resource + "*")
+            ):
                 # Check which specific allowed actions match the p_act regex
                 for action in actions_to_check:
                     if casbin.util.regex_match(action, p_act):

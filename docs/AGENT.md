@@ -125,7 +125,7 @@ Storage instances are managed through the backend `InstanceManager`.
 Important behavior:
 
 - Creating an instance also creates an in-memory storage agent.
-- Creating an instance automatically grants the creating admin an `admin` Casbin policy on resource `.*`.
+- Creating an instance automatically grants the creating admin an `admin` Casbin policy on resource `*`.
 - Deleting an instance removes it from MongoDB and attempts to close the in-memory agent connection.
 
 ## Authorization Model In Practice
@@ -154,7 +154,7 @@ This codebase uses path-based authorization, and the exact path format matters.
 
 - Policies target storage resources as strings.
 - Resource strings may represent bucket roots, folders, or exact file keys.
-- Some flows use regex-style matching for reads.
+- Paths are literal (INN-297): `bucket/path/file.txt` is one file, `bucket/folder/*` a folder and everything in it, `*` everything. Folders above a granted path can be browsed.
 - S3 write/delete presigned URL generation expects an exact `bucket/key` resource.
 - The DB-backed tree builds resource strings differently for folders and files:
   - folders use bucket + normalized full path
@@ -164,7 +164,6 @@ When changing policy logic, pay close attention to:
 
 - exact path formatting
 - trailing slash normalization
-- regex vs exact-match behavior
 - whether the target is a folder subtree or a single file
 
 ## File Tree Model
@@ -232,7 +231,7 @@ The backend issues presigned URLs instead of proxying file content through the A
 
 Current behavior for the S3 agent:
 
-- `read` can match multiple files through regex-style resource matching
+- `read` on `bucket/folder/*` covers every file in that folder
 - `write` and `delete` expect a single exact object path
 - the backend returns presigned URLs plus corresponding file paths
 

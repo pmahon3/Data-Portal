@@ -197,7 +197,7 @@ sequenceDiagram
         InstanceMgr->>InstanceMgr: Add to Instances List
         InstanceMgr->>InstanceMgr: Save Config JSON<br/>(configs/{uuid}.json)
 
-        Backend->>PolicyMgr: add_policy()<br/>(admin_id, instance_uuid, .*, admin)
+        Backend->>PolicyMgr: add_policy()<br/>(admin_id, instance_uuid, *, admin)
 
         PolicyMgr->>Casbin: Add Policy Rule
         Casbin->>PolicyMgr: Policy Added
@@ -287,26 +287,26 @@ sequenceDiagram
 
 ### Pattern 1: User-Level Access
 ```
-p, user_uuid, instance_uuid, .*, read
+p, user_uuid, instance_uuid, *, read
 ```
 User can read all files in the instance.
 
 ### Pattern 2: Resource-Level Access
 ```
-p, user_uuid, instance_uuid, data/project1/.*, read
+p, user_uuid, instance_uuid, data/project1/*, read
 ```
 User can only read files in `data/project1/` folder.
 
 ### Pattern 3: Operation-Level Access
 ```
-p, user_uuid, instance_uuid, data/shared/.*, read
-p, user_uuid, instance_uuid, data/uploads/.*, write
+p, user_uuid, instance_uuid, data/shared/*, read
+p, user_uuid, instance_uuid, data/uploads/*, write
 ```
 User can read from `shared` but only write to `uploads`.
 
 ### Pattern 4: Admin Access
 ```
-p, admin_uuid, instance_uuid, .*, admin
+p, admin_uuid, instance_uuid, *, admin
 ```
 Admin has full control (read, write, delete, manage).
 

@@ -7,7 +7,6 @@ read-only endpoints require standard authentication.
 """
 
 import logging
-import re
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -146,6 +145,11 @@ async def get_policies(
     return GetPolicyResponse(success=True, details=policies)
 
 
+
+def is_literal_policy_path(path: str) -> bool:
+    """A policy path is literal (INN-297): a "*" may only end it, and not as the regular expression ".*"."""
+    return "*" not in path[:-1] and not path.endswith(".*")
+
 @policies_router.post(
     "/",
     response_model=AddPolicyResponse,
@@ -178,10 +182,12 @@ async def create_policy(
         HTTPException: 404 if user or instance not found
         HTTPException: 400 if policy creation fails
     """
-    try:
-        re.compile(new_policy.resource)
-    except re.error:
-        raise HTTPException(status_code=400, detail="Invalid regular expression syntax.")
+    if not is_literal_policy_path(new_policy.resource):
+        raise HTTPException(
+            status_code=400,
+            detail="A policy path is a file (bucket/path/file.txt), a folder and everything in it "
+                   "(bucket/folder/*), or * for everything. It is not a regular expression.",
+        )
 
     # Get user and instance UUIDs
     try:
