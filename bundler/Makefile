@@ -54,7 +54,7 @@ sync: add-deps add-dev-deps
 test: 
 	@echo "Running pytest test suite (server tree @ OPENAPI_IMPL_COV_PATH=$(OPENAPI_IMPL_COV_PATH), then core @ $(APP_CORE_DIR)) …"
 	uv run --directory "$(OPENAPI_OUTPUT_FOLDER)" --with pytest --with pytest-cov python -m pytest tests --cov="$(OPENAPI_IMPL_COV_PATH)"
-	uv run --directory "$(APP_CORE_DIR)" --with pytest --with pytest-cov python -m pytest tests
+	uv run --directory "$(APP_CORE_DIR)" --with pytest --with pytest-cov python -m pytest tests --cov="$(APP_CORE_NAME)"
 	@echo
 
 # Must include ``build`` so codegen + ``uv add`` wiring run before ``sync``/``test`` (matches README_dev).
