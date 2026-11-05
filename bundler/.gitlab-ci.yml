@@ -108,7 +108,10 @@ test:
     # Both suites still run if one fails, so both report files are written.
     - |
       set +e
-      
+      # Importing bundler_core opens MONGO_URI. These tests use the in-memory store.
+      # A project variable with an unescaped password makes PyMongo fail at collection.
+      unset MONGO_URI
+
       uv run --directory . --with pytest --with pytest-cov python -m pytest tests --cov=./bundler_server/core
       SERVER_STATUS=$?
       uv run --directory bundler_core --with pytest --with pytest-cov python -m pytest tests --cov=bundler_core
