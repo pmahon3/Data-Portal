@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { Checkbox, CircularProgress } from "@mui/material";
 import FolderOpenRoundedIcon from "@mui/icons-material/FolderOpenRounded";
 import FolderRoundedIcon from "@mui/icons-material/FolderRounded";
@@ -6,6 +6,7 @@ import InsertDriveFileRoundedIcon from "@mui/icons-material/InsertDriveFileRound
 import Inventory2RoundedIcon from "@mui/icons-material/Inventory2Rounded";
 import {
   checkAncestors,
+  collectFilteredSelection,
   selectSubtree,
   uncheckAncestors,
   unselectSubtree,
@@ -42,6 +43,8 @@ const NODE_ICON_BY_TYPE = {
  *   - onChange: Callback triggered when node selection changes.
  *   - disableFileSelection, disableFolderSelection, disableCascade
  *   - onToggleExpand: Called with node id when chevron is clicked.
+ *   - filterMatch: While a path filter is active, a function telling whether a node's
+ *     own path matches it; otherwise null.
  */
 export default function TreeNode({
   node,
@@ -55,6 +58,7 @@ export default function TreeNode({
   onToggleExpand,
   isLoading = false,
   hasSelectedDescendant = false,
+  filterMatch = null,
 }) {
   const id = String(node.id);
   const hasChildren = Array.isArray(node.children) && node.children.length > 0;
@@ -62,7 +66,26 @@ export default function TreeNode({
   const nodeType = getNodeType(node, id, hasExpandableChildren);
   const isFile = nodeType === "file";
   const isFolder = nodeType !== "file";
-  const checked = selected.has(id);
+
+  // Under a path filter, a click acts only on what the filter shows (see
+  // collectFilteredSelection). Write mode never cascades, so it's unaffected.
+  const filtered = typeof filterMatch === "function" && !disableCascade;
+  const filteredIds = useMemo(
+    () => (filtered ? collectFilteredSelection(node, filterMatch) : null),
+    [filtered, node, filterMatch],
+  );
+  // A folder shown only because it contains matches is never selected itself, so
+  // show it as checked when everything it contributes is selected.
+  const showsDerivedState = filtered && isFolder && !filterMatch(node);
+  let shownSelected = 0;
+  if (showsDerivedState) {
+    shownSelected = filteredIds.filter((itemId) => selected.has(itemId)).length;
+  }
+  const checked = showsDerivedState
+    ? filteredIds.length > 0 && shownSelected === filteredIds.length
+    : selected.has(id);
+  // Some, not all, of what the folder shows is selected.
+  const partlyChecked = showsDerivedState && shownSelected > 0 && !checked;
   const disabled =
     (disableFileSelection && isFile) ||
     (disableFolderSelection && isFolder);
@@ -78,6 +101,14 @@ export default function TreeNode({
       // Write mode uses this branch so only the clicked node changes.
       if (checked) next.delete(id);
       else next.add(id);
+    } else if (filtered) {
+      // Select or deselect exactly what the filter shows; never spread upward.
+      if (checked) {
+        filteredIds.forEach((itemId) => next.delete(itemId));
+        uncheckAncestors(next, node);
+      } else {
+        filteredIds.forEach((itemId) => next.add(itemId));
+      }
     } else if (checked) {
       // Unchecking removes the node, every descendant, and any now-invalid
       // selected ancestors above it.
@@ -135,6 +166,7 @@ export default function TreeNode({
         <Checkbox
           size="small"
           checked={checked}
+          indeterminate={partlyChecked}
           disabled={disabled}
           onChange={toggle}
           onClick={(event) => event.stopPropagation()}

@@ -9,6 +9,7 @@ import {
   createPathMatcher,
   filterNodes,
   flattenVisibleTree,
+  getSearchablePath,
   getSelectedAncestorIds,
   isValidSearchPattern,
   trimFilterText,
@@ -70,6 +71,17 @@ export default function Tree({
     [appliedFilterText, appliedFilterMode],
   );
 
+  // Under a filter (a path search, "Find in selection", or both) the tree shows only part
+  // of each folder, so a click selects only what is shown (decision C3; requirement AC-4,
+  // docs/requirements/access-control.md). This tells each node whether it matches the
+  // filter itself, the same test filterNodes uses; null when no filter is active.
+  const filterMatch = useMemo(() => {
+    if (!pathMatcher && !filterSelectedOnly) return null;
+    return (node) =>
+      (!pathMatcher || pathMatcher.test(getSearchablePath(node))) &&
+      (!filterSelectedOnly || selected.has(String(node.id)));
+  }, [pathMatcher, filterSelectedOnly, selected]);
+
   // These booleans drive small UI details such as whether the search button
   // should be enabled and whether the empty state should say "No matches".
   const filterState = useMemo(() => {
@@ -103,6 +115,7 @@ export default function Tree({
     appliedFilterMode,
     isPatternValid,
   ]);
+
 
   const applyFilter = async () => {
     if (!isPatternValid) return;
@@ -266,6 +279,7 @@ export default function Tree({
                     hasSelectedDescendant={selectedAncestorIds.has(
                       String(node.id),
                     )}
+                    filterMatch={filterMatch}
                   />
                 </div>
               );

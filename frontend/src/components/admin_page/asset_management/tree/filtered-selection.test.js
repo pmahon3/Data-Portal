@@ -18,19 +18,6 @@ jest.mock("@tanstack/react-virtual", () => ({
   }),
 }));
 
-// Known-failing until INN-295 is fixed: passes while the test fails, and fails once it passes.
-// RUN_KNOWN_FAILING=1 runs it as written, to see the failure.
-const knownFailing = (name, fn) =>
-  process.env.RUN_KNOWN_FAILING ? test(name, fn) : test(`${name} (known-failing: INN-295)`, async () => {
-    let failed = false;
-    try {
-      await fn();
-    } catch {
-      failed = true;
-    }
-    if (!failed) throw new Error("INN-295 looks fixed: remove knownFailing from this test");
-  });
-
 const PATHS = ["study/a.json", "study/b.csv", "study/sub/c.csv"];
 
 // The flat node list the portal's API returns: folder ids end in "/", file ids are "file-<path>".
@@ -67,7 +54,7 @@ function clickRow(text) {
   fireEvent.click(screen.getByText(text, { selector: ".tree-node-text" }).closest(".tree-node-label"));
 }
 
-knownFailing("under a filter, ticking a folder selects only the files the filter shows", async () => {
+test("under a filter, ticking a folder selects only the files the filter shows", async () => {
   render(<Harness />);
   await filterFor("*.csv");
   clickRow("study/");

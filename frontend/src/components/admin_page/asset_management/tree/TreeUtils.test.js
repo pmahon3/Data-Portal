@@ -9,16 +9,19 @@ import {
   SEARCH_MODES,
   buildTreeFromFlat,
   checkAncestors,
+  collectFilteredSelection,
   createGlobMatcher,
   createPathMatcher,
   createRegexMatcher,
   filterNodes,
   flattenVisibleTree,
+  getSearchablePath,
   isValidSearchPattern,
   selectSubtree,
   uncheckAncestors,
   unselectSubtree,
 } from "./TreeUtils.js";
+import { getSelectedDownloadIds, getSelectTopLevel } from "../EndpointCardUtils.js";
 
 describe("tree helpers", () => {
   // Verifies that a flat array of nodes is correctly structured into a nested tree.
@@ -269,4 +272,70 @@ describe("tree helpers", () => {
     expect(flat2[3].depth).toBe(3);
   });
 
+});
+
+describe("selection under a path filter (INN-295)", () => {
+  // bucket root (1) -> study/ (2) -> sub-a/ (3): a.json, a.nii
+  //                               -> sub-b/ (4): b.csv
+  //                 -> other/ (5): c.json
+  const nodes = [
+    { id: "1", parent: "#", text: "inn-application", li_attr: { bucket: "b", full_path: "/" } },
+    { id: "2", parent: "1", text: "study/", li_attr: { bucket: "b", full_path: "/study/" } },
+    { id: "3", parent: "2", text: "sub-a/", li_attr: { bucket: "b", full_path: "/study/sub-a/" } },
+    { id: "4", parent: "2", text: "sub-b/", li_attr: { bucket: "b", full_path: "/study/sub-b/" } },
+    { id: "5", parent: "1", text: "other/", li_attr: { bucket: "b", full_path: "/other/" } },
+    { id: "file-10", parent: "3", text: "a.json", li_attr: { key: "study/sub-a/a.json" } },
+    { id: "file-11", parent: "3", text: "a.nii", li_attr: { key: "study/sub-a/a.nii" } },
+    { id: "file-12", parent: "4", text: "b.csv", li_attr: { key: "study/sub-b/b.csv" } },
+    { id: "file-13", parent: "5", text: "c.json", li_attr: { key: "other/c.json" } },
+  ];
+
+  const filteredTree = (pattern) => {
+    const pathMatcher = createPathMatcher(pattern, SEARCH_MODES.GLOB);
+    const visible = filterNodes(nodes, { pathMatcher, selected: new Set(), selectedOnly: false });
+    const isMatch = (node) => pathMatcher.test(getSearchablePath(node));
+    return { tree: buildTreeFromFlat(visible), isMatch };
+  };
+  const find = (roots, id) => {
+    for (const node of roots) {
+      if (node.id === id) return node;
+      const hit = find(node.children || [], id);
+      if (hit) return hit;
+    }
+    return null;
+  };
+
+  // Tester's report: filter *.json, click the folder, download -> whole bucket.
+  test("clicking a folder that only contains matches selects just the matching files", () => {
+    const { tree, isMatch } = filteredTree("*.json");
+    const ids = collectFilteredSelection(find(tree, "3"), isMatch);
+
+    expect(ids).toEqual(["file-10"]);
+    expect(getSelectedDownloadIds(new Set(ids))).toEqual({ fileIds: [10], folderIds: [] });
+  });
+
+  // Delete case: previously the selection spread to study/ and deleted all of it.
+  test("delete under a filter targets only the matching files", () => {
+    const { tree, isMatch } = filteredTree("*.json");
+    const ids = collectFilteredSelection(find(tree, "3"), isMatch);
+
+    expect(getSelectTopLevel(nodes, new Set(ids), true)).toEqual(["file-10"]);
+  });
+
+  test("selection never spreads to parent folders", () => {
+    const { tree, isMatch } = filteredTree("*.json");
+    const ids = collectFilteredSelection(find(tree, "1"), isMatch);
+
+    expect(ids.sort()).toEqual(["file-10", "file-13"]);
+    expect(ids).not.toContain("1");
+    expect(ids).not.toContain("2");
+  });
+
+  test("a folder whose own name matches the filter is selected whole", () => {
+    const { tree, isMatch } = filteredTree("sub-a");
+    const ids = collectFilteredSelection(find(tree, "3"), isMatch);
+
+    expect(ids.sort()).toEqual(["3", "file-10", "file-11"]);
+    expect(getSelectTopLevel(nodes, new Set(ids), true)).toEqual(["3"]);
+  });
 });

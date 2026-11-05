@@ -300,6 +300,38 @@ export function unselectSubtree(selection, node) {
   }
 }
 
+/**
+ * Return the IDs a click should select while a path filter is active.
+ *
+ * Under a filter the user sees only part of the tree, so a click must select only
+ * what they can see. A file, or a folder whose own path matches the filter, is
+ * selected whole. A folder shown only because it contains matches contributes just
+ * those matches, never its own ID, because a folder ID means everything in it.
+ *
+ * @param {Object} node - A node from the filtered tree (its children are the visible ones).
+ * @param {(node: Object) => boolean} isMatch - Whether a node's own path matches the filter.
+ * @returns {string[]} The node IDs to select or deselect.
+ */
+export function collectFilteredSelection(node, isMatch) {
+  const ids = [];
+
+  const addSubtree = (current) => {
+    ids.push(String(current.id));
+    (current.children || []).forEach(addSubtree);
+  };
+
+  const walk = (current) => {
+    if (String(current.id).startsWith("file-") || isMatch(current)) {
+      addSubtree(current);
+      return;
+    }
+    (current.children || []).forEach(walk);
+  };
+
+  walk(node);
+  return ids;
+}
+
 // Promote selection upward when a whole sibling group becomes selected.
 export function checkAncestors(selection, node) {
   if (!node._parentRef) return;
