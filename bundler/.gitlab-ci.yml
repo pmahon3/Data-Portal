@@ -55,6 +55,8 @@ variables:
   # NOMAD_EXTERNAL_ACCESS not set - uses defaults:
   #   - Review Apps: external access enabled (for testing)
   #   - Production/Staging/Development: the shared deploy template forces external access
+  # false keeps Traefik off, including review apps. Unset would enable it for review.
+  NOMAD_EXTERNAL_ACCESS: "false"
 
   # Enable staging deployment (requires manual promotion to production)
   # When enabled: staging deploys automatically, production requires manual promotion
