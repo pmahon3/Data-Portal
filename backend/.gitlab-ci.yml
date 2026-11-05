@@ -1,11 +1,11 @@
 
 # Use native Auto DevOps jobs (Auto Build/Test/Security/Deploy)
+# Shared templates live in rcg/rdt-devops (local clone: rdt-devops).
+# Copies under .gitlab/ remain as rollback until this include is proven.
 include:
-  # - template: Auto-DevOps.gitlab-ci.yml
-  - local: '/.gitlab/Auto-DevOps.gitlab-ci.yml' # local copy of the Auto DevOps template for customizations
-  - local: '/.gitlab/ci/ruff.yml'    # Ruff code quality check from common local library.
-  - local: '/.gitlab/ci/retag.yml'   # Retag job template
-  - local: '/.gitlab/deploy/Deploy.nomad.gitlab-ci.yml'  # Nomad deployment integration with Auto DevOps
+  - project: 'rcg/rdt-devops'
+    ref: gl-autodevops
+    file: '/autodevops.yml'
   
 # # Route jobs to the runner that mounts /var/run/docker.sock
 # default:
@@ -18,7 +18,9 @@ variables:
   AUTO_DEVOPS_BUILD_IMAGE_CONTEXT: backend
   # Override Auto DevOps default repository to use service-specific name
   CI_APPLICATION_REPOSITORY: ${CI_REGISTRY_IMAGE}/backend
-  CI_APPLICATION_TAG: ${CI_COMMIT_SHA}
+  # Primary image tag Auto Build pushes; Nomad __IMAGE_TAG__ follows this.
+  CI_APPLICATION_TAG: ${CI_COMMIT_REF_SLUG}-${PIPELINE_TIMESTAMP}
+  CI_APPLICATION_TAG_NOMAD: ${CI_COMMIT_REF_SLUG}-${PIPELINE_TIMESTAMP}
   
   # TEST 2 (restored): Enable inline cache with BuildKit (attestations disabled)
   # TEST 3 failed: attestations/provenance caused 0-byte tags / missing manifest digest
@@ -36,11 +38,13 @@ variables:
   # Local runner cache is used automatically by Docker if configured
   # See docs/gitlab-runner-local-cache-config.md for runner configuration
   
-  # Add build arguments and a build-time tag
-  # Auto DevOps handles the primary tag via CI_APPLICATION_REPOSITORY/CI_APPLICATION_TAG
-  # The 'ci' tag is added here to exercise multiple tags at build time
+  # Add build arguments and built-time --tag aliases;
+  # Auto DevOps handles the primary tag via CI_APPLICATION_REPOSITORY:CI_APPLICATION_TAG
   AUTO_DEVOPS_BUILD_IMAGE_EXTRA_ARGS: >
-    --tag ${CI_REGISTRY_IMAGE}/backend:ci
+    --tag ${CI_REGISTRY_IMAGE}/backend:latest
+    --tag ${CI_REGISTRY_IMAGE}/backend:${CI_COMMIT_SHORT_SHA}
+    --tag ${CI_REGISTRY_IMAGE}/backend:${CI_COMMIT_REF_SLUG}
+    --tag ${CI_REGISTRY_IMAGE}/backend:${PIPELINE_TIMESTAMP}
     --build-arg BUILDKIT_INLINE_CACHE=1
     --label org.opencontainers.image.version=${PIPELINE_TIMESTAMP}
     --label org.opencontainers.image.created=${CI_COMMIT_TIMESTAMP}
@@ -88,7 +92,10 @@ test:
     - cd backend
     - pip install -r requirements.txt
   script:
-    - pytest -q --junit-xml=backend-test-report.xml || echo "Tests failed or not detected by Auto DevOps"
+    - RED='\e[31m'
+    - RESET='\e[0m'
+    - pytest -q --junit-xml=backend-test-report.xml || echo -e "${RED}Tests failed or not detected by Auto DevOps. Continuing pipeline on failure.${RESET}"
+  # allow_failure: true
   artifacts:
     reports:
       junit: backend/backend-test-report.xml

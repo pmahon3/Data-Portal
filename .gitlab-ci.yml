@@ -28,6 +28,8 @@ variables:
   # Placeholder pack root (repo-relative). Does not need to exist at repo root —
   # each service overrides this in {service}/.gitlab-ci.yml (e.g. backend/deploy).
   NOMAD_PACK_DIR: "deploy"
+  # Branch that maps to Nomad environment "development" (not Review Apps)
+  RDT_LATEST_DEV_BRANCH: "development"
   # NOMAD_EXTERNAL_ACCESS not set - uses defaults:
   #   - Review Apps: external access enabled (for testing)
   #   - Production/Staging/Development: internal only (service discovery)
@@ -125,8 +127,11 @@ runner:
 #   - local: '.gitlab/backend-ci.yml'
 #   - local: '.gitlab/frontend-ci.yml'
 
-# Trigger Auto DevOps pipelines
-# Note: "when: always" ensures pipelines run even without file changes (temporary override)
+# Trigger Auto DevOps child pipelines.
+# Review Apps (feature branches) always run both services so the stack is complete.
+# Durable branches (default / development) run a service only when its tree changes.
+# Running jobs for schedule, web, or api, changes is treated as true. 
+# So both frontend-autodevops and backend-autodevops are included, even if you did not touch those trees.
 
 # Trigger Auto DevOps for the frontend only when frontend/ changes
 frontend-autodevops:
@@ -146,10 +151,12 @@ frontend-autodevops:
     # Default pack path placeholder; child .gitlab-ci.yml overrides (frontend/deploy)
     NOMAD_PACK_DIR: "${NOMAD_PACK_DIR}"
   rules:
+    - if: '$CI_COMMIT_BRANCH && $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH && $CI_COMMIT_BRANCH != $RDT_LATEST_DEV_BRANCH'
+      when: on_success
     - changes:
         - frontend/**/*
       when: on_success
-    - when: always  # <— temporary "override/fallback" to run every pipeline
+    # - when: always  # <— temporary "override/fallback" to run every pipeline
 
 
 # Trigger Auto DevOps for the backend only when backend/ changes
@@ -170,10 +177,12 @@ backend-autodevops:
     # Default pack path placeholder; child .gitlab-ci.yml overrides (backend/deploy)
     NOMAD_PACK_DIR: "${NOMAD_PACK_DIR}"
   rules:
+    - if: '$CI_COMMIT_BRANCH && $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH && $CI_COMMIT_BRANCH != $RDT_LATEST_DEV_BRANCH'
+      when: on_success
     - changes:
         - backend/**/*
       when: on_success    
-    - when: always   # <— temporary "override/fallback" so this job still runs
+    # - when: always   # <— temporary "override/fallback" so this job still runs
 
 
 
@@ -184,6 +193,11 @@ backend-autodevops:
 #   - local: '/.gitlab/ci/ruff.yml'    # Ruff code quality check from common local library.
 #   - local: '/.gitlab/ci/retag.yml'   # Retag job template
 #   - local: '/.gitlab/deploy/Deploy.nomad.gitlab-ci.yml'  # Nomad deployment integration with Auto DevOps
+
+# # Child pipelines include rcg/rdt-devops@autodevops (/autodevops.yml).
+#   - project: 'rcg/rdt-devops'
+#     ref: gl-autodevops
+#     file: '/autodevops.yml'
 
 # # # Route jobs to the runner that mounts /var/run/docker.sock
 # # default:
@@ -211,7 +225,6 @@ backend-autodevops:
 #   # Add multiple image tags at build time (branch + short SHA)
 #   # Auto DevOps will append these to the docker build as repeated --tag flags.
 #   AUTO_DEVOPS_BUILD_IMAGE_EXTRA_ARGS: >
-#     --tag ${CI_REGISTRY_IMAGE}/backend:${CI_COMMIT_SHA}
 #     --tag ${CI_REGISTRY_IMAGE}/backend:${CI_COMMIT_REF_SLUG}
 #     --tag ${CI_REGISTRY_IMAGE}/backend:${CI_COMMIT_SHORT_SHA}
 #     --build-arg BUILDKIT_INLINE_CACHE=1
