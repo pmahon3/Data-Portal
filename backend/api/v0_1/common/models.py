@@ -1,13 +1,13 @@
 from typing import Any, Dict, Type, Literal, Union, Annotated, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, create_model
+from pydantic import BaseModel, Field, create_model, field_validator
 
 from core.storage_agents import AVAILABLE_FLAVOURS
 from core.storage_agents.s3_agent import S3StorageAgent
 from core.storage_agents.dummy_agent import DummyStorageAgent
 from core.services.policies import Policy
-from core.services.users.models import User
+from core.services.users.models import DEFAULT_USER_ROLE, User, normalize_roles
 
 
 class BundleCreateRequest(BaseModel):
@@ -33,7 +33,16 @@ class AddUserRequest(BaseModel):
     username: str = Field(..., description="The username of the user.")
     email: str = Field(..., description="The email of the user.")
     password: str = Field(..., description="The password for the user.")
-    roles: list[str] = Field(..., description="The roles of the user.")
+    roles: list[str] = Field(
+        default_factory=lambda: [DEFAULT_USER_ROLE],
+        description="The roles of the user. Defaults to the standard user role when omitted or empty."
+    )
+
+    @field_validator("roles")
+    @classmethod
+    def check_roles(cls, roles: list[str]) -> list[str]:
+        """Reject unknown roles with a 422 before the user is created in Keycloak."""
+        return normalize_roles(roles)
 
 
 class AddUserResponse(BaseModel):

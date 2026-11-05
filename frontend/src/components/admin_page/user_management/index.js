@@ -177,7 +177,7 @@ export default function UserManagement() {
 
           <label className="um-field">
             <span>Roles (comma-separated)</span>
-            <input value={rolesText} onChange={e => setRolesText(e.target.value)} placeholder="admin, user" />
+            <input value={rolesText} onChange={e => setRolesText(e.target.value)} placeholder="user (default), admin" />
           </label>
 
           {err && (
