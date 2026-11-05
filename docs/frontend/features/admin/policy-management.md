@@ -13,7 +13,7 @@ resource.
 | Action | `read`, `write`, `delete`, or `admin`. |
 
 Resource formatting matters. A policy may use a pattern such as
-`/bucket/prefix/.*` or an exact object path. The backend and Casbin interpret the
+`bucket/prefix/.*` or an exact object path (no leading `/`). The backend and Casbin interpret the
 resource and decide whether a request is allowed.
 
 ## Page flow

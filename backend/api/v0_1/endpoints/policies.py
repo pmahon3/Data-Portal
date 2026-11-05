@@ -183,6 +183,9 @@ async def create_policy(
     except re.error:
         raise HTTPException(status_code=400, detail="Invalid regular expression syntax.")
 
+    # Requests are checked against "bucket/key", so a leading "/" would match nothing (INN-291).
+    new_policy.resource = new_policy.resource.lstrip("/")
+
     # Get user and instance UUIDs
     try:
         user_uuid = user_manager.get_user_uuid(new_policy.username)

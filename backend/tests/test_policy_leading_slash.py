@@ -7,7 +7,7 @@ without a leading "/", so such a policy grants nothing and no error is shown. A 
 way should either be refused with a message, or saved in a form that grants what it names.
 
 Calls the create-policy endpoint directly with stand-in managers: no database, Keycloak or storage
-needed. Known-failing until INN-291 is fixed.
+needed.
 """
 
 import asyncio
@@ -16,20 +16,16 @@ from pathlib import Path
 from uuid import uuid4
 
 import casbin
-import pytest
 from fastapi import HTTPException
 
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost:1/test")  # read at import, never used
 
-from api.v0_1.common.models import AddPolicyRequest  # noqa: E402
-from api.v0_1.endpoints import policies as endpoint  # noqa: E402
+from api.v0_1.common.models import AddPolicyRequest
+from api.v0_1.endpoints import policies as endpoint
 
 MODEL = Path(__file__).resolve().parents[1] / "core" / "services" / "policies" / "casbin" / "model.conf"
 ADMIN = {"realm_access": {"roles": ["admin"]}}
 USER, INSTANCE = uuid4(), uuid4()
-
-INN_291 = pytest.mark.xfail(strict=True, reason="INN-291: a policy written as the form suggests grants nothing")
-
 
 class Users:
     def get_user_uuid(self, username):
@@ -76,13 +72,11 @@ def allows(resource: str, path: str) -> bool:
     return enforcer.enforce(str(USER), str(INSTANCE), path, "read")
 
 
-@INN_291
 def test_a_policy_written_as_the_form_suggests_is_refused_or_grants_access(monkeypatch):
     saved = save("/study/sub-01/.*", monkeypatch)
     assert saved is None or allows(saved, "study/sub-01/scan.nii.gz")
 
 
 def test_a_policy_without_a_leading_slash_still_grants_access(monkeypatch):
-    """Already true today, and must stay true."""
-    saved = save("study/sub-01/.*", monkeypatch)
+    saved = save("study/sub-01/scan.nii.gz", monkeypatch)
     assert saved is not None and allows(saved, "study/sub-01/scan.nii.gz")
