@@ -75,10 +75,12 @@ COPY --from=builder --chown=nonroot:nonroot /app /app
 
 WORKDIR /app/bundler
 
-# Dev group (pytest, etc.) for server HTTP tests; pytest.toml ignores generated stub tests.
+# Dev group installs pytest. pytest.toml adds --cov-report=term-missing, which
+# pytest only accepts when pytest-cov is installed. --with matches the Makefile
+# and does not add pytest-cov to the project. --cov stays on the command.
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --group dev \
-    && uv run python -m pytest tests \
+    && uv run --with pytest-cov python -m pytest tests --cov=./bundler_server/core \
     && touch /tmp/tests-ok
 
 
