@@ -410,11 +410,76 @@ def test_create_user_invalid_email(auth_headers):
     assert r.status_code == 400, f"Expected 400 for invalid email, got {r.status_code}: {r.text[:500]}"
 
 
+def test_create_user_blank_roles_defaults_to_user(auth_headers):
+    """A blank roles field must yield the default user role, not none."""
+    url = f"{backend_base()}/api/users/"
+    username = "blank_roles_user"
+
+    new_user = {
+        "username": username,
+        "email": "blank_roles_user@example.com",
+        "password": "default_password",
+        "roles": []
+    }
+
+    r = requests.post(url, json=new_user, headers=auth_headers, timeout=10)
+    try:
+        assert r.status_code == 201, f"Expected 201, got {r.status_code}: {r.text[:500]}"
+        roles = r.json()["details"]["roles"]
+        assert "user" in roles, f"Expected the default 'user' role, got: {roles}"
+    finally:
+        requests.delete(f"{url}{username}", headers=auth_headers, timeout=5)
+
+
+def test_create_user_omitted_roles_defaults_to_user(auth_headers):
+    """Omitting roles entirely must also yield the default user role."""
+    url = f"{backend_base()}/api/users/"
+    username = "omitted_roles_user"
+
+    new_user = {
+        "username": username,
+        "email": "omitted_roles_user@example.com",
+        "password": "default_password"
+    }
+
+    r = requests.post(url, json=new_user, headers=auth_headers, timeout=10)
+    try:
+        assert r.status_code == 201, f"Expected 201, got {r.status_code}: {r.text[:500]}"
+        roles = r.json()["details"]["roles"]
+        assert "user" in roles, f"Expected the default 'user' role, got: {roles}"
+    finally:
+        requests.delete(f"{url}{username}", headers=auth_headers, timeout=5)
+
+
+def test_create_user_unknown_role_rejected_before_creation(auth_headers):
+    """An unknown role is rejected (422) and no account is left behind."""
+    url = f"{backend_base()}/api/users/"
+    username = "unknown_role_user"
+
+    new_user = {
+        "username": username,
+        "email": "unknown_role_user@example.com",
+        "password": "default_password",
+        "roles": ["usr"]
+    }
+
+    r = requests.post(url, json=new_user, headers=auth_headers, timeout=10)
+    try:
+        assert r.status_code == 422, f"Expected 422, got {r.status_code}: {r.text[:500]}"
+        assert "Allowed roles" in r.text, f"Expected the allowed roles in the error: {r.text[:500]}"
+
+        # The username must still be free: a valid retry succeeds instead of 409
+        retry = requests.post(url, json={**new_user, "roles": ["user"]}, headers=auth_headers, timeout=10)
+        assert retry.status_code == 201, f"Expected 201 on retry, got {retry.status_code}: {retry.text[:500]}"
+    finally:
+        requests.delete(f"{url}{username}", headers=auth_headers, timeout=5)
+
+
 def test_create_user_missing_fields(auth_headers):
     """Test that creating user with missing required fields is rejected."""
     url = f"{backend_base()}/api/users/"
 
-    # Missing email, password, and roles
+    # Missing email and password (roles defaults to the standard user role)
     incomplete_user = {
         "username": "incomplete_user"
     }
