@@ -66,24 +66,73 @@ variables:
   # Disable Auto DevOps browser performance testing
   BROWSER_PERFORMANCE_DISABLED: "true"
 
-# Override Auto DevOps test job for the bundler monorepo layout
+# Override Auto DevOps test job for the bundler monorepo layout.
+# Setup steps are bundler/quickstart.md. The pytest lines match bundler/Makefile.
+# pytest.toml prints the terminal table. PYTEST_ADDOPTS adds JUnit and Cobertura
+# for GitLab only. coverage combine merges both suites into coverage-combined.xml.
+# The job percentage is the last TOTAL line, from that combined report.
 test:
   stage: test
-  image: python:3.10
+  image: ghcr.io/astral-sh/uv:python3.10-bookworm-slim
+  coverage: '/^TOTAL\s+\d+\s+\d+\s+(\d+%)/'
+  variables:
+    # Pytest prepends this to both suites. It writes junit.xml and coverage.xml
+    # in each suite's directory (bundler/ and bundler/bundler_core/) without
+    # changing the Makefile commands. pytest.toml still prints the terminal table.
+    PYTEST_ADDOPTS: "--junit-xml=junit.xml --cov-report=xml:coverage.xml"
   before_script:
+    - apt-get update -qq
+    - apt-get install -y -qq --no-install-recommends nodejs npm openjdk-17-jre-headless ca-certificates
     - cd bundler
-    - pip install -r requirements.txt -r requirements-observability.txt -r bundler_core/requirements.txt
-    - pip install ./bundler_core pytest
   script:
-    - RED='\e[31m'
-    - RESET='\e[0m'
-    - pytest -q --junit-xml=bundler-test-report.xml || echo -e "${RED}Tests failed or not detected by Auto DevOps. Continuing pipeline on failure.${RESET}"
+    - npx -y @openapitools/openapi-generator-cli generate --generator-key bundler-server-fastapi
+    - printf "%s\n" "3.10" > ./.python-version
+    - SERVER_PYTHON_VERSION=3.10 uv run --with tomlkit python make/patch_pyproject_toml.py ./pyproject.toml
+    - SERVER_PYTHON_VERSION=3.10 uv run python make/patch_setup_cfg.py ./setup.cfg
+    - uv run python make/patch_requirements.py ./requirements.txt
+    - uv add --directory . ./bundler_core --no-sync
+    - uv add --directory . --no-sync -r requirements.txt
+    - uv add --directory . --no-sync -r requirements-observability.txt
+    - cp bundler_core/requirements-dev.txt ./requirements-dev.txt
+    - uv add --directory . --dev --no-sync -r requirements-dev.txt
+    - uv sync --directory .
+    # Both suites still run if one fails, so both report files are written.
+    - |
+      set +e
+      
+      uv run --directory . --with pytest --with pytest-cov python -m pytest tests --cov=./bundler_server/core
+      SERVER_STATUS=$?
+      uv run --directory bundler_core --with pytest --with pytest-cov python -m pytest tests --cov=bundler_core
+      CORE_STATUS=$?
+      
+      # .coverage is per directory. combine merges them; xml writes one Cobertura file.
+      uv run --directory . --with coverage coverage combine --keep .coverage bundler_core/.coverage
+      COMBINE_STATUS=$?
+      
+      uv run --directory . --with coverage coverage xml -o coverage-combined.xml
+      uv run --directory . --with coverage coverage report
+      
+      if [ "$SERVER_STATUS" -ne 0 ] || [ "$CORE_STATUS" -ne 0 ] || [ "$COMBINE_STATUS" -ne 0 ]; then
+        RED='\e[31m'
+        RESET='\e[0m'
+        echo -e "${RED}Tests failed or not detected by Auto DevOps. Continuing pipeline on failure.${RESET}"
+        exit 1
+      fi
+      set -e
   artifacts:
     reports:
-      junit: bundler/bundler-test-report.xml
+      junit:
+        - bundler/junit.xml
+        - bundler/bundler_core/junit.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: bundler/coverage-combined.xml
     paths:
-      - bundler-test-report.xml
-      - bundler/bundler-test-report.xml
+      - bundler/junit.xml
+      - bundler/bundler_core/junit.xml
+      - bundler/coverage.xml
+      - bundler/bundler_core/coverage.xml
+      - bundler/coverage-combined.xml
     when: always
 
 code_quality_ruff_check:
