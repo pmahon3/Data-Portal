@@ -5,6 +5,7 @@ import { CircularProgress } from "@mui/material";
 import { DataGrid } from "@mui/x-data-grid";
 import { formatError } from "../../utils/errorUtils";
 import { getAuthHeaders } from "../../utils/authUtils";
+import NoAccessNotice from "./NoAccessNotice";
 
 const http = axios.create({ baseURL: "/api" });
 
@@ -78,7 +79,13 @@ export default function MyPolicies() {
             <span>Loading policies...</span>
           </div>
         ) : policyRows.length === 0 ? (
-          <p style={{ color: "#6b7280", margin: 0 }}>No policies found.</p>
+          <NoAccessNotice
+            title="No access granted yet"
+            description={
+              "Your account is set up, but it does not have any data access " +
+              "policies yet, so there is nothing to show here."
+            }
+          />
         ) : (
           <div style={{ height: 520, width: "100%", minWidth: 0 }}>
             <DataGrid

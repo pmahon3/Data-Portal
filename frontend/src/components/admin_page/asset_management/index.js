@@ -4,6 +4,7 @@ import { useKeycloak } from "@react-keycloak/web";
 import EndpointCard from "./EndpointCard.js";
 import { formatError } from "../../../utils/errorUtils";
 import { getAuthHeaders } from '../../../utils/authUtils';
+import NoAccessNotice from '../../normal_user_page/NoAccessNotice';
 import "./AssetManagement.css";
 
 // const http = axios.create({ baseURL: "http://localhost:8000" });
@@ -28,7 +29,14 @@ function ErrorNote({ children }) {
   );
 }
 
-export default function AssetManagement({ bootstrap, title = "Storage Endpoints" }) {
+export default function AssetManagement({
+  bootstrap,
+  title = "Storage Endpoints",
+  // Admin screens show the same empty state but cannot act on advice aimed at
+  // end users, so they pass their own wording for it.
+  emptyDescription,
+  emptyAction,
+}) {
   const { keycloak, initialized } = useKeycloak();
   const username = keycloak?.tokenParsed?.preferred_username;
 
@@ -92,7 +100,15 @@ export default function AssetManagement({ bootstrap, title = "Storage Endpoints"
       <h2 style={{ margin: "0 0 12px" }}>{title}</h2>
 
       {Object.entries(instances).length === 0 ? (
-        <ErrorNote>No endpoints available.</ErrorNote>
+        <NoAccessNotice
+          title="No storage endpoints yet"
+          description={
+            emptyDescription ||
+            "Your account is set up, but no storage endpoints have been " +
+              "shared with it yet, so there is nothing to browse or download."
+          }
+          action={emptyAction}
+        />
       ) : (
         <div style={{ display: "grid", gap: 16 }}>
           {Object.entries(instances).map(
