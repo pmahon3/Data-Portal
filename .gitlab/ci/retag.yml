@@ -22,11 +22,11 @@
     - | 
       echo "Using pipeline timestamp: $ts"
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
-    # Pull the image tagged with 'ci' and verify commit SHA matches
+    # Pull the image tagged with the short commit SHA and verify labels match
     - |
       SOURCE_IMAGE=""
-      ci_tag="${CI_REGISTRY_IMAGE}/${SERVICE_CHANGED}:${CI_COMMIT_SHA}"
-      echo "Pulling image with commit SHA tag: $ci_tag"
+      ci_tag="${CI_REGISTRY_IMAGE}/${SERVICE_CHANGED}:${CI_COMMIT_SHORT_SHA}"
+      echo "Pulling image with short SHA tag: $ci_tag"
       if docker pull "$ci_tag" 2>/dev/null; then
         SOURCE_IMAGE="$ci_tag"
         echo "Successfully pulled image: $SOURCE_IMAGE"
@@ -49,7 +49,7 @@
           exit 1
         fi
       else
-        echo "Error: Failed to pull image with commit SHA tag: $ci_tag"
+        echo "Error: Failed to pull image with short SHA tag: $ci_tag"
         echo "Build job may not have completed or image not found in registry."
         exit 1
       fi

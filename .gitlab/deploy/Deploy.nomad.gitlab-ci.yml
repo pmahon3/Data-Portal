@@ -25,7 +25,11 @@ variables:
   # Set by CI for deploy jobs; scripts expect these in the environment when sourced
   __SERVICE__: $SERVICE_NAME
   __IMAGE_NAME__: "${CI_REGISTRY_IMAGE}/${SERVICE_NAME}"
-  __IMAGE_TAG__: $CI_COMMIT_SHORT_SHA
+  # Consumer sets CI_APPLICATION_TAG (INN: backend/.gitlab-ci.yml and
+  # frontend/.gitlab-ci.yml: ${CI_COMMIT_REF_SLUG}-${PIPELINE_TIMESTAMP}).
+  # Auto Build's dotenv rewrite of that variable is not used here; see
+  # needs: artifacts: false.
+  __IMAGE_TAG__: $CI_APPLICATION_TAG
   __DATACENTERS__: $NOMAD_DATACENTERS
   __NAMESPACE__: $NOMAD_NAMESPACE
   __JOB_DRIVER__: $NOMAD_JOB_DRIVER
@@ -59,6 +63,13 @@ variables:
   image: 
     name: hashicorp/nomad:latest
     entrypoint: [""]
+  # artifacts: false means do not download that job's artifacts, including
+  # dotenv. Auto Build writes CI_APPLICATION_TAG=tag@sha256:... in
+  # gl-auto-build-variables.env for Kubernetes Auto Deploy (.auto-deploy
+  # uses dependencies: [build]). GitLab will not inject that rewritten
+  # value here. staging / production / deploy:development extend .deploy,
+  # so they inherit this opt-out. review cannot extend .deploy (job-name
+  # merge with Auto DevOps) and repeats the same needs block below.
   needs:
     - job: build
       artifacts: false
@@ -97,6 +108,11 @@ review:
     NOMAD_ENVIRONMENT: "review"
     NOMAD_ENVIRONMENT_NAME: "review/$CI_COMMIT_REF_NAME"
     __ENVIRONMENT__: "review-${CI_COMMIT_REF_SLUG}"
+  # Same opt-out as .deploy (this job does not extend .deploy).
+  # artifacts: false means do not download that job's artifacts, including
+  # dotenv. GitLab will not inject Auto Build's rewritten CI_APPLICATION_TAG
+  # (tag@sha256:...). staging / production / deploy:development inherit the
+  # same opt-out from .deploy.
   needs:
     - job: build
       artifacts: false
