@@ -15,7 +15,7 @@ app = setup_observability(_generated_app)
 class ChecksFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         # Returns False if the log message contains the health endpoint path
-        return "/health" not in record.getMessage() or "/metrics" not in record.getMessage()
+        return "/health" not in record.getMessage() and "/metrics" not in record.getMessage()
 
 # Apply the filter to hide health and metrics check logs from the uvicorn access logger
 logging.getLogger("uvicorn.access").addFilter(ChecksFilter())
