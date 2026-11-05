@@ -306,6 +306,16 @@ async def list_children(
     tree_svc = TreeService(session)
     folders, files = await tree_svc.list_children(q.bucket, folder_id)
 
+    # The folder check doesn't cover everything in it: show each file the user may read, and each
+    # subfolder they may read or that holds something they may read (INN-294).
+    def readable(resource: str) -> bool:
+        return policy_manager.validate_policy(
+            Policy(user_uuid=user_uuid, instance_uuid=instance_uuid, resource=resource, action="read")
+        )
+
+    folders = [f for f in folders if readable(resource_for_folder(q.bucket, f.full_path))]
+    files = [x for x in files if readable(resource_for_key(q.bucket, x.key))]
+
     return {
         "folder_id": folder_id,
         "folders": [{"id": f.id, "name": f.name, "full_path": f.full_path} for f in folders],
