@@ -4,6 +4,6 @@
 [pytest]
 minversion = "9.0"
 pythonpath = ["bundler_core/src"]
-# ``--cov`` must match an importable package (``bundler_core`` here), not the distribution hyphen name.
-# ``--cov-append`` merges into ``.coverage`` when multiple pytest runs share the same cwd (e.g. ``make test``).
-addopts = ["--cov=bundler_core", "--cov-append", "--cov-report=term-missing"]
+# Pass --cov=<importable package> on the pytest command (``bundler_core``, not a hyphenated distribution name).
+# ``--cov-append`` merges into ``.coverage`` when multiple pytest runs share this directory.
+addopts = ["--cov-append", "--cov-report=term-missing"]

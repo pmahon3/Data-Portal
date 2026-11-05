@@ -3,4 +3,6 @@
 
 [pytest]
 minversion = "9.0"
-addopts = ["--ignore=tests/test_default_api.py"]
+# Terminal coverage table. Pass --cov=... on the pytest command.
+# Cobertura XML and JUnit stay on the CI command.
+addopts = ["--ignore=tests/test_default_api.py", "--cov-report=term-missing"]
