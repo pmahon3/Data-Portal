@@ -16,7 +16,8 @@ ARG PYTHON_VERSION=3.10
 # Those files are not committed. This stage is discarded after the copies below.
 # Generate also rewrites pyproject.toml inside this stage; that file is not copied out.
 # The builder keeps the committed pyproject.toml and uv.lock.
-FROM node:20-bookworm-slim AS openapi
+# openapi-generator-cli 2.42 requires Node >= 22.12. 26.13.0 is the current stable release.
+FROM node:26.13.0-bookworm-slim AS openapi
 RUN apt-get update \
     && apt-get install -y --no-install-recommends openjdk-17-jre-headless ca-certificates \
     && rm -rf /var/lib/apt/lists/*
