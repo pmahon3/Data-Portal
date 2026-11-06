@@ -86,6 +86,17 @@ job "storage-events-worker-${__ENVIRONMENT__}" {
         OBJECT_STORAGE_REGION             = var.object_storage_region
       }
 
+      template {
+        destination = "local/db-url.env"
+        env         = true
+        change_mode = "restart"
+        perms       = "0644"
+
+        data = <<EOH
+        DATABASE_URL = "${var.database_url}"
+      EOH
+      }
+
       resources {
         cpu    = 500
         memory = 512

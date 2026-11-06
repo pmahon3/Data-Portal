@@ -62,8 +62,15 @@ job "storage-events-cleanup-${__ENVIRONMENT__}" {
         }
       }
 
-      env = {
-        DATABASE_URL = var.database_url
+      template {
+        destination = "local/db-url.env"
+        env         = true
+        change_mode = "restart"
+        perms       = "0644"
+
+        data = <<EOH
+        DATABASE_URL = "${var.database_url}"
+      EOH
       }
 
       resources {
