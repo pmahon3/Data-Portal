@@ -14,7 +14,6 @@ import os
 import uuid
 
 import pytest
-from sqlalchemy.exc import ProgrammingError
 
 ADMIN_URL = os.environ.get("TEST_DATABASE_URL")
 
@@ -67,15 +66,42 @@ async def start_on_blank_database(monkeypatch, starts: int):
         await admin.close()
 
 
-@pytest.mark.xfail(strict=True, raises=ProgrammingError, reason="INN-303: startup doesn't create the tables on a blank database")
 def test_startup_on_a_blank_database_creates_the_tables(monkeypatch):
     """INN-303: on a blank database, startup creates the tables and each bucket's root folder."""
     roots = asyncio.run(start_on_blank_database(monkeypatch, starts=1))
     assert [(r["bucket"], r["full_path"]) for r in roots] == [("bundle", "/")]
 
 
-@pytest.mark.xfail(strict=True, raises=ProgrammingError, reason="INN-303: startup doesn't create the tables on a blank database")
 def test_restarting_on_the_created_database_changes_nothing(monkeypatch):
     """INN-303: a second start on the same database succeeds and leaves one root folder."""
     roots = asyncio.run(start_on_blank_database(monkeypatch, starts=2))
     assert [(r["bucket"], r["full_path"]) for r in roots] == [("bundle", "/")]
+
+
+def test_a_user_who_cant_create_extensions_stops_startup_with_the_reason(monkeypatch):
+    """INN-303: if the database user may not create the extensions, startup stops with PostgreSQL's reason."""
+    import asyncpg
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    import core.services.filetree  # noqa: F401  (imported before startup, as the app does, to avoid an import cycle)
+    from api.v0_1 import startup
+
+    async def run():
+        suffix = uuid.uuid4().hex[:12]
+        name, role = f"blank_{suffix}", f"limited_{suffix}"
+        admin = await asyncpg.connect(ADMIN_URL)
+        await admin.execute(f'CREATE DATABASE "{name}"')
+        await admin.execute(f"CREATE ROLE \"{role}\" LOGIN PASSWORD 'limited' NOSUPERUSER NOCREATEDB")
+        host = ADMIN_URL.split("@", 1)[1].rsplit("/", 1)[0]
+        engine = create_async_engine(f"postgresql+asyncpg://{role}:limited@{host}/{name}")
+        try:
+            monkeypatch.setattr(startup, "engine", engine, raising=False)
+            with pytest.raises(asyncpg.exceptions.InsufficientPrivilegeError, match='permission denied to create extension "ltree"'):
+                await startup.init_db_schema()
+        finally:
+            await engine.dispose()
+            await admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+            await admin.execute(f'DROP ROLE IF EXISTS "{role}"')
+            await admin.close()
+
+    asyncio.run(run())

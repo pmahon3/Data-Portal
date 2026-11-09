@@ -3,8 +3,25 @@ from core.db.postgres.init_db import ensure_roots_for_instances
 from core.db.postgres.session import AsyncSessionMaker
 from core.services.injectors import get_instance_manager
 import logging
+from pathlib import Path
+
+from core.db.postgres.session import engine
 
 logger = logging.getLogger(__name__)
+
+SCHEMA_SQL = Path(__file__).resolve().parents[2] / "core/db/postgres/scripts/schema.sql"
+
+
+# Create the PostgreSQL extensions, tables and indexes if they don't exist, so the backend
+# starts on a blank database (INN-303). Safe on every start: schema.sql uses IF NOT EXISTS.
+async def init_db_schema():
+    sql = SCHEMA_SQL.read_text()
+    logger.info("Ensuring PostgreSQL tables")
+    async with engine.connect() as conn:
+        raw = await conn.get_raw_connection()
+        # asyncpg's own execute runs a script of several statements; SQLAlchemy's runs one
+        await raw.driver_connection.execute(sql)
+    logger.info("PostgreSQL tables are ready")
 
 
 # Initialize mongo indexes as unique
@@ -25,5 +42,6 @@ async def run_startup_tasks():
     logger.info("Completed MongoDB startup tasks")
 
     logger.info("Running postgres startup tasks")
+    await init_db_schema()
     await init_db_roots()
     logger.info("Completed postgres startup tasks")
