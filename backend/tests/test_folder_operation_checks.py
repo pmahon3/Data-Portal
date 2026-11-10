@@ -1,6 +1,6 @@
 # backend/tests/test_folder_operation_checks.py
 """
-Folder delete and folder upload act only on files the user may act on (INN-293)
+Folder delete and folder upload act only on files the user may act on
 
 Both endpoints check the user's permission once, on the folder, and then act on every file in it.
 A user allowed to delete one file can delete its whole folder; a user allowed to write one file can
