@@ -1,3 +1,7 @@
+default:
+  tags:
+    - inn-runner-docker
+
 workflow:
   rules:
     - if: $CI_COMMIT_BRANCH # This makes it a 'branch' job, matching Auto DevOps
