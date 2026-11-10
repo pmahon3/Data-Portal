@@ -1,6 +1,6 @@
 # backend/tests/test_convert_paths.py
 """
-Converting stored policy paths to literal paths (INN-297)
+Converting stored policy paths to literal paths
 
 The one-off conversion rewrites the regular expressions the policy form suggested, keeps paths that
 were already literal, and leaves anything else for a person.

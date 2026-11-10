@@ -1,5 +1,5 @@
 """
-Rewrite stored policy paths from regular expressions to literal paths (INN-297). Run once per
+Rewrite stored policy paths from regular expressions to literal paths. Run once per
 environment before deploying the literal matcher; it reports first and changes nothing unless asked.
 
     python -m core.services.policies.convert_paths           # report

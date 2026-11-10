@@ -224,7 +224,7 @@ class CasbinPolicyManager:
             p_sub, p_dom, p_obj, p_act = p[0], p[1], p[2], p[3]
             
             # The same rule as model.conf: the policy covers the resource, or the resource is a folder
-            # on the way to something the policy covers. Paths are literal (INN-297).
+            # on the way to something the policy covers. Paths are literal.
             if casbin.util.key_match(resource, p_obj) or (
                 resource.endswith("/") and casbin.util.key_match(p_obj, resource + "*")
             ):

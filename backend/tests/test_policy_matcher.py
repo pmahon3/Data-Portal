@@ -6,7 +6,7 @@ Checks the Casbin matcher in core/services/policies/casbin/model.conf directly, 
 memory: no database, Keycloak or storage needed.
 
 A policy path should name exactly what it covers: a file, or a folder and everything in it
-("bucket/folder/*"), or "*" for everything (INN-297).
+("bucket/folder/*"), or "*" for everything.
 """
 
 from pathlib import Path

@@ -147,7 +147,7 @@ async def get_policies(
 
 
 def is_literal_policy_path(path: str) -> bool:
-    """A policy path is literal (INN-297): a "*" may only end it, and not as the regular expression ".*"."""
+    """A policy path is literal: a "*" may only end it, and not as the regular expression ".*"."""
     return "*" not in path[:-1] and not path.endswith(".*")
 
 @policies_router.post(

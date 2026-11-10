@@ -14,7 +14,7 @@ resource.
 
 Resource paths are literal: `bucket/path/file.txt` for one file, `bucket/folder/*` for a
 folder and everything in it, or `*` for everything. No character is a regular expression, so
-names with brackets or dots mean exactly what they say (INN-297).
+names with brackets or dots mean exactly what they say.
 
 ## Page flow
 
