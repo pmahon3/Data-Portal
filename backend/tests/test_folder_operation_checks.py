@@ -1,6 +1,6 @@
 # backend/tests/test_folder_operation_checks.py
 """
-Folder delete and folder upload act only on files the user may act on (INN-293)
+Folder delete and folder upload act only on files the user may act on
 
 Both endpoints check the user's permission once, on the folder, and then act on every file in it.
 A user allowed to delete one file can delete its whole folder; a user allowed to write one file can
@@ -8,7 +8,7 @@ replace the others with a folder upload. Each request should be refused, or act 
 user could delete or write one by one.
 
 Calls the endpoints directly with the real Casbin model and stand-ins for the database and storage:
-no database, Keycloak or storage needed. Known-failing until INN-293 is fixed.
+no database, Keycloak or storage needed. Known-failing until the bug is fixed.
 """
 
 import asyncio
@@ -28,7 +28,7 @@ from api.v0_1.endpoints import s3_endpoints as endpoint  # noqa: E402
 MODEL = Path(__file__).resolve().parents[1] / "core" / "services" / "policies" / "casbin" / "model.conf"
 USER, INSTANCE, BUCKET = uuid4(), uuid4(), "bucket"
 
-INN_293 = pytest.mark.xfail(strict=True, reason="INN-293: access to one file allows acting on its whole folder")
+WHOLE_FOLDER_BUG = pytest.mark.xfail(strict=True, reason="access to one file allows acting on its whole folder")
 
 
 class PolicyManager:
@@ -111,7 +111,7 @@ def refused(call) -> bool:
     return False
 
 
-@INN_293
+@WHOLE_FOLDER_BUG
 def test_delete_on_one_file_does_not_delete_its_folder(setup, monkeypatch):
     agent, users, instances = setup
     monkeypatch.setattr(endpoint, "list_keys_under_prefix", lambda s3, bucket, prefix: ["del/one.nii", "del/two.nii"])
@@ -121,7 +121,7 @@ def test_delete_on_one_file_does_not_delete_its_folder(setup, monkeypatch):
     assert "bucket/del/two.nii" not in agent.deleted
 
 
-@INN_293
+@WHOLE_FOLDER_BUG
 def test_write_on_one_file_does_not_allow_replacing_others_by_folder_upload(setup):
     agent, users, instances = setup
     policies = PolicyManager(("write", "bucket/over/mine.csv"))
