@@ -274,7 +274,7 @@ describe("tree helpers", () => {
 
 });
 
-describe("selection under a path filter (INN-295)", () => {
+describe("selection under a path filter", () => {
   // bucket root (1) -> study/ (2) -> sub-a/ (3): a.json, a.nii
   //                               -> sub-b/ (4): b.csv
   //                 -> other/ (5): c.json
