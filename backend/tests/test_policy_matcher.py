@@ -13,16 +13,25 @@ from pathlib import Path
 
 import casbin
 
+from core.utils.policy_paths import is_safe_request_path, saved_policy_action, saved_policy_path
+
 MODEL = Path(__file__).resolve().parents[1] / "core" / "services" / "policies" / "casbin" / "model.conf"
 USER, INSTANCE = "user-1", "instance-1"
 
 
 def allowed(policies: list[str], path: str, action: str = "read", policy_action: str = "read") -> bool:
-    """Is `action` on `path` allowed, given `policy_action` policies on `policies`?"""
+    """
+    Is `action` on `path` allowed, given `policy_action` policies on `policies`? Each policy goes
+    through the checks a new policy is saved with: one they refuse can't exist, so it grants nothing.
+    """
     enforcer = casbin.Enforcer(str(MODEL))
     for resource in policies:
-        enforcer.add_policy(USER, INSTANCE, resource, policy_action)
-    return enforcer.enforce(USER, INSTANCE, path, action)
+        try:
+            path_saved, action_saved = saved_policy_path(resource), saved_policy_action(policy_action)
+        except ValueError:
+            continue
+        enforcer.add_policy(USER, INSTANCE, path_saved, action_saved)
+    return is_safe_request_path(path) and enforcer.enforce(USER, INSTANCE, path, action)
 
 
 def test_a_policy_on_everything_does_not_crash():
@@ -30,7 +39,9 @@ def test_a_policy_on_everything_does_not_crash():
 
 
 def test_a_file_name_with_a_bracket_does_not_crash():
-    assert allowed(["bucket/brackets/a[b.bin"], "bucket/brackets/a[b.bin")
+    # A single file named with an unmatched bracket is granted through its folder
+    assert allowed(["bucket/brackets/*"], "bucket/brackets/a[b.bin")
+    assert allowed(["bucket/brackets/scan (1).nii"], "bucket/brackets/scan (1).nii")
     assert not allowed(["bucket/brackets/ok.txt"], "bucket/brackets/a[b.bin")
 
 
@@ -59,8 +70,7 @@ def test_a_grant_on_a_longer_name_does_not_cover_a_shorter_one():
 # --- Dangerous names and policies ---
 
 
-def test_a_star_in_a_file_name_is_a_star():
-    assert allowed(["bucket/a*b.txt"], "bucket/a*b.txt")
+def test_a_star_inside_a_name_never_widens_a_policy():
     assert not allowed(["bucket/a*b.txt"], "bucket/aXYZb.txt")
 
 

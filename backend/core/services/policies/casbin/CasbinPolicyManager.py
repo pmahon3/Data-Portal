@@ -7,6 +7,7 @@ import casbin.util
 
 from core.db import get_mongo_database
 from core.services.policies.models import Policy, Agreement
+from core.utils.policy_paths import is_safe_request_path
 
 
 class CasbinPolicyManager:
@@ -197,6 +198,8 @@ class CasbinPolicyManager:
         resource = policy.resource
         action = policy.action
 
+        if not is_safe_request_path(resource):
+            return False
         return self.enforcer.enforce(user_uuid, instance_uuid, resource, action)
 
     def get_allowed_actions(
@@ -219,7 +222,9 @@ class CasbinPolicyManager:
         policies = self.enforcer.get_filtered_policy(0, user_uuid_str, instance_uuid_str)
         
         allowed_actions = set()
-        
+        if not is_safe_request_path(resource):
+            return []
+
         for p in policies:
             p_sub, p_dom, p_obj, p_act = p[0], p[1], p[2], p[3]
             
@@ -228,9 +233,9 @@ class CasbinPolicyManager:
             if casbin.util.key_match(resource, p_obj) or (
                 resource.endswith("/") and casbin.util.key_match(p_obj, resource + "*")
             ):
-                # Check which specific allowed actions match the p_act regex
+                # The policy's action, or every action for "*"
                 for action in actions_to_check:
-                    if casbin.util.regex_match(action, p_act):
+                    if p_act in (action, "*"):
                         allowed_actions.add(action)
                         
         return list(allowed_actions)

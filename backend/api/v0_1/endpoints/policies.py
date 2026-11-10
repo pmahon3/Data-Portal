@@ -10,6 +10,8 @@ import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+
+from core.utils.policy_paths import saved_policy_action, saved_policy_path
 from fastapi.responses import JSONResponse
 
 from api.v0_1.common.auth_dependencies import get_current_user, is_user_admin, require_admin, require_admin_or_manager
@@ -146,10 +148,6 @@ async def get_policies(
 
 
 
-def is_literal_policy_path(path: str) -> bool:
-    """A policy path is literal: a "*" may only end it, and not as the regular expression ".*"."""
-    return "*" not in path[:-1] and not path.endswith(".*")
-
 @policies_router.post(
     "/",
     response_model=AddPolicyResponse,
@@ -182,12 +180,11 @@ async def create_policy(
         HTTPException: 404 if user or instance not found
         HTTPException: 400 if policy creation fails
     """
-    if not is_literal_policy_path(new_policy.resource):
-        raise HTTPException(
-            status_code=400,
-            detail="A policy path is a file (bucket/path/file.txt), a folder and everything in it "
-                   "(bucket/folder/*), or * for everything. It is not a regular expression.",
-        )
+    try:
+        new_policy.resource = saved_policy_path(new_policy.resource)
+        new_policy.action = saved_policy_action(new_policy.action)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     # Get user and instance UUIDs
     try:
