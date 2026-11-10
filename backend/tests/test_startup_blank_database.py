@@ -1,5 +1,5 @@
 """
-The backend starts on a blank PostgreSQL database (INN-303).
+The backend starts on a blank PostgreSQL database.
 
 Needs a PostgreSQL server: set TEST_DATABASE_URL to postgresql://user:password@host:5432/postgres
 for a user that may create databases. Skipped when it isn't set.
@@ -30,7 +30,7 @@ class FakeInstanceManager:
 
 
 def test_startup_on_a_blank_database(monkeypatch):
-    """INN-303: startup creates the tables on a blank database, and a restart changes nothing."""
+    """Startup creates the tables on a blank database, and a restart changes nothing."""
     import asyncpg
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
