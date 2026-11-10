@@ -1,6 +1,6 @@
 # backend/tests/test_policy_matcher.py
 """
-Policy matcher tests (INN-297)
+Policy matcher tests
 
 Checks the Casbin matcher in core/services/policies/casbin/model.conf directly, with policies held in
 memory: no database, Keycloak or storage needed.
