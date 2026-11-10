@@ -136,6 +136,6 @@ def test_delete_on_a_folder_deletes_everything_in_it(setup, monkeypatch):
     """Already true today, and must stay true."""
     agent, users, instances = setup
     monkeypatch.setattr(endpoint, "list_keys_under_prefix", lambda s3, bucket, prefix: ["del/one.nii", "del/two.nii"])
-    policies = PolicyManager(("delete", "bucket/del/.*"))
+    policies = PolicyManager(("delete", "bucket/del/*"))
     asyncio.run(endpoint.delete_folder(1, "qa", BUCKET, {"preferred_username": "alice"}, Session("/del/"), users, policies, instances))
     assert sorted(agent.deleted) == ["bucket/del/one.nii", "bucket/del/two.nii"]
