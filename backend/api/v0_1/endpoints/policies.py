@@ -147,8 +147,19 @@ async def get_policies(
 
 
 def is_literal_policy_path(path: str) -> bool:
-    """A policy path is literal: a "*" may only end it, and not as the regular expression ".*"."""
-    return "*" not in path[:-1] and not path.endswith(".*")
+    """
+    Return whether a policy path is one the matcher reads as meant: a file, a folder and everything in
+    it ("bucket/folder/*"), or "*" for everything, with no ".." segment.
+
+    Example: "bucket/study/*" -> True; "bucket/study*" -> False (not a folder); "bucket/../*" -> False
+    """
+    if path == "*":
+        return True
+    if ".." in path.split("/"):
+        return False
+    if path.endswith("/*"):
+        path = path[:-2]
+    return "*" not in path
 
 @policies_router.post(
     "/",
@@ -186,7 +197,7 @@ async def create_policy(
         raise HTTPException(
             status_code=400,
             detail="A policy path is a file (bucket/path/file.txt), a folder and everything in it "
-                   "(bucket/folder/*), or * for everything. It is not a regular expression.",
+                   "(bucket/folder/*), or * for everything. It is not a regular expression and has no '..'.",
         )
 
     # Get user and instance UUIDs
