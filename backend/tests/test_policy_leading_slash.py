@@ -1,6 +1,6 @@
 # backend/tests/test_policy_leading_slash.py
 """
-Saving a policy written as the policy form suggests (INN-291)
+Saving a policy written as the policy form suggests
 
 The Create Policy form suggests "/bucket/prefix/.*", but requests are checked against paths
 without a leading "/", so such a policy grants nothing and no error is shown. A policy written that
