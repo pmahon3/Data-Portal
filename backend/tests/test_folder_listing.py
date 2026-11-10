@@ -1,6 +1,6 @@
 # backend/tests/test_folder_listing.py
 """
-A folder listing shows only what the user may see (INN-294)
+A folder listing shows only what the user may see
 
 The folder listing API checks read once, on the folder, and then returns every file and subfolder
 in it. A user who may read one file sees the names of every file beside it, and of every folder
