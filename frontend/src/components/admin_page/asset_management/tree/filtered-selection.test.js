@@ -1,5 +1,5 @@
 /**
- * Selecting a folder while a filter is active (INN-295).
+ * Selecting a folder while a filter is active.
  *
  * Under a filter the tree shows only part of each folder. Ticking a folder there should select only
  * the files it shows, so a download or delete can't act on files the filter hid. Renders the real
@@ -18,17 +18,17 @@ jest.mock("@tanstack/react-virtual", () => ({
   }),
 }));
 
-// Known-failing until INN-295 is fixed: passes while the test fails, and fails once it passes.
+// Known-failing until the bug is fixed: passes while the test fails, and fails once it passes.
 // RUN_KNOWN_FAILING=1 runs it as written, to see the failure.
 const knownFailing = (name, fn) =>
-  process.env.RUN_KNOWN_FAILING ? test(name, fn) : test(`${name} (known-failing: INN-295)`, async () => {
+  process.env.RUN_KNOWN_FAILING ? test(name, fn) : test(`${name} (known-failing)`, async () => {
     let failed = false;
     try {
       await fn();
     } catch {
       failed = true;
     }
-    if (!failed) throw new Error("INN-295 looks fixed: remove knownFailing from this test");
+    if (!failed) throw new Error("This looks fixed: remove knownFailing from this test");
   });
 
 const PATHS = ["study/a.json", "study/b.csv", "study/sub/c.csv"];
