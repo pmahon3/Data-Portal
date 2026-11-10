@@ -1,5 +1,5 @@
 """
-Remove a leading "/" from stored policy paths (INN-291). Policies saved with one grant nothing,
+Remove a leading "/" from stored policy paths. Policies saved with one grant nothing,
 since requests are checked against "bucket/key". Run once per environment; it reports first and
 changes nothing unless asked.
 
