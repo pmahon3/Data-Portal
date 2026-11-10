@@ -1,13 +1,13 @@
 # backend/tests/test_policy_leading_slash.py
 """
-Saving a policy written as the policy form suggests (INN-291)
+Saving a policy written as the policy form suggests
 
 The Create Policy form suggests "/bucket/prefix/.*", but requests are checked against paths
 without a leading "/", so such a policy grants nothing and no error is shown. A policy written that
 way should either be refused with a message, or saved in a form that grants what it names.
 
 Calls the create-policy endpoint directly with stand-in managers: no database, Keycloak or storage
-needed. Known-failing until INN-291 is fixed.
+needed. Known-failing until the bug is fixed.
 """
 
 import asyncio
@@ -28,7 +28,7 @@ MODEL = Path(__file__).resolve().parents[1] / "core" / "services" / "policies" /
 ADMIN = {"realm_access": {"roles": ["admin"]}}
 USER, INSTANCE = uuid4(), uuid4()
 
-INN_291 = pytest.mark.xfail(strict=True, reason="INN-291: a policy written as the form suggests grants nothing")
+LEADING_SLASH_BUG = pytest.mark.xfail(strict=True, reason="a policy written as the form suggests grants nothing")
 
 
 class Users:
@@ -76,7 +76,7 @@ def allows(resource: str, path: str) -> bool:
     return enforcer.enforce(str(USER), str(INSTANCE), path, "read")
 
 
-@INN_291
+@LEADING_SLASH_BUG
 def test_a_policy_written_as_the_form_suggests_is_refused_or_grants_access(monkeypatch):
     saved = save("/study/sub-01/.*", monkeypatch)
     assert saved is None or allows(saved, "study/sub-01/scan.nii.gz")
