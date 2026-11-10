@@ -1,6 +1,6 @@
 # backend/tests/test_folder_listing.py
 """
-A folder listing shows only what the user may see (INN-294)
+A folder listing shows only what the user may see
 
 The folder listing API checks read once, on the folder, and then returns every file and subfolder
 in it. A user who may read one file sees the names of every file beside it, and of every folder
@@ -8,7 +8,7 @@ above it. A listing should show the files the user may read, and only the folder
 something they hold.
 
 Calls the endpoint directly with the real Casbin model and stand-ins for the database: no database,
-Keycloak or storage needed. Known-failing until INN-294 is fixed.
+Keycloak or storage needed. Known-failing until the bug is fixed.
 """
 
 import asyncio
@@ -28,7 +28,7 @@ MODEL = Path(__file__).resolve().parents[1] / "core" / "services" / "policies" /
 USER, INSTANCE, BUCKET = uuid4(), uuid4(), "study"
 GRANT = ("read", "study/patient-7/summary.csv")
 
-INN_294 = pytest.mark.xfail(strict=True, reason="INN-294: folder listings show files the user can't access")
+UNFILTERED_LISTING_BUG = pytest.mark.xfail(strict=True, reason="folder listings show files the user can't access")
 
 # What the bucket holds: folder path -> (subfolders, files)
 TREE = {
@@ -82,11 +82,11 @@ def listing(path, monkeypatch):
     return {f["full_path"] for f in out["folders"]}, {f["key"] for f in out["files"]}
 
 
-@INN_294
+@UNFILTERED_LISTING_BUG
 def test_a_folder_listing_shows_only_files_the_user_may_read(monkeypatch):
     assert listing("/patient-7/", monkeypatch) == (set(), {"patient-7/summary.csv"})
 
 
-@INN_294
+@UNFILTERED_LISTING_BUG
 def test_a_listing_above_a_file_shows_only_the_path_to_it(monkeypatch):
     assert listing("/", monkeypatch) == ({"/patient-7/"}, set())
