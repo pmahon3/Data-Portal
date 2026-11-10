@@ -1,5 +1,5 @@
 /**
- * Selecting a folder while a filter is active (INN-295).
+ * Selecting a folder while a filter is active.
  *
  * Under a filter the tree shows only part of each folder. Ticking a folder there should select only
  * the files it shows, so a download or delete can't act on files the filter hid. Renders the real
