@@ -5,6 +5,8 @@ An upload that never finished leaves a pending file row, and pending folder rows
 After a set time, a pending file whose object is in storage is kept and marked complete (it arrived
 whole); one whose object isn't there is removed, with any pending folder left empty.
 
+Verifies: PX-6
+
 Needs a PostgreSQL server: set TEST_DATABASE_URL to postgresql://user:password@host:5432/postgres
 for a user that may create databases. Skipped when it isn't set.
 """
@@ -25,10 +27,7 @@ SCHEMA_SQL = Path(__file__).resolve().parents[1] / "core/db/postgres/scripts/sch
 BUCKET = "bundle"
 SET_TIME = timedelta(hours=24)
 
-pytestmark = [
-    pytest.mark.skipif(not ADMIN_URL, reason="needs a PostgreSQL server: set TEST_DATABASE_URL"),
-    pytest.mark.xfail(strict=True, raises=ImportError, reason="unfinished uploads are never cleared"),
-]
+pytestmark = pytest.mark.skipif(not ADMIN_URL, reason="needs a PostgreSQL server: set TEST_DATABASE_URL")
 
 # The database session module builds its engine on import, from DATABASE_URL
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://unused:unused@localhost:5432/unused")
@@ -63,10 +62,10 @@ class FakeInstanceManager:
         self.instances = [type("Instance", (), {"agent": agent})()]
 
 
-def run_clear(agent: FakeAgent, rows_sql: str) -> dict[str, list]:
+def run_clear(agent: FakeAgent, rows_sql: str, before=None) -> dict[str, list]:
     """
-    Create a blank database with the schema, add the rows, clear unfinished uploads, and return
-    what's left.
+    Create a blank database with the schema, add the rows, run ``before`` (if given) with a session,
+    clear unfinished uploads, and return what's left.
     """
     import asyncpg
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -85,6 +84,8 @@ def run_clear(agent: FakeAgent, rows_sql: str) -> dict[str, list]:
             await db.execute(rows_sql)
             sessions = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
             async with sessions() as session:
+                if before:
+                    await before(session)
                 await clear_unfinished_uploads(session, FakeInstanceManager(agent), SET_TIME)
             files = await db.fetch("SELECT key, status, size FROM files ORDER BY key")
             folders = await db.fetch("SELECT full_path, status FROM folders ORDER BY full_path")
@@ -135,14 +136,19 @@ def test_an_unfinished_upload_is_cleared_after_the_set_time():
 
 def test_a_file_that_arrived_whole_is_kept():
     """A pending file whose object is in storage is marked complete, and so is its folder."""
-    left = run_clear(FakeAgent({"study/new/a.txt": 12}), FOLDERS + a_file("study/new/a.txt", "pending", "2 days"))
+    rows = FOLDERS + a_file("study/new/a.txt", "pending", "2 days")
+    left = run_clear(FakeAgent({"study/new/a.txt": 12}), rows)
     assert left["files"] == [("study/new/a.txt", "complete", 12)]
     assert ("/study/new/", "complete") in left["folders"]
 
 
 def test_a_partial_folder_upload_keeps_the_files_that_arrived():
     """Of a folder upload, the files that arrived are kept and the rest are removed."""
-    rows = FOLDERS + a_file("study/new/a.txt", "pending", "2 days") + a_file("study/new/b.txt", "pending", "2 days")
+    rows = (
+        FOLDERS
+        + a_file("study/new/a.txt", "pending", "2 days")
+        + a_file("study/new/b.txt", "pending", "2 days")
+    )
     left = run_clear(FakeAgent({"study/new/a.txt": 12}), rows)
     assert left["files"] == [("study/new/a.txt", "complete", 12)]
     assert ("/study/new/", "complete") in left["folders"]
@@ -168,3 +174,36 @@ def test_a_storage_error_removes_nothing():
     left = run_clear(FakeAgent({}, error=error), FOLDERS + a_file("study/new/a.txt", "pending", "2 days"))
     assert left["files"] == [("study/new/a.txt", "pending", None)]
     assert ("/study/new/", "pending") in left["folders"]
+
+
+def test_an_upload_started_again_gets_its_own_time():
+    """Retrying an old unfinished upload restarts its clock, so the retry isn't cleared mid-way."""
+    from core.services.filetree.file_service import FileService
+
+    async def retry(session):
+        await FileService(session).create_file_row(BUCKET, 3, "a.txt", "study/new/a.txt")
+
+    rows = FOLDERS + a_file("study/new/a.txt", "pending", "3 days")
+    left = run_clear(FakeAgent({}), rows, before=retry)
+    assert left["files"] == [("study/new/a.txt", "pending", None)]
+
+
+def test_a_replace_gets_its_own_time():
+    """
+    Replacing a file sets its row back to pending with a new start time, so the replace is
+    given the full set time; if it never finishes, the existing file is kept, as above.
+    """
+    from core.services.filetree.file_service import FileService
+
+    async def start_a_replace(session):
+        await FileService(session).create_or_replace_file_row(
+            BUCKET,
+            3,
+            "a.txt",
+            "study/new/a.txt",
+            replace=True,
+        )
+
+    rows = FOLDERS + a_file("study/new/a.txt", "complete", "5 days")
+    left = run_clear(FakeAgent({"study/new/a.txt": 12}), rows, before=start_a_replace)
+    assert left["files"] == [("study/new/a.txt", "pending", None)]

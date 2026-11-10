@@ -203,6 +203,11 @@ When changing upload, delete, rename, or folder-management flows, treat synchron
 
 as a required correctness concern.
 
+An upload adds pending file (and folder) rows before the browser sends the bytes to storage. The
+backend clears uploads left unfinished after `UNFINISHED_UPLOAD_HOURS`
+(`core/services/filetree/unfinished_uploads.py`): a pending file whose object is in storage is
+marked complete, and one whose object isn't there is removed, with any pending folder left empty.
+
 ## Frontend Summary
 
 The frontend is a React app using `@react-keycloak/web`.

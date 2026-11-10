@@ -24,6 +24,8 @@ class File(Base):
     status = Column(Text, nullable=False, default="pending")
 
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    # when the file's latest upload began; an upload unfinished after a set time is cleared
+    pending_since = Column(DateTime(timezone=True), nullable=True)
     # defines many‑to‑one relationship and allows file.folder without manual join
     folder = relationship("Folder")
 

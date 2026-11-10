@@ -1,4 +1,5 @@
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -10,6 +11,8 @@ from api.v0_1.endpoints import application_router
 from .startup import run_startup_tasks
 
 from core.services.injectors import get_instance_manager, get_policy_manager, get_project_manager, get_user_manager
+from core.db.postgres.session import AsyncSessionMaker
+from core.services.filetree.unfinished_uploads import clear_unfinished_uploads_periodically
 
 
 @asynccontextmanager
@@ -30,8 +33,12 @@ async def lifespan(app: FastAPI):
         logger.error(f"Critical startup failure: {e}")
         sys.exit(1)
 
+    # Clear uploads left unfinished after a set time, in the background
+    clearing = asyncio.create_task(clear_unfinished_uploads_periodically(AsyncSessionMaker, instance_manager))
+
     yield
 
+    clearing.cancel()
     # Cleanup and close instance connections on shutdown
     if hasattr(instance_manager, 'teardown'):
         instance_manager.teardown()

@@ -50,8 +50,16 @@ CREATE TABLE IF NOT EXISTS files (
   content_type  TEXT NULL,
   status        TEXT NOT NULL DEFAULT 'pending',
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- when the file's latest upload began; an upload unfinished after a set time is cleared
+  pending_since TIMESTAMPTZ NULL,
   CONSTRAINT uq_files_bucket_key UNIQUE (bucket, key)
 );
+
+-- Databases made before this column get it here
+ALTER TABLE files ADD COLUMN IF NOT EXISTS pending_since TIMESTAMPTZ NULL;
+
+CREATE INDEX IF NOT EXISTS idx_files_pending
+  ON files(bucket) WHERE status = 'pending';
 
 CREATE INDEX IF NOT EXISTS idx_files_bucket_folder
   ON files(bucket, folder_id);

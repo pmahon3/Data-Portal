@@ -56,6 +56,7 @@ class FileService:
                 existing.folder_id = folder_id
                 existing.name = name
                 existing.content_type = content_type
+                existing.pending_since = func.now()
                 await self.session.commit()
                 await self.session.refresh(existing)
                 return existing
@@ -69,6 +70,7 @@ class FileService:
             key=key,
             content_type=content_type,
             status="pending",
+            pending_since=func.now(),
         )
         self.session.add(file)
         await self.session.commit()
@@ -99,6 +101,7 @@ class FileService:
             existing.etag = None
             existing.last_modified = None
             existing.status = "pending"
+            existing.pending_since = func.now()
             await self.session.commit()
             await self.session.refresh(existing)
             return existing
@@ -110,6 +113,7 @@ class FileService:
             key=key,
             content_type=content_type,
             status="pending",
+            pending_since=func.now(),
         )
         self.session.add(file)
         await self.session.commit()
