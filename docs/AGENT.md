@@ -154,7 +154,7 @@ This codebase uses path-based authorization, and the exact path format matters.
 
 - Policies target storage resources as strings.
 - Resource strings may represent bucket roots, folders, or exact file keys.
-- Paths are literal: `bucket/path/file.txt` is one file, `bucket/folder/*` a folder and everything in it, `*` everything. Folders above a granted path can be browsed. Any other `*`, or a `..` segment, is refused when a policy is saved, and a request with a `..` segment matches nothing. Upper and lower case differ; actions match exactly (`*` for all).
+- Paths are literal: `bucket/path/file.txt` is one file, `bucket/folder/*` a folder and everything in it, `*` everything. Folders above a granted path can be browsed.
 - S3 write/delete presigned URL generation expects an exact `bucket/key` resource.
 - The DB-backed tree builds resource strings differently for folders and files:
   - folders use bucket + normalized full path
