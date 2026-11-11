@@ -48,7 +48,7 @@ variables:
   SERVICE_NAME: "bundler"
   # Overrides root placeholder NOMAD_PACK_DIR: "deploy"
   # NOMAD_PACK_DIR: "bundler/deploy"
-  NOMAD_PACK_DIR: "$RDT_NOMAD_TEMPLATES/base-service" # use the shared base-service template
+  NOMAD_PACK_DIR: "${RDT_NOMAD_TEMPLATES}/base-service" # use the shared base-service template
 
   # Pack runtime_env / runtime_secrets: wire service CI blobs into Nomad job __*__ vars
   __RUNTIME_ENV__: ${__RUNTIME_ENV_BUNDLER__}
