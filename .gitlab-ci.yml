@@ -203,6 +203,8 @@ bundler-autodevops:
     # Default pack path placeholder; child .gitlab-ci.yml overrides (bundler/deploy)
     NOMAD_PACK_DIR: "${NOMAD_PACK_DIR}"
   rules:
+    # Temporary: do not start the bundler child pipeline. Remove this rule to restore the rules below.
+    - when: never
     - if: '$CI_COMMIT_BRANCH && $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH && $CI_COMMIT_BRANCH != $RDT_LATEST_DEV_BRANCH'
       when: on_success
     - changes:
