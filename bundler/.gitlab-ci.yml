@@ -47,6 +47,7 @@ variables:
   # Nomad deployment configuration
   SERVICE_NAME: "bundler"
   # Overrides root placeholder NOMAD_PACK_DIR: "base-service"
+  NOMAD_PACK_DIR: "base-service"
   # NOMAD_PACK_DIR: "/bundler/deploy"
   # NOMAD_PACK_DIR: base-service # use the shared base-service template; relative to RDT_DEVOPS_NOMAD_TEMPLATES_DIR or absolute path
 
