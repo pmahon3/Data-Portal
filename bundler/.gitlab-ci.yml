@@ -18,13 +18,13 @@ variables:
   CI_APPLICATION_TAG: ${CI_COMMIT_REF_SLUG}-${PIPELINE_TIMESTAMP}
   CI_APPLICATION_TAG_NOMAD: ${CI_COMMIT_REF_SLUG}-${PIPELINE_TIMESTAMP}
 
-  # Use BuildKit for faster builds + better layer caching in CI (works with our runner Docker cache)
-  DOCKER_BUILDKIT: "1"
-  # Enable inline cache so the pushed image can be used as --cache-from in later builds
-  DOCKER_BUILDKIT_INLINE_CACHE: "1"
-  BUILDKIT_PROGRESS: "plain"
-  # Disables BuildKit's default provenance/attestations to avoid GitLab 18.6 registry creating 0-byte/invalid tags
-  BUILDX_NO_DEFAULT_ATTESTATIONS: "1"
+  # # Use BuildKit for faster builds + better layer caching in CI (works with our runner Docker cache)
+  # DOCKER_BUILDKIT: "1"
+  # # Enable inline cache so the pushed image can be used as --cache-from in later builds
+  # DOCKER_BUILDKIT_INLINE_CACHE: "1"
+  # BUILDKIT_PROGRESS: "plain"
+  # # Disables BuildKit's default provenance/attestations to avoid GitLab 18.6 registry creating 0-byte/invalid tags
+  # BUILDX_NO_DEFAULT_ATTESTATIONS: "1"
 
   # Add build arguments and built-time --tag aliases;
   # Auto DevOps handles the primary tag via CI_APPLICATION_REPOSITORY:CI_APPLICATION_TAG
