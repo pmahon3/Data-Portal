@@ -1,3 +1,53 @@
+[project]
+name = "bundler_server"
+version = "1.0.0"
+description = "API contract for the Bundler service.  Unversioned paths (&#x60;&#x60;/health&#x60;&#x60;, &#x60;&#x60;/bundles&#x60;&#x60;, …) always track the **current** API (today: v2). Versioned paths (&#x60;&#x60;/v1/...&#x60;&#x60;, &#x60;&#x60;/v2/...&#x60;&#x60;) remain stable for clients that pin a revision."
+readme = "README.md"
+keywords = ["OpenAPI Bundler Service"]
+classifiers = ["Operating System :: OS Independent", "Programming Language :: Python :: 3", "Programming Language :: Python :: 3.10"]
+requires-python = ">=3.10,<3.11"
+dependencies = [
+    "aiofiles==23.1.0",
+    "aniso8601==7.0.0",
+    "async-exit-stack==1.0.1",
+    "async-generator==1.10",
+    "bundler-core",
+    "certifi==2024.7.4",
+    "chardet==4.0.0",
+    "click==7.1.2",
+    "dnspython==2.6.1",
+    "email-validator==2.0.0",
+    "fastapi==0.120.1",
+    "graphene==2.1.8",
+    "graphql-core==2.3.2",
+    "graphql-relay==2.0.1",
+    "h11==0.16.0",
+    "httptools>=0.3.0,<0.7.0",
+    "httpx==0.28.1",
+    "idna==3.15",
+    "itsdangerous==1.1.0",
+    "jinja2==3.1.4",
+    "markupsafe==2.0.1",
+    "orjson==3.11.6",
+    "prometheus-client>=0.20.0,<1",
+    "prometheus-fastapi-instrumentator>=7.0.0,<8",
+    "promise==2.3",
+    "pydantic>=2",
+    "python-dotenv==1.2.2",
+    "python-multipart==0.0.27",
+    "pyyaml>=5.4.1,<6.1.0",
+    "requests==2.33.0",
+    "rx==1.6.1",
+    "starlette==0.49.1",
+    "typing-extensions==4.13.2",
+    "ujson==5.12.1",
+    "urllib3==2.7.0",
+    "uvicorn==0.13.4",
+    "uvloop==0.21.0",
+    "watchgod==0.7",
+    "websockets==10.0",
+]
+
 [build-system]
 requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
@@ -28,3 +78,54 @@ skip = [
     '.venv', '_build', 'buck-out', 'build', 'dist', 'node_modules', 'venv',
 ]
 skip_gitignore = true
+
+[tool.uv.workspace]
+members = [
+    "bundler_core",
+]
+
+[tool.uv.sources]
+bundler-core = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "aiofiles==23.1.0",
+    "aniso8601==7.0.0",
+    "anyio>=4.11.0",
+    "async-exit-stack==1.0.1",
+    "async-generator==1.10",
+    "certifi==2024.7.4",
+    "chardet==4.0.0",
+    "click==7.1.2",
+    "commitizen>=4.13.9",
+    "dnspython==2.6.1",
+    "email-validator==2.0.0",
+    "fastapi==0.120.1",
+    "graphene==2.1.8",
+    "graphql-core==2.3.2",
+    "graphql-relay==2.0.1",
+    "h11==0.16.0",
+    "httptools>=0.3.0,<0.7.0",
+    "httpx>=0.28.1",
+    "idna==3.15",
+    "itsdangerous==1.1.0",
+    "jinja2==3.1.4",
+    "markupsafe==2.0.1",
+    "orjson==3.11.6",
+    "promise==2.3",
+    "pydantic>=2",
+    "pytest>=9.0.1",
+    "python-dotenv==1.2.2",
+    "python-multipart==0.0.27",
+    "pyyaml>=5.4.1,<6.1.0",
+    "requests==2.33.0",
+    "rx==1.6.1",
+    "starlette==0.49.1",
+    "typing-extensions==4.13.2",
+    "ujson==5.12.1",
+    "urllib3==2.7.0",
+    "uvicorn==0.13.4",
+    "uvloop==0.21.0",
+    "watchgod==0.7",
+    "websockets==10.0",
+]

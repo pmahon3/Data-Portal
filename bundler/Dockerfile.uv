@@ -1,16 +1,31 @@
 # An example using multi-stage image builds to create a final image without uv.
 
 # First, build the application in the `/app` directory.
-# uv multi-stage image: builder → test_runner → service (parity with generated Dockerfile).
+# uv multi-stage image: openapi → builder → test_runner → service.
 # Extends the pattern in multistage.Dockerfile with a test stage and a production CMD.
 #
 # Build from the `bundler/` directory (OpenAPI output root; contains `bundler_server/`,
 # `bundler_core/`, `pyproject.toml`, `uv.lock`):
 #   docker build -f Dockerfile.uv --target service -t bundler-service:local .
 #
-# Targets: builder | test_runner | service (default)
+# Targets: openapi | builder | test_runner | service (default)
 
 ARG PYTHON_VERSION=3.10
+
+# Generated FastAPI stub (main, apis, models, security_api, tests/conftest.py).
+# Those files are not committed. This stage is discarded after the copies below.
+# Generate also rewrites pyproject.toml inside this stage; that file is not copied out.
+# The builder keeps the committed pyproject.toml and uv.lock.
+# openapi-generator-cli 2.42 requires Node >= 22.12. 26.13.0 is the current stable release.
+FROM node:26.13.0-bookworm-slim AS openapi
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends openjdk-17-jre-headless ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+COPY openapitools.json openapi.source.yaml .openapi-generator-ignore ./
+RUN --mount=type=cache,target=/root/.npm \
+    npx -y @openapitools/openapi-generator-cli generate --generator-key bundler-server-fastapi
+
 FROM ghcr.io/astral-sh/uv:python${PYTHON_VERSION}-bookworm-slim AS builder
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 
@@ -50,6 +65,13 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 COPY . .
 
+# Overlay the generated stub onto the committed tree. Hand-owned
+# bundler_server/core and bundler_server/observability stay from the context.
+COPY --from=openapi /src/bundler_server/main.py /src/bundler_server/security_api.py ./bundler_server/
+COPY --from=openapi /src/bundler_server/apis ./bundler_server/apis
+COPY --from=openapi /src/bundler_server/models ./bundler_server/models
+COPY --from=openapi /src/tests/conftest.py ./tests/conftest.py
+
 # server package layer: after including server package, sync with the server package
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev
@@ -75,10 +97,12 @@ COPY --from=builder --chown=nonroot:nonroot /app /app
 
 WORKDIR /app/bundler
 
-# Dev group (pytest, etc.) for server HTTP tests; pytest.toml ignores generated stub tests.
+# Dev group installs pytest. pytest.toml adds --cov-report=term-missing, which
+# pytest only accepts when pytest-cov is installed. --with matches the Makefile
+# and does not add pytest-cov to the project. --cov stays on the command.
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --group dev \
-    && uv run python -m pytest tests \
+    && uv run --with pytest-cov python -m pytest tests --cov=./bundler_server/core \
     && touch /tmp/tests-ok
 
 

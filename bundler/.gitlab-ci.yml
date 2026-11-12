@@ -1,0 +1,174 @@
+# Use native Auto DevOps jobs (Auto Build/Test/Security/Deploy)
+# Shared templates live in rcg/rdt-devops (local clone: rdt-devops).
+# Copies under .gitlab/ remain as rollback until this include is proven.
+include:
+  - project: 'rcg/rdt-devops'
+    ref: gl-autodevops
+    file: '/autodevops.yml'
+
+# Tell Auto DevOps to build from bundler/
+variables:
+  # Dockerfile.uv is the runnable image (uvicorn on 8080). The generated
+  # Dockerfile has no CMD.
+  DOCKERFILE_PATH: bundler/Dockerfile.uv
+  AUTO_DEVOPS_BUILD_IMAGE_CONTEXT: bundler
+  # Override Auto DevOps default repository to use service-specific name
+  CI_APPLICATION_REPOSITORY: ${CI_REGISTRY_IMAGE}/bundler
+  # Primary image tag Auto Build pushes; Nomad __IMAGE_TAG__ follows this.
+  CI_APPLICATION_TAG: ${CI_COMMIT_REF_SLUG}-${PIPELINE_TIMESTAMP}
+  CI_APPLICATION_TAG_NOMAD: ${CI_COMMIT_REF_SLUG}-${PIPELINE_TIMESTAMP}
+
+  # # Use BuildKit for faster builds + better layer caching in CI (works with our runner Docker cache)
+  # DOCKER_BUILDKIT: "1"
+  # # Enable inline cache so the pushed image can be used as --cache-from in later builds
+  # DOCKER_BUILDKIT_INLINE_CACHE: "1"
+  # BUILDKIT_PROGRESS: "plain"
+  # # Disables BuildKit's default provenance/attestations to avoid GitLab 18.6 registry creating 0-byte/invalid tags
+  # BUILDX_NO_DEFAULT_ATTESTATIONS: "1"
+
+  # Add build arguments and built-time --tag aliases;
+  # Auto DevOps handles the primary tag via CI_APPLICATION_REPOSITORY:CI_APPLICATION_TAG
+  AUTO_DEVOPS_BUILD_IMAGE_EXTRA_ARGS: >
+    --tag ${CI_REGISTRY_IMAGE}/bundler:latest
+    --tag ${CI_REGISTRY_IMAGE}/bundler:${CI_COMMIT_SHORT_SHA}
+    --tag ${CI_REGISTRY_IMAGE}/bundler:${CI_COMMIT_REF_SLUG}
+    --tag ${CI_REGISTRY_IMAGE}/bundler:${PIPELINE_TIMESTAMP}
+    --build-arg BUILDKIT_INLINE_CACHE=1
+    --label org.opencontainers.image.version=${PIPELINE_TIMESTAMP}
+    --label org.opencontainers.image.created=${CI_COMMIT_TIMESTAMP}
+    --label org.opencontainers.image.revision=${CI_COMMIT_SHA}
+    --label org.opencontainers.image.source=${CI_PROJECT_URL}
+    --label org.opencontainers.image.title=${CI_PROJECT_NAME}
+    --label org.opencontainers.image.description=${CI_PROJECT_NAME}
+    --label org.opencontainers.image.url=${CI_PROJECT_URL}
+    --label org.opencontainers.image.ref.name=${CI_COMMIT_REF_NAME}
+    --label org.opencontainers.image.authors=${GITLAB_USER_NAME:-${CI_COMMIT_AUTHOR}}
+
+  # Nomad deployment configuration
+  SERVICE_NAME: "bundler"
+  # Overrides root placeholder NOMAD_PACK_DIR: "base-service"
+  NOMAD_PACK_DIR: "base-service"
+  # NOMAD_PACK_DIR: "/bundler/deploy"
+  # NOMAD_PACK_DIR: base-service # use the shared base-service template; relative to RDT_DEVOPS_NOMAD_TEMPLATES_DIR or absolute path
+
+  # Pack runtime_env / runtime_secrets: wire service CI blobs into Nomad job __*__ vars
+  __RUNTIME_ENV__: ${__RUNTIME_ENV_BUNDLER__}
+  __RUNTIME_SECRETS__: ${__SECRETS_BUNDLER__}
+  HEALTH_BASE: /actuator/health/live # ${HEALTH_BASE:-live}
+  READY_BASE: /actuator/health/ready # ${READY_BASE:-ready}
+  HTTP_PORT: 8080 # ${HTTP_PORTL-80}
+
+  NOMAD_DEPLOY_ENABLED: "${NOMAD_DEPLOY_ENABLED}"
+  # NOMAD_EXTERNAL_ACCESS not set - uses defaults:
+  #   - Review Apps: external access enabled (for testing)
+  #   - Production/Staging/Development: the shared deploy template forces external access
+  # false keeps Traefik off, including review apps. Unset would enable it for review.
+  NOMAD_EXTERNAL_ACCESS: "false"
+
+  # Enable staging deployment (requires manual promotion to production)
+  # When enabled: staging deploys automatically, production requires manual promotion
+  STAGING_ENABLED: "${STAGING_ENABLED}"
+
+  # Disable Auto DevOps Kubernetes deployment (we use Nomad instead)
+  DEPLOY_DISABLED: "${DEPLOY_DISABLED}"
+
+  # Disable Auto DevOps browser performance testing
+  BROWSER_PERFORMANCE_DISABLED: "true"
+
+# Override Auto DevOps test job for the bundler monorepo layout.
+# Setup steps are bundler/quickstart.md. The pytest lines match bundler/Makefile.
+# pytest.toml prints the terminal table. PYTEST_ADDOPTS adds JUnit and Cobertura
+# for GitLab only. coverage combine merges both suites into coverage-combined.xml.
+# The job percentage is the last TOTAL line, from that combined report.
+test:
+  stage: test
+  image: ghcr.io/astral-sh/uv:python3.10-bookworm-slim
+  coverage: '/^TOTAL\s+\d+\s+\d+\s+(\d+%)/'
+  variables:
+    # Pytest prepends this to both suites. It writes junit.xml and coverage.xml
+    # in each suite's directory (bundler/ and bundler/bundler_core/) without
+    # changing the Makefile commands. pytest.toml still prints the terminal table.
+    PYTEST_ADDOPTS: "--junit-xml=junit.xml --cov-report=xml:coverage.xml"
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y -qq --no-install-recommends ca-certificates curl xz-utils openjdk-17-jre-headless libatomic1
+    # Bookworm's nodejs package is 18. openapi-generator-cli 2.42 requires Node >= 22.12.
+    # 26.13.0 is the current stable release. The official tarball needs libatomic.so.1.
+    - |
+      case "$(uname -m)" in
+        x86_64) node_arch=x64 ;;
+        aarch64) node_arch=arm64 ;;
+        *) echo "unsupported architecture $(uname -m)" >&2; exit 1 ;;
+      esac
+      curl -fsSL "https://nodejs.org/dist/v26.13.0/node-v26.13.0-linux-${node_arch}.tar.xz" | tar -xJ -C /usr/local --strip-components=1
+    - cd bundler
+  script:
+    - npx -y @openapitools/openapi-generator-cli generate --generator-key bundler-server-fastapi
+    - printf "%s\n" "3.10" > ./.python-version
+    - SERVER_PYTHON_VERSION=3.10 uv run --with tomlkit python make/patch_pyproject_toml.py ./pyproject.toml
+    - SERVER_PYTHON_VERSION=3.10 uv run python make/patch_setup_cfg.py ./setup.cfg
+    - uv run python make/patch_requirements.py ./requirements.txt
+    - uv add --directory . ./bundler_core --no-sync
+    - uv add --directory . --no-sync -r requirements.txt
+    - uv add --directory . --no-sync -r requirements-observability.txt
+    - cp bundler_core/requirements-dev.txt ./requirements-dev.txt
+    - uv add --directory . --dev --no-sync -r requirements-dev.txt
+    - uv sync --directory .
+    # Both suites still run if one fails, so both report files are written.
+    - |
+      set +e
+      # Importing bundler_core opens MONGO_URI. These tests use the in-memory store.
+      # A project variable with an unescaped password makes PyMongo fail at collection.
+      unset MONGO_URI
+
+      uv run --directory . --with pytest --with pytest-cov python -m pytest tests --cov=./bundler_server/core
+      SERVER_STATUS=$?
+      uv run --directory bundler_core --with pytest --with pytest-cov python -m pytest tests --cov=bundler_core
+      CORE_STATUS=$?
+      
+      # .coverage is per directory. combine merges them; xml writes one Cobertura file.
+      uv run --directory . --with coverage coverage combine --keep .coverage bundler_core/.coverage
+      COMBINE_STATUS=$?
+      
+      uv run --directory . --with coverage coverage xml -o coverage-combined.xml
+      uv run --directory . --with coverage coverage report
+      
+      if [ "$SERVER_STATUS" -ne 0 ] || [ "$CORE_STATUS" -ne 0 ] || [ "$COMBINE_STATUS" -ne 0 ]; then
+        RED='\e[31m'
+        RESET='\e[0m'
+        echo -e "${RED}Tests failed or not detected by Auto DevOps. Continuing pipeline on failure.${RESET}"
+        exit 1
+      fi
+      set -e
+  artifacts:
+    reports:
+      junit:
+        - bundler/junit.xml
+        - bundler/bundler_core/junit.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: bundler/coverage-combined.xml
+    paths:
+      - bundler/junit.xml
+      - bundler/bundler_core/junit.xml
+      - bundler/coverage.xml
+      - bundler/bundler_core/coverage.xml
+      - bundler/coverage-combined.xml
+    when: always
+
+code_quality_ruff_check:
+  extends: .ruff-check-template
+  variables:
+    RUFF_TARGET: bundler
+    RUFF_REPORT: bundler-code-quality-report.json
+
+# Post-build: add timestamp tag and branch-specific 'latest' tags
+retag-bundler:
+  extends: .retag_job_base
+  variables:
+    SERVICE_CHANGED: "bundler"
+  rules:
+    - changes:
+        - bundler/**/*
+      when: on_success
+    - when: always

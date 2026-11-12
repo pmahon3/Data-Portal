@@ -58,8 +58,8 @@ variables:
 
   # Nomad deployment configuration
   SERVICE_NAME: "backend"
-  # Overrides root placeholder NOMAD_PACK_DIR: "deploy"
-  NOMAD_PACK_DIR: "backend/deploy"
+  # Overrides root placeholder NOMAD_PACK_DIR: "base-service"
+  NOMAD_PACK_DIR: "/backend/deploy"
   # Pack runtime_env / runtime_secrets: wire service CI blobs into Nomad job __*__ vars
   __RUNTIME_ENV__: ${__RUNTIME_ENV_BACKEND__}
   __RUNTIME_SECRETS__: ${__SECRETS_BACKEND__}

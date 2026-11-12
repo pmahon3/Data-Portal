@@ -132,10 +132,10 @@ runner:
 #   - local: '.gitlab/frontend-ci.yml'
 
 # Trigger Auto DevOps child pipelines.
-# Review Apps (feature branches) always run both services so the stack is complete.
+# Review Apps (feature branches) always run every service so the stack is complete.
 # Durable branches (default / development) run a service only when its tree changes.
-# Running jobs for schedule, web, or api, changes is treated as true. 
-# So both frontend-autodevops and backend-autodevops are included, even if you did not touch those trees.
+# Running jobs for schedule, web, or api, changes is treated as true.
+# So frontend-autodevops, backend-autodevops, and bundler-autodevops are included, even if you did not touch those trees.
 
 # Trigger Auto DevOps for the frontend only when frontend/ changes
 frontend-autodevops:
@@ -188,6 +188,32 @@ backend-autodevops:
       when: on_success    
     # - when: always   # <— temporary "override/fallback" so this job still runs
 
+
+# Trigger Auto DevOps for the bundler only when bundler/ changes
+bundler-autodevops:
+  stage: triggers
+  needs:
+    - job: generate-timestamp
+      artifacts: true
+  trigger:
+    include:
+      - local: 'bundler/.gitlab-ci.yml'
+    strategy: depend  # Wait for child pipeline to complete and fail if it fails
+  variables:
+    # Pass shared timestamp to child pipeline
+    PIPELINE_TIMESTAMP: "${PIPELINE_TIMESTAMP}"
+    # Disable deprecated CodeClimate-based Code Quality (inherited from parent)
+    CODE_QUALITY_DISABLED: "${CODE_QUALITY_DISABLED}"
+    # Default pack path placeholder; child .gitlab-ci.yml overrides (bundler/deploy)
+    NOMAD_PACK_DIR: "${NOMAD_PACK_DIR}"
+  rules:
+    # Temporary: do not start the bundler child pipeline. Remove this rule to restore the rules below.
+    - when: never
+    - if: '$CI_COMMIT_BRANCH && $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH && $CI_COMMIT_BRANCH != $RDT_LATEST_DEV_BRANCH'
+      when: on_success
+    - changes:
+        - bundler/**/*
+      when: on_success
 
 
 # # Use native Auto DevOps jobs (Auto Build/Test/Security/Deploy)

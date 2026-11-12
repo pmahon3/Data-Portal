@@ -95,7 +95,7 @@ uv run --directory . --with pytest --with pytest-cov \
 
 # Domain package
 uv run --directory bundler_core --with pytest --with pytest-cov \
-  python -m pytest tests
+  python -m pytest tests --cov=bundler_core
 ```
 
 ---
