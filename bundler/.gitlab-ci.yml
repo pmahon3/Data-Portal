@@ -53,9 +53,9 @@ variables:
   # Pack runtime_env / runtime_secrets: wire service CI blobs into Nomad job __*__ vars
   __RUNTIME_ENV__: ${__RUNTIME_ENV_BUNDLER__}
   __RUNTIME_SECRETS__: ${__SECRETS_BUNDLER__}
-  __HEALTH_BASE__: /actuator/health/live # ${HEALTH_BASE}
-  __READY_BASE__: /actuator/health/ready # ${READY_BASE}
-  __HTTP_PORT__: 8080 # ${HTTP_PORT}
+  HEALTH_BASE: /actuator/health/live # ${HEALTH_BASE}
+  READY_BASE: /actuator/health/ready # ${READY_BASE}
+  HTTP_PORT: 8080 # ${HTTP_PORT}
 
   NOMAD_DEPLOY_ENABLED: "${NOMAD_DEPLOY_ENABLED}"
   # NOMAD_EXTERNAL_ACCESS not set - uses defaults:
