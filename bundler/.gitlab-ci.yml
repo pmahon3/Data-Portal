@@ -55,6 +55,7 @@ variables:
   __RUNTIME_SECRETS__: ${__SECRETS_BUNDLER__}
   __HEALTH_BASE__: /actuator/health/live # ${HEALTH_BASE}
   __READY_BASE__: /actuator/health/ready # ${READY_BASE}
+  __HTTP_PORT__: 8080 # ${HTTP_PORT}
 
   NOMAD_DEPLOY_ENABLED: "${NOMAD_DEPLOY_ENABLED}"
   # NOMAD_EXTERNAL_ACCESS not set - uses defaults:
