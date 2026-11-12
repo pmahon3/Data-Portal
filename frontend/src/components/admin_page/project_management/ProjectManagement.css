@@ -2,7 +2,9 @@
 .pm-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
 .pm-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
 .pm-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
-.pm-title { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+/* min-width:0 lets the title shrink instead of pushing the right-hand actions
+   out of the card when its contents are wider than the available space. */
+.pm-title { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; min-width: 0; flex: 1 1 auto; }
 .pm-meta { font-size: 14px; color: #374151; margin-bottom: 8px; }
 .pm-key { color: #6b7280; margin-right: 6px; }
 .pm-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
@@ -17,7 +19,17 @@
 }
 
 .pm-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-.pm-actions-right { display: flex; gap: 8px; justify-content: flex-end; }
+.pm-actions-right { display: flex; gap: 8px; justify-content: flex-end; flex: 0 0 auto; }
+
+/* Inline rename controls on a project card. The input flexes so a long name
+   scrolls within it rather than widening the row, and the spacer pushes
+   Save/Cancel to the right edge. */
+.pm-edit-label { color: #6b7280; font-size: 13px; }
+.pm-edit-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; width: 100%; margin-top: 2px; }
+.pm-edit-row input { flex: 1 1 140px; min-width: 0; padding: 4px 6px; border: 1px solid #ccc; border-radius: 4px; }
+.pm-edit-spacer { flex: 1 1 auto; }
+/* Project-level actions while renaming, matching .pm-actions-right alignment. */
+.pm-card-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; padding-top: 12px; border-top: 1px solid #e5e7eb; }
 .pm-btn { padding: 8px 12px; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; cursor: pointer; }
 .pm-btn:disabled { cursor: not-allowed; opacity: .7; }
 .pm-btn-primary { background: #5560ff; color: #fff; border: none; }
