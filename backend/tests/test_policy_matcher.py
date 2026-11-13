@@ -90,6 +90,7 @@ def test_a_request_for_a_path_with_a_star_is_not_a_wildcard():
 def test_dot_dot_in_a_request_does_not_climb_out_of_a_folder():
     assert not allowed(["bucket/shared/*"], "bucket/shared/../secret.txt")
     assert not allowed(["bucket/shared/*"], "bucket/shared/../../other-bucket/x.txt")
+    assert not allowed(["bucket/shared/*"], "bucket/shared/~/../../secret.txt")
 
 
 def test_dot_dot_in_a_policy_does_not_reach_another_folder():
@@ -141,3 +142,11 @@ def test_a_trailing_space_is_part_of_the_name():
 def test_two_dots_inside_a_name_are_part_of_the_name():
     assert allowed(["bucket/notes..txt"], "bucket/notes..txt")
     assert allowed(["bucket/shared/*"], "bucket/shared/..hidden/x.txt")
+
+
+def test_a_tilde_is_part_of_the_name_not_a_home_directory():
+    assert allowed(["bucket/~/notes.txt"], "bucket/~/notes.txt")
+    assert allowed(["bucket/shared/*"], "bucket/shared/~backup.txt")
+    assert not allowed(["bucket/~/*"], "bucket/other/notes.txt")
+    assert not allowed(["bucket/~alice/*"], "bucket/~bob/notes.txt")
+    assert not allowed(["bucket/shared/*"], "~/notes.txt")
