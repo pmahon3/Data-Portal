@@ -219,21 +219,25 @@ ACTIONS = [
 
 @pytest.mark.parametrize("policies, request_path, expected", POLICY_SHAPES)
 def test_a_policy_of_each_shape_covers_exactly_what_it_names(policies, request_path, expected):
+    """AC-5. A file, a folder ending in /*, or everything; any other shape names nothing."""
     assert allowed(policies, request_path) is expected
 
 
 @pytest.mark.parametrize("policies, request_path, expected", REQUEST_PLACES)
 def test_a_request_is_judged_by_where_it_sits_in_the_tree(policies, request_path, expected):
+    """AC-5, AC-1. Covered if inside the grant; the folders above a granted file can be browsed."""
     assert allowed(policies, request_path) is expected
 
 
 @pytest.mark.parametrize("policies, request_path, expected", PATH_SPECIALS)
 def test_dots_in_names_are_part_of_the_name(policies, request_path, expected):
+    """AC-5. A dot is a character in the name, and .. never climbs out of a folder."""
     assert allowed(policies, request_path) is expected
 
 
 @pytest.mark.parametrize("character", PATTERN_CHARACTERS)
 def test_a_pattern_character_in_a_policy_means_itself(character):
+    """AC-5. No character in a policy path is a pattern."""
     policy = f"bucket/a{character}b.txt"
     assert allowed([policy], policy)
     assert not allowed([policy], "bucket/aXb.txt")
@@ -242,9 +246,11 @@ def test_a_pattern_character_in_a_policy_means_itself(character):
 
 @pytest.mark.parametrize("policies, request_path, expected", TEXT)
 def test_names_are_compared_as_written(policies, request_path, expected):
+    """AC-5. Names match exactly as written, whatever letters or punctuation they hold."""
     assert allowed(policies, request_path) is expected
 
 
 @pytest.mark.parametrize("policy_action, request_action, expected", ACTIONS)
 def test_an_action_covers_only_itself_or_everything(policy_action, request_action, expected):
+    """AC-3. A permission for one action allows only that action, or every action if it is *."""
     assert allowed(["bucket/a.txt"], "bucket/a.txt", request_action, policy_action) is expected
