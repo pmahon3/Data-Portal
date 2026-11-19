@@ -13,7 +13,8 @@ SCHEMA_SQL = Path(__file__).resolve().parents[2] / "core/db/postgres/scripts/sch
 
 
 # Create the PostgreSQL extensions, tables and indexes if they don't exist, so the backend
-# starts on a blank database. Safe on every start: schema.sql uses IF NOT EXISTS.
+# starts on a blank database. Safe on every start, and with several backends starting at once:
+# schema.sql uses IF NOT EXISTS and runs as one locked transaction.
 async def init_db_schema():
     sql = SCHEMA_SQL.read_text()
     logger.info("Ensuring PostgreSQL tables")
