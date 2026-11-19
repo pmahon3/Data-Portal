@@ -11,17 +11,25 @@ logger = logging.getLogger(__name__)
 
 SCHEMA_SQL = Path(__file__).resolve().parents[2] / "core/db/postgres/scripts/schema.sql"
 
+# The advisory lock that lets one backend process at a time create the schema. Any fixed number
+# works, as long as every process uses the same one; nothing else here uses advisory locks.
+SCHEMA_LOCK_ID = 1
+
 
 # Create the PostgreSQL extensions, tables and indexes if they don't exist, so the backend
-# starts on a blank database. Safe on every start, and with several backends starting at once:
-# schema.sql uses IF NOT EXISTS and runs as one locked transaction.
+# starts on a blank database. Safe on every start: schema.sql uses IF NOT EXISTS.
 async def init_db_schema():
     sql = SCHEMA_SQL.read_text()
     logger.info("Ensuring PostgreSQL tables")
     async with engine.connect() as conn:
-        raw = await conn.get_raw_connection()
-        # asyncpg's own execute runs a script of several statements; SQLAlchemy's runs one
-        await raw.driver_connection.execute(sql)
+        raw = (await conn.get_raw_connection()).driver_connection
+        # One transaction, holding a lock that other backends starting at the same time wait on:
+        # IF NOT EXISTS alone doesn't stop two processes creating the same object at once. The lock
+        # is released when the transaction ends. asyncpg's own execute runs a script of several
+        # statements; SQLAlchemy's runs one.
+        async with raw.transaction():
+            await raw.execute(f"SELECT pg_advisory_xact_lock({SCHEMA_LOCK_ID})")
+            await raw.execute(sql)
     logger.info("PostgreSQL tables are ready")
 
 

@@ -4,13 +4,6 @@
 -- FROM folders
 -- WHERE name % 'proj'
 -- ORDER BY similarity(name, 'proj') DESC;
--- The whole file is one transaction, so the schema is created completely or not at all. Its first
--- statement takes a lock, so two backends starting at the same time take turns: the second waits,
--- then finds everything in place (IF NOT EXISTS). The lock is released at COMMIT. Every statement
--- below must be able to run inside a transaction (no CREATE INDEX CONCURRENTLY, no VACUUM).
-BEGIN;
-SELECT pg_advisory_xact_lock(1);
-
 CREATE EXTENSION IF NOT EXISTS ltree;
 
 -- # pg_trgm + GIN: for fast text search by indexing trigrams (3‑char chunks) in an inverted index ( for text search, it tells the DB which rows contain a given word or trigram, instead of scanning every row)
@@ -94,5 +87,3 @@ CREATE INDEX IF NOT EXISTS idx_storage_events_bucket_key
 
 CREATE INDEX IF NOT EXISTS idx_storage_events_event_time
   ON storage_events(event_time);
-
-COMMIT;
